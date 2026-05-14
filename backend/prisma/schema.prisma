@@ -1,0 +1,595 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  OWNER
+  COMPANY_ADMIN
+  DEPARTMENT_HEAD
+  MANAGER
+  TEAM_MEMBER
+  COACH_ADVISOR
+  SUPER_ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  INVITED
+  SUSPENDED
+  DEACTIVATED
+}
+
+enum Plan {
+  STARTER
+  GROWTH
+  SCALE
+  ENTERPRISE
+}
+
+enum GoalType {
+  COMPANY
+  DEPARTMENT
+  TEAM
+}
+
+enum GoalStatus {
+  ACTIVE
+  COMPLETED
+  MISSED
+  CANCELLED
+}
+
+enum KRAStatus {
+  ACTIVE
+  ON_TRACK
+  AT_RISK
+  MISSED
+  COMPLETED
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  BLOCKED
+  DONE
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum BlockerType {
+  APPROVAL
+  CLIENT
+  DEPENDENCY
+  RESOURCE
+  UNCLEAR_REQUIREMENT
+  SYSTEM_ISSUE
+  OTHER
+}
+
+enum StandupStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  SKIPPED
+}
+
+enum StandupCardStatus {
+  PENDING
+  SUBMITTED
+  UPDATED
+}
+
+enum LearningItemType {
+  VIDEO
+  PDF
+  SOP
+  QUIZ
+  ASSIGNMENT
+  ROLE_PLAY
+  EXTERNAL_LINK
+  COACHING_NOTE
+}
+
+enum LearningAssignmentStatus {
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+  OVERDUE
+  SKIPPED
+}
+
+enum ReviewType {
+  TACTICAL
+  STRATEGIC
+  ONE_ON_ONE
+  DEPARTMENT
+}
+
+enum MagicLinkPurpose {
+  COMPANY_ONBOARDING
+  DEPARTMENT_HEAD_INVITE
+  MEMBER_INVITE
+  DAILY_STANDUP
+  PASSWORD_RESET
+}
+
+enum NotificationChannel {
+  EMAIL
+  WHATSAPP
+  PUSH
+  DASHBOARD
+}
+
+enum NotificationStatus {
+  SCHEDULED
+  SENT
+  FAILED
+  RETRIED
+  DELIVERED
+  OPENED
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  VIEW
+  LOGIN
+  LOGOUT
+  INVITE
+  REVOKE
+}
+
+enum SkillLevel {
+  BEGINNER
+  DEVELOPING
+  PROFICIENT
+  EXPERT
+}
+
+// ─── Core Entities ────────────────────────────────────────────────────────────
+
+model Organization {
+  id               String   @id @default(cuid())
+  name             String
+  industry         String
+  employeeCount    Int?     @map("employee_count")
+  plan             Plan     @default(STARTER)
+  fiscalYearStart  Int      @default(4) @map("fiscal_year_start")
+  preferredLanguage String  @default("en") @map("preferred_language")
+  logoUrl          String?  @map("logo_url")
+  isActive         Boolean  @default(true) @map("is_active")
+  aiCreditsTotal   Int      @default(1000) @map("ai_credits_total")
+  aiCreditsUsed    Int      @default(0) @map("ai_credits_used")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  users           User[]
+  departments     Department[]
+  goals           Goal[]
+  kras            KRA[]
+  tasks           Task[]
+  standups        Standup[]
+  reviews         Review[]
+  magicLinks      MagicLink[]
+  notifications   Notification[]
+  auditLogs       AuditLog[]
+  skills          Skill[]
+  learningPaths   LearningPath[]
+  industryTemplate IndustryTemplate?
+
+  @@map("organizations")
+}
+
+model User {
+  id           String     @id @default(cuid())
+  orgId        String     @map("org_id")
+  email        String
+  phone        String?
+  name         String
+  role         UserRole   @default(TEAM_MEMBER)
+  departmentId String?    @map("department_id")
+  managerId    String?    @map("manager_id")
+  status       UserStatus @default(INVITED)
+  avatarUrl    String?    @map("avatar_url")
+  passwordHash String?    @map("password_hash")
+  mfaEnabled   Boolean    @default(false) @map("mfa_enabled")
+  mfaSecret    String?    @map("mfa_secret")
+  lastLoginAt  DateTime?  @map("last_login_at")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  org          Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  department   Department?   @relation(fields: [departmentId], references: [id])
+  manager      User?         @relation("ManagerTeam", fields: [managerId], references: [id])
+  directReports User[]       @relation("ManagerTeam")
+
+  ownedGoals           Goal[]             @relation("GoalOwner")
+  ownedKRAs            KRA[]              @relation("KRAOwner")
+  assignedTasks        Task[]             @relation("TaskAssignee")
+  standupCards         StandupCard[]
+  learningAssignments  LearningAssignment[]
+  skillAssessments     SkillAssessment[]
+  magicLinks           MagicLink[]
+  notifications        Notification[]
+  auditLogs            AuditLog[]
+  headOfDepartments    Department[]       @relation("DepartmentHead")
+
+  @@unique([orgId, email])
+  @@map("users")
+}
+
+model Department {
+  id               String  @id @default(cuid())
+  orgId            String  @map("org_id")
+  name             String
+  slug             String
+  headUserId       String? @map("head_user_id")
+  parentDeptId     String? @map("parent_department_id")
+  standupTime      String  @default("09:00") @map("standup_time")
+  standupDuration  Int     @default(15) @map("standup_duration")
+  isActive         Boolean @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  org          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  head         User?        @relation("DepartmentHead", fields: [headUserId], references: [id])
+  parent       Department?  @relation("SubDepartments", fields: [parentDeptId], references: [id])
+  subDepts     Department[] @relation("SubDepartments")
+
+  users         User[]
+  kras          KRA[]
+  tasks         Task[]
+  standups      Standup[]
+  learningPaths LearningPath[]
+  skills        Skill[]
+
+  @@unique([orgId, slug])
+  @@map("departments")
+}
+
+model Goal {
+  id          String     @id @default(cuid())
+  orgId       String     @map("org_id")
+  type        GoalType   @default(COMPANY)
+  parentGoalId String?   @map("parent_goal_id")
+  ownerUserId String     @map("owner_user_id")
+  title       String
+  description String?
+  target      Float?
+  current     Float?     @default(0)
+  unit        String?
+  status      GoalStatus @default(ACTIVE)
+  dueDate     DateTime?  @map("due_date")
+  period      String?
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  owner     User         @relation("GoalOwner", fields: [ownerUserId], references: [id])
+  parent    Goal?        @relation("SubGoals", fields: [parentGoalId], references: [id])
+  subGoals  Goal[]       @relation("SubGoals")
+  kras      KRA[]
+
+  @@map("goals")
+}
+
+model KRA {
+  id          String    @id @default(cuid())
+  orgId       String    @map("org_id")
+  departmentId String   @map("department_id")
+  goalId      String?   @map("goal_id")
+  name        String
+  description String?
+  target      Float
+  current     Float     @default(0)
+  unit        String?
+  ownerUserId String    @map("owner_user_id")
+  status      KRAStatus @default(ACTIVE)
+  period      String
+  missedCycles Int      @default(0) @map("missed_cycles")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  department Department   @relation(fields: [departmentId], references: [id])
+  goal       Goal?        @relation(fields: [goalId], references: [id])
+  owner      User         @relation("KRAOwner", fields: [ownerUserId], references: [id])
+  tasks      Task[]
+
+  @@map("kras")
+}
+
+model Task {
+  id             String       @id @default(cuid())
+  orgId          String       @map("org_id")
+  kraId          String?      @map("kra_id")
+  departmentId   String?      @map("department_id")
+  assigneeUserId String       @map("assignee_user_id")
+  title          String
+  description    String?
+  expectedOutcome String?     @map("expected_outcome")
+  status         TaskStatus   @default(TODO)
+  priority       TaskPriority @default(MEDIUM)
+  startDate      DateTime?    @map("start_date")
+  dueDate        DateTime?    @map("due_date")
+  completedAt    DateTime?    @map("completed_at")
+  blockerType    BlockerType? @map("blocker_type")
+  blockerOwnerId String?      @map("blocker_owner_id")
+  blockerExpectedResolution DateTime? @map("blocker_expected_resolution")
+  blockerCount   Int          @default(0) @map("blocker_count")
+  dependencyId   String?      @map("dependency_id")
+  isLearningTask Boolean      @default(false) @map("is_learning_task")
+  sourceType     String?      @map("source_type")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  org          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  kra          KRA?         @relation(fields: [kraId], references: [id])
+  department   Department?  @relation(fields: [departmentId], references: [id])
+  assignee     User         @relation("TaskAssignee", fields: [assigneeUserId], references: [id])
+  dependency   Task?        @relation("TaskDependency", fields: [dependencyId], references: [id])
+  dependents   Task[]       @relation("TaskDependency")
+  comments     TaskComment[]
+  attachments  TaskAttachment[]
+
+  @@map("tasks")
+}
+
+model TaskComment {
+  id        String   @id @default(cuid())
+  taskId    String   @map("task_id")
+  userId    String   @map("user_id")
+  content   String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@map("task_comments")
+}
+
+model TaskAttachment {
+  id        String   @id @default(cuid())
+  taskId    String   @map("task_id")
+  name      String
+  url       String
+  type      String
+  size      Int?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@map("task_attachments")
+}
+
+model Standup {
+  id           String        @id @default(cuid())
+  orgId        String        @map("org_id")
+  departmentId String        @map("department_id")
+  scheduledAt  DateTime      @map("scheduled_at")
+  startedAt    DateTime?     @map("started_at")
+  endedAt      DateTime?     @map("ended_at")
+  status       StandupStatus @default(SCHEDULED)
+  timerMinutes Int           @default(15) @map("timer_minutes")
+  overrunMinutes Float?      @map("overrun_minutes")
+  aiDigestSent Boolean       @default(false) @map("ai_digest_sent")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  org        Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  department Department    @relation(fields: [departmentId], references: [id])
+  cards      StandupCard[]
+
+  @@map("standups")
+}
+
+model StandupCard {
+  id                String           @id @default(cuid())
+  standupId         String           @map("standup_id")
+  userId            String           @map("user_id")
+  yesterdaySummary  String?          @map("yesterday_summary")
+  todayCommitments  String?          @map("today_commitments")
+  blockers          String?
+  status            StandupCardStatus @default(PENDING)
+  spokenDurationSec Int?             @map("spoken_duration_sec")
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+
+  standup Standup @relation(fields: [standupId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@unique([standupId, userId])
+  @@map("standup_cards")
+}
+
+model LearningPath {
+  id           String   @id @default(cuid())
+  orgId        String   @map("org_id")
+  departmentId String?  @map("department_id")
+  roleId       String?  @map("role_id")
+  title        String
+  description  String?
+  isAiGenerated Boolean @default(false) @map("is_ai_generated")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  org        Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  department Department?     @relation(fields: [departmentId], references: [id])
+  items      LearningItem[]
+
+  @@map("learning_paths")
+}
+
+model LearningItem {
+  id               String           @id @default(cuid())
+  learningPathId   String           @map("learning_path_id")
+  type             LearningItemType
+  title            String
+  description      String?
+  contentUrl       String?          @map("content_url")
+  quizJson         Json?            @map("quiz_json")
+  estimatedMinutes Int?             @map("estimated_minutes")
+  order            Int              @default(0)
+  createdAt        DateTime         @default(now()) @map("created_at")
+
+  learningPath  LearningPath         @relation(fields: [learningPathId], references: [id], onDelete: Cascade)
+  assignments   LearningAssignment[]
+
+  @@map("learning_items")
+}
+
+model LearningAssignment {
+  id             String                   @id @default(cuid())
+  learningItemId String                   @map("learning_item_id")
+  userId         String                   @map("user_id")
+  assignedBy     String                   @map("assigned_by")
+  dueDate        DateTime?                @map("due_date")
+  status         LearningAssignmentStatus @default(ASSIGNED)
+  score          Int?
+  completedAt    DateTime?                @map("completed_at")
+  notes          String?
+  createdAt      DateTime                 @default(now()) @map("created_at")
+  updatedAt      DateTime                 @updatedAt @map("updated_at")
+
+  learningItem LearningItem @relation(fields: [learningItemId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@map("learning_assignments")
+}
+
+model Skill {
+  id           String     @id @default(cuid())
+  orgId        String     @map("org_id")
+  departmentId String?    @map("department_id")
+  name         String
+  description  String?
+  level        SkillLevel @default(BEGINNER)
+  createdAt    DateTime   @default(now()) @map("created_at")
+
+  org          Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  department   Department?       @relation(fields: [departmentId], references: [id])
+  assessments  SkillAssessment[]
+
+  @@map("skills")
+}
+
+model SkillAssessment {
+  id           String     @id @default(cuid())
+  userId       String     @map("user_id")
+  skillId      String     @map("skill_id")
+  currentLevel SkillLevel @map("current_level")
+  targetLevel  SkillLevel @map("target_level")
+  evidence     String?
+  assessedBy   String     @map("assessed_by")
+  assessedAt   DateTime   @default(now()) @map("assessed_at")
+
+  user  User  @relation(fields: [userId], references: [id])
+  skill Skill @relation(fields: [skillId], references: [id])
+
+  @@map("skill_assessments")
+}
+
+model Review {
+  id          String     @id @default(cuid())
+  orgId       String     @map("org_id")
+  type        ReviewType
+  departmentId String?   @map("department_id")
+  scheduledAt DateTime   @map("scheduled_at")
+  conductedAt DateTime?  @map("conducted_at")
+  agenda      String?
+  decisions   String?
+  actionItems Json?      @map("action_items")
+  createdBy   String     @map("created_by")
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("reviews")
+}
+
+model MagicLink {
+  id         String           @id @default(cuid())
+  orgId      String           @map("org_id")
+  userId     String           @map("user_id")
+  purpose    MagicLinkPurpose
+  tokenHash  String           @unique @map("token_hash")
+  expiresAt  DateTime         @map("expires_at")
+  usedAt     DateTime?        @map("used_at")
+  revokedAt  DateTime?        @map("revoked_at")
+  metadata   Json?
+  createdAt  DateTime         @default(now()) @map("created_at")
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User         @relation(fields: [userId], references: [id])
+
+  @@map("magic_links")
+}
+
+model Notification {
+  id           String              @id @default(cuid())
+  userId       String              @map("user_id")
+  orgId        String              @map("org_id")
+  channel      NotificationChannel
+  type         String
+  payload      Json
+  scheduledFor DateTime?           @map("scheduled_for")
+  sentAt       DateTime?           @map("sent_at")
+  deliveredAt  DateTime?           @map("delivered_at")
+  openedAt     DateTime?           @map("opened_at")
+  status       NotificationStatus  @default(SCHEDULED)
+  retryCount   Int                 @default(0) @map("retry_count")
+  errorMessage String?             @map("error_message")
+  createdAt    DateTime            @default(now()) @map("created_at")
+
+  user User         @relation(fields: [userId], references: [id])
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model AuditLog {
+  id         String      @id @default(cuid())
+  orgId      String      @map("org_id")
+  userId     String      @map("user_id")
+  entityType String      @map("entity_type")
+  entityId   String      @map("entity_id")
+  action     AuditAction
+  before     Json?
+  after      Json?
+  ipAddress  String?     @map("ip_address")
+  userAgent  String?     @map("user_agent")
+  createdAt  DateTime    @default(now()) @map("created_at")
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User         @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+}
+
+model IndustryTemplate {
+  id           String   @id @default(cuid())
+  orgId        String   @unique @map("org_id")
+  industry     String
+  templateData Json     @map("template_data")
+  appliedAt    DateTime @default(now()) @map("applied_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("industry_templates")
+}
