@@ -2,6 +2,8 @@ import { Router, Response } from 'express';
 import { z } from 'zod';
 import prisma from '../lib/prisma';
 import { authenticate, AuthRequest, requireRole } from '../middleware/auth';
+import { auditLog } from '../middleware/audit';
+import { getCache, setCache, invalidateCache, cacheKey } from '../lib/cache';
 
 const router = Router();
 
@@ -13,10 +15,15 @@ const createSchema = z.object({
   headUserId: z.string().optional(),
   parentDeptId: z.string().optional(),
   standupTime: z.string().default('09:00'),
+  standupDuration: z.number().default(15),
 });
 
 // GET /departments
 router.get('/', async (req: AuthRequest, res: Response) => {
+  const ck = cacheKey('depts', req.user!.orgId);
+  const cached = await getCache(ck);
+  if (cached) { res.json(cached); return; }
+
   const departments = await prisma.department.findMany({
     where: { orgId: req.user!.orgId, isActive: true },
     include: {
@@ -25,6 +32,8 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     },
     orderBy: { name: 'asc' },
   });
+
+  await setCache(ck, departments, 60);
   res.json(departments);
 });
 
@@ -49,7 +58,7 @@ router.get('/:slug', async (req: AuthRequest, res: Response) => {
 });
 
 // POST /departments
-router.post('/', requireRole('OWNER', 'COMPANY_ADMIN'), async (req: AuthRequest, res: Response) => {
+router.post('/', requireRole('OWNER', 'COMPANY_ADMIN'), auditLog('department', 'CREATE'), async (req: AuthRequest, res: Response) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.flatten() });
@@ -60,6 +69,7 @@ router.post('/', requireRole('OWNER', 'COMPANY_ADMIN'), async (req: AuthRequest,
     const dept = await prisma.department.create({
       data: { ...parsed.data, orgId: req.user!.orgId },
     });
+    await invalidateCache(`depts:${req.user!.orgId}`);
     res.status(201).json(dept);
   } catch (err: unknown) {
     if ((err as { code?: string }).code === 'P2002') {
@@ -71,18 +81,24 @@ router.post('/', requireRole('OWNER', 'COMPANY_ADMIN'), async (req: AuthRequest,
 });
 
 // PATCH /departments/:id
-router.patch('/:id', requireRole('OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'), async (req: AuthRequest, res: Response) => {
+router.patch('/:id', requireRole('OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'), auditLog('department', 'UPDATE'), async (req: AuthRequest, res: Response) => {
   const dept = await prisma.department.update({
     where: { id: req.params.id as string, orgId: req.user!.orgId },
     data: req.body,
   });
+  await invalidateCache(`depts:${req.user!.orgId}`);
   res.json(dept);
 });
 
-// GET /departments/:slug/dashboard
+// GET /departments/:slug/dashboard  (cached 30s)
 router.get('/:slug/dashboard', async (req: AuthRequest, res: Response) => {
+  const slug = req.params.slug as string;
+  const ck = cacheKey('dept-dash', req.user!.orgId, slug);
+  const cached = await getCache(ck);
+  if (cached) { res.json(cached); return; }
+
   const dept = await prisma.department.findUnique({
-    where: { orgId_slug: { orgId: req.user!.orgId, slug: req.params.slug as string } },
+    where: { orgId_slug: { orgId: req.user!.orgId, slug } },
     select: { id: true },
   });
 
@@ -91,45 +107,22 @@ router.get('/:slug/dashboard', async (req: AuthRequest, res: Response) => {
     return;
   }
 
+  const now = new Date();
+  const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
+  const todayEnd = new Date(now); todayEnd.setHours(23, 59, 59, 999);
+
   const [overdueCount, blockedCount, dueTodayCount, kras, recentStandup, topBlockers] = await Promise.all([
-    prisma.task.count({
-      where: {
-        departmentId: dept.id,
-        status: { not: 'DONE' },
-        dueDate: { lt: new Date() },
-      },
-    }),
+    prisma.task.count({ where: { departmentId: dept.id, status: { not: 'DONE' }, dueDate: { lt: now } } }),
     prisma.task.count({ where: { departmentId: dept.id, status: 'BLOCKED' } }),
-    prisma.task.count({
-      where: {
-        departmentId: dept.id,
-        dueDate: {
-          gte: new Date(new Date().setHours(0, 0, 0, 0)),
-          lt: new Date(new Date().setHours(23, 59, 59, 999)),
-        },
-        status: { not: 'DONE' },
-      },
-    }),
-    prisma.kRA.findMany({
-      where: { departmentId: dept.id, status: { not: 'MISSED' } },
-      take: 5,
-      orderBy: { updatedAt: 'desc' },
-    }),
-    prisma.standup.findFirst({
-      where: { departmentId: dept.id },
-      orderBy: { scheduledAt: 'desc' },
-      include: { _count: { select: { cards: true } } },
-    }),
-    prisma.task.groupBy({
-      by: ['blockerType'],
-      where: { departmentId: dept.id, status: 'BLOCKED', blockerType: { not: null } },
-      _count: true,
-      orderBy: { _count: { blockerType: 'desc' } },
-      take: 5,
-    }),
+    prisma.task.count({ where: { departmentId: dept.id, dueDate: { gte: todayStart, lt: todayEnd }, status: { not: 'DONE' } } }),
+    prisma.kRA.findMany({ where: { departmentId: dept.id, status: { not: 'MISSED' } }, take: 8, orderBy: { updatedAt: 'desc' } }),
+    prisma.standup.findFirst({ where: { departmentId: dept.id }, orderBy: { scheduledAt: 'desc' }, include: { _count: { select: { cards: true } } } }),
+    prisma.task.groupBy({ by: ['blockerType'], where: { departmentId: dept.id, status: 'BLOCKED', blockerType: { not: null } }, _count: true, orderBy: { _count: { blockerType: 'desc' } }, take: 5 }),
   ]);
 
-  res.json({ overdueCount, blockedCount, dueTodayCount, kras, recentStandup, topBlockers });
+  const result = { overdueCount, blockedCount, dueTodayCount, kras, recentStandup, topBlockers };
+  await setCache(ck, result, 30);
+  res.json(result);
 });
 
 export default router;

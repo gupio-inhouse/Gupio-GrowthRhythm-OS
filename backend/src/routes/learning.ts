@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { z } from 'zod';
 import prisma from '../lib/prisma';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { auditLog } from '../middleware/audit';
 
 const router = Router();
 router.use(authenticate);
@@ -42,6 +43,7 @@ router.post('/paths', async (req: AuthRequest, res: Response) => {
     data: { ...parsed.data, orgId: req.user!.orgId },
   });
 
+  auditLog('learning', 'CREATE');
   res.status(201).json(path);
 });
 
@@ -74,6 +76,7 @@ router.post('/paths/:id/items', async (req: AuthRequest, res: Response) => {
     data: { ...parsed.data, learningPathId: req.params.id as string },
   });
 
+  auditLog('learning', 'CREATE');
   res.status(201).json(item);
 });
 
@@ -104,6 +107,7 @@ router.post('/assignments', async (req: AuthRequest, res: Response) => {
     },
   });
 
+  auditLog('learning', 'ASSIGN');
   res.status(201).json(assignment);
 });
 

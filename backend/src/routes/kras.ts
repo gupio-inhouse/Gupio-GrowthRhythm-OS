@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { z } from 'zod';
 import prisma from '../lib/prisma';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { auditLog } from '../middleware/audit';
 
 const router = Router();
 router.use(authenticate);
@@ -35,7 +36,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   res.json(kras);
 });
 
-router.post('/', async (req: AuthRequest, res: Response) => {
+router.post('/', auditLog('kra', 'CREATE'), async (req: AuthRequest, res: Response) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.flatten() });
@@ -50,7 +51,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
   res.status(201).json(kra);
 });
 
-router.patch('/:id', async (req: AuthRequest, res: Response) => {
+router.patch('/:id', auditLog('kra', 'UPDATE'), async (req: AuthRequest, res: Response) => {
   const kra = await prisma.kRA.update({
     where: { id: req.params.id as string, orgId: req.user!.orgId },
     data: req.body,

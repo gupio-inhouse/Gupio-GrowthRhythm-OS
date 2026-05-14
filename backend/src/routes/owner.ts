@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import prisma from '../lib/prisma';
 import { authenticate, AuthRequest, requireRole } from '../middleware/auth';
+import { generateWeeklyDigest, generateGoalSuggestions } from '../services/ai.service';
 
 const router = Router();
 router.use(authenticate, requireRole('OWNER', 'COMPANY_ADMIN', 'SUPER_ADMIN'));
@@ -57,6 +58,7 @@ router.get('/cockpit', async (req: AuthRequest, res: Response) => {
     tasks: { total: totalTasks, done: doneTasks, overdue: overdueTasks, blocked: blockedTasks },
     todayStandups,
     kras,
+    standupAttendanceToday: Math.round((todayStandups.filter(s => s.status === 'COMPLETED').length / Math.max(todayStandups.length, 1)) * 100),
   });
 });
 
@@ -95,6 +97,23 @@ router.get('/cockpit/weekly-summary', async (req: AuthRequest, res: Response) =>
   ]);
 
   res.json({ completedThisWeek, newBlockers, standupCount, learnCompletions });
+});
+
+// GET /owner/cockpit/weekly-digest
+router.get('/cockpit/weekly-digest', async (req: AuthRequest, res: Response) => {
+  try {
+    const digest = await generateWeeklyDigest(req.user!.orgId);
+    res.json({ digest });
+  } catch {
+    res.status(503).json({ error: 'AI not configured' });
+  }
+});
+
+// POST /owner/ai/goal-suggestions
+router.post('/ai/goal-suggestions', async (req: AuthRequest, res: Response) => {
+  const { description } = req.body;
+  const suggestions = await generateGoalSuggestions(description, req.user!.orgId);
+  res.json({ suggestions });
 });
 
 export default router;

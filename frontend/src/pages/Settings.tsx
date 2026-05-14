@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   User, Building2, Bell, Shield, CheckCircle2, Camera,
 } from 'lucide-react';
@@ -54,19 +54,32 @@ function SavedBanner() {
   );
 }
 
+const DEFAULT_NOTIF_PREFS: Record<string, boolean> = {
+  taskAssigned: true, taskBlocked: true, standupReminder: true,
+  kraUpdate: false, weeklyDigest: true, reviewDue: false,
+};
+
 export default function Settings() {
   const { user, org, setAuth, token } = useAuthStore();
   const qc = useQueryClient();
   const [profileSaved, setProfileSaved] = useState(false);
   const [passwordSaved, setPasswordSaved] = useState(false);
-  const [notifications, setNotifications] = useState<Record<string, boolean>>({
-    taskAssigned: true,
-    taskBlocked: true,
-    standupReminder: true,
-    kraUpdate: false,
-    weeklyDigest: true,
-    reviewDue: false,
+  const [notifSaved, setNotifSaved] = useState(false);
+
+  // Fetch user detail to get notificationPrefs
+  const { data: userDetail } = useQuery({
+    queryKey: ['user-me', user?.id],
+    queryFn: () => api.get(`/users/${user!.id}`).then((r) => r.data),
+    enabled: !!user?.id,
   });
+
+  const [notifications, setNotifications] = useState<Record<string, boolean>>(DEFAULT_NOTIF_PREFS);
+
+  useEffect(() => {
+    if (userDetail?.notificationPrefs) {
+      setNotifications({ ...DEFAULT_NOTIF_PREFS, ...(userDetail.notificationPrefs as Record<string, boolean>) });
+    }
+  }, [userDetail?.notificationPrefs]);
 
   const { register: regProfile, handleSubmit: handleProfile, formState: { errors: profileErrors } } = useForm<ProfileForm>({
     resolver: zodResolver(profileSchema),
@@ -96,6 +109,15 @@ export default function Settings() {
       resetPwd();
       setPasswordSaved(true);
       setTimeout(() => setPasswordSaved(false), 3000);
+    },
+  });
+
+  const saveNotifPrefs = useMutation({
+    mutationFn: () => api.patch(`/users/${user?.id}`, { notificationPrefs: notifications }).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['user-me', user?.id] });
+      setNotifSaved(true);
+      setTimeout(() => setNotifSaved(false), 3000);
     },
   });
 
@@ -223,8 +245,11 @@ export default function Settings() {
                   </div>
                 </div>
               ))}
-              <div className="pt-4 flex justify-end">
-                <Button size="sm" onClick={() => {}}>Save Preferences</Button>
+              <div className="pt-4 flex items-center justify-between">
+                {notifSaved ? <SavedBanner /> : <span />}
+                <Button size="sm" onClick={() => saveNotifPrefs.mutate()} disabled={saveNotifPrefs.isPending}>
+                  {saveNotifPrefs.isPending ? 'Saving...' : 'Save Preferences'}
+                </Button>
               </div>
             </CardContent>
           </Card>

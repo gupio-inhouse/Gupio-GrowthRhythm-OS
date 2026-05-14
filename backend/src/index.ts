@@ -14,9 +14,14 @@ import usersRouter from './routes/users';
 import learningRouter from './routes/learning';
 import goalsRouter from './routes/goals';
 import ownerRouter from './routes/owner';
+import notificationsRouter from './routes/notifications';
+import superAdminRouter from './routes/superadmin';
+import { setOrgContext } from './middleware/rls';
+import { scheduleRecurringJobs } from './services/queues';
+import './services/worker';
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 4000;
 
 // Security
 app.use(helmet());
@@ -33,6 +38,9 @@ app.use(rateLimit({ windowMs: 60 * 1000, max: 300 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
+// RLS: set org context for all authenticated API routes
+app.use('/api', setOrgContext as express.RequestHandler);
+
 // Routes
 app.use('/api/auth', authRouter);
 app.use('/api/departments', departmentsRouter);
@@ -43,6 +51,8 @@ app.use('/api/users', usersRouter);
 app.use('/api/learning', learningRouter);
 app.use('/api/goals', goalsRouter);
 app.use('/api/owner', ownerRouter);
+app.use('/api/notifications', notificationsRouter);
+app.use('/api/superadmin', superAdminRouter);
 
 // Health
 app.get('/health', (_req, res) => res.json({ status: 'ok', ts: new Date() }));
@@ -56,8 +66,11 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
   res.status(500).json({ error: 'Internal server error' });
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`🚀 GrowthRhythm API running on http://localhost:${PORT}`);
+  scheduleRecurringJobs().catch(console.error);
 });
+
+process.on('SIGTERM', () => server.close());
 
 export default app;

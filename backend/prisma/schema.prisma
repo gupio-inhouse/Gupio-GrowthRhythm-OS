@@ -206,11 +206,12 @@ model User {
   status       UserStatus @default(INVITED)
   avatarUrl    String?    @map("avatar_url")
   passwordHash String?    @map("password_hash")
-  mfaEnabled   Boolean    @default(false) @map("mfa_enabled")
-  mfaSecret    String?    @map("mfa_secret")
-  lastLoginAt  DateTime?  @map("last_login_at")
-  createdAt    DateTime   @default(now()) @map("created_at")
-  updatedAt    DateTime   @updatedAt @map("updated_at")
+  mfaEnabled        Boolean    @default(false) @map("mfa_enabled")
+  mfaSecret         String?    @map("mfa_secret")
+  notificationPrefs Json?      @map("notification_prefs")
+  lastLoginAt       DateTime?  @map("last_login_at")
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
 
   org          Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
   department   Department?   @relation(fields: [departmentId], references: [id])
@@ -220,6 +221,7 @@ model User {
   ownedGoals           Goal[]             @relation("GoalOwner")
   ownedKRAs            KRA[]              @relation("KRAOwner")
   assignedTasks        Task[]             @relation("TaskAssignee")
+  taskComments         TaskComment[]
   standupCards         StandupCard[]
   learningAssignments  LearningAssignment[]
   skillAssessments     SkillAssessment[]
@@ -358,6 +360,7 @@ model TaskComment {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
 
   @@map("task_comments")
 }

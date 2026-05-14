@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuthStore } from '@/store/authStore';
+import { getRoleRedirect } from '@/lib/roleRedirect';
 import api from '@/api/client';
 
 const schema = z.object({
@@ -32,7 +33,7 @@ export default function Login() {
     try {
       const res = await api.post('/auth/login', data);
       setAuth(res.data.token, res.data.user, res.data.org);
-      navigate('/dashboard');
+      navigate(getRoleRedirect(res.data.user.role, res.data.user.departmentSlug));
     } catch (err: unknown) {
       setError((err as { response?: { data?: { error?: string } } }).response?.data?.error || 'Login failed');
     }

@@ -98,7 +98,7 @@ router.post('/invite', requireRole('OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'),
 
 // PATCH /users/:id
 router.patch('/:id', async (req: AuthRequest, res: Response) => {
-  const { name, phone, avatarUrl, departmentId, managerId, role, status } = req.body;
+  const { name, phone, avatarUrl, departmentId, managerId, role, status, notificationPrefs } = req.body;
 
   const isOwnerOrAdmin = ['OWNER', 'COMPANY_ADMIN'].includes(req.user!.role);
   const isSelf = req.user!.userId === req.params.id;
@@ -110,8 +110,9 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
 
   const data: Record<string, unknown> = {};
   if (name) data.name = name;
-  if (phone) data.phone = phone;
+  if (phone !== undefined) data.phone = phone;
   if (avatarUrl) data.avatarUrl = avatarUrl;
+  if (notificationPrefs !== undefined) data.notificationPrefs = notificationPrefs;
   if (isOwnerOrAdmin && departmentId !== undefined) data.departmentId = departmentId;
   if (isOwnerOrAdmin && managerId !== undefined) data.managerId = managerId;
   if (isOwnerOrAdmin && role) data.role = role;
@@ -120,7 +121,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
   const user = await prisma.user.update({
     where: { id: req.params.id as string, orgId: req.user!.orgId },
     data,
-    select: { id: true, name: true, email: true, role: true, status: true },
+    select: { id: true, name: true, email: true, role: true, status: true, phone: true, notificationPrefs: true },
   });
 
   res.json(user);

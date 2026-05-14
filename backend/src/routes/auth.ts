@@ -94,7 +94,10 @@ router.post('/login', async (req: Request, res: Response) => {
 
   const user = await prisma.user.findFirst({
     where: { email },
-    include: { org: { select: { id: true, name: true, plan: true } } },
+    include: {
+      org: { select: { id: true, name: true, plan: true, industry: true } },
+      department: { select: { id: true, name: true, slug: true } },
+    },
   });
 
   if (!user || !user.passwordHash) {
@@ -119,7 +122,11 @@ router.post('/login', async (req: Request, res: Response) => {
 
   res.json({
     token,
-    user: { id: user.id, name: user.name, email: user.email, role: user.role, departmentId: user.departmentId },
+    user: {
+      id: user.id, name: user.name, email: user.email, role: user.role,
+      departmentId: user.departmentId,
+      departmentSlug: user.department?.slug ?? null,
+    },
     org: user.org,
   });
 });

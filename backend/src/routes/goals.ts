@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { z } from 'zod';
 import prisma from '../lib/prisma';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { auditLog } from '../middleware/audit';
 
 const router = Router();
 router.use(authenticate);
@@ -42,6 +43,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     include: { owner: { select: { id: true, name: true } } },
   });
 
+  auditLog('goal', 'CREATE');
   res.status(201).json(goal);
 });
 
@@ -50,6 +52,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
     where: { id: req.params.id as string, orgId: req.user!.orgId },
     data: req.body,
   });
+  auditLog('goal', 'UPDATE');
   res.json(goal);
 });
 

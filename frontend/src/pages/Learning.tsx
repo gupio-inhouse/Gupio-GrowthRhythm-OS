@@ -1,9 +1,16 @@
-import { useQuery } from '@tanstack/react-query';
-import { BookOpen, CheckCircle2, Clock, Video, FileText, HelpCircle, Plus } from 'lucide-react';
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { BookOpen, CheckCircle2, Clock, Video, FileText, HelpCircle, Plus, Send } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useAuthStore } from '@/store/authStore';
+import { cn } from '@/lib/utils';
 import api from '@/api/client';
 
 const typeIcon: Record<string, React.ElementType> = {
@@ -13,7 +20,7 @@ const typeIcon: Record<string, React.ElementType> = {
 
 type Assignment = {
   id: string; status: string; dueDate?: string;
-  learningItem: { title: string; type: string; estimatedMinutes?: number; learningPath: { title: string } };
+  learningItem: { id: string; title: string; type: string; estimatedMinutes?: number; learningPath: { id: string; title: string } };
 };
 
 type LearningPath = {
@@ -22,7 +29,151 @@ type LearningPath = {
   department?: { name: string };
 };
 
+type LearningItem = {
+  id: string; title: string; type: string; estimatedMinutes?: number;
+  learningPathId: string;
+};
+
+type User = { id: string; name: string; role: string };
+
+// ── Assign dialog ─────────────────────────────────────────────────────────────
+
+function AssignDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [selectedPath, setSelectedPath] = useState('');
+  const [selectedItem, setSelectedItem] = useState('');
+  const [selectedUser, setSelectedUser] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const { data: paths = [] } = useQuery<LearningPath[]>({
+    queryKey: ['learning-paths'],
+    queryFn: () => api.get('/learning/paths').then((r) => r.data),
+    enabled: open,
+  });
+
+  const { data: items = [] } = useQuery<LearningItem[]>({
+    queryKey: ['learning-items', selectedPath],
+    queryFn: () => api.get(`/learning/paths/${selectedPath}/items`).then((r) => r.data),
+    enabled: !!selectedPath,
+  });
+
+  const { data: users = [] } = useQuery<User[]>({
+    queryKey: ['users-list'],
+    queryFn: () => api.get('/users').then((r) => r.data),
+    enabled: open,
+  });
+
+  const assignMutation = useMutation({
+    mutationFn: () => api.post('/learning/assignments', {
+      learningItemId: selectedItem,
+      userId: selectedUser,
+      dueDate: dueDate ? new Date(dueDate).toISOString() : undefined,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['learning-assignments'] });
+      handleClose();
+    },
+  });
+
+  const handleClose = () => {
+    setSelectedPath('');
+    setSelectedItem('');
+    setSelectedUser('');
+    setDueDate('');
+    onClose();
+  };
+
+  const handleSubmit = async () => {
+    if (!selectedItem || !selectedUser) return;
+    setSaving(true);
+    await assignMutation.mutateAsync();
+    setSaving(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Send className="h-4 w-4 text-indigo-500" />
+            Assign Learning Item
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Learning Path</Label>
+            <Select onValueChange={(v) => { setSelectedPath(v); setSelectedItem(''); }}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select path" />
+              </SelectTrigger>
+              <SelectContent>
+                {paths.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>{p.title}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Learning Item *</Label>
+            <Select value={selectedItem} onValueChange={setSelectedItem} disabled={!selectedPath}>
+              <SelectTrigger>
+                <SelectValue placeholder={selectedPath ? 'Select item' : 'Choose a path first'} />
+              </SelectTrigger>
+              <SelectContent>
+                {items.map((item) => (
+                  <SelectItem key={item.id} value={item.id}>
+                    {item.title} {item.estimatedMinutes ? `(${item.estimatedMinutes}m)` : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Assign To *</Label>
+            <Select onValueChange={setSelectedUser}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select person" />
+              </SelectTrigger>
+              <SelectContent>
+                {users.map((u) => (
+                  <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Due Date (optional)</Label>
+            <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={handleClose}>Cancel</Button>
+          <Button
+            onClick={handleSubmit}
+            disabled={!selectedItem || !selectedUser || saving}
+            className="gap-2"
+          >
+            <Send className="h-4 w-4" />
+            {saving ? 'Assigning...' : 'Assign'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+
 export default function Learning() {
+  const { user } = useAuthStore();
+  const qc = useQueryClient();
+  const [assignOpen, setAssignOpen] = useState(false);
+  const canAssign = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
+
   const { data: assignments = [] } = useQuery<Assignment[]>({
     queryKey: ['learning-assignments'],
     queryFn: () => api.get('/learning/assignments').then((r) => r.data),
@@ -31,6 +182,11 @@ export default function Learning() {
   const { data: paths = [] } = useQuery<LearningPath[]>({
     queryKey: ['learning-paths'],
     queryFn: () => api.get('/learning/paths').then((r) => r.data),
+  });
+
+  const completeMutation = useMutation({
+    mutationFn: (id: string) => api.patch(`/learning/assignments/${id}/complete`, {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['learning-assignments'] }),
   });
 
   const completed = assignments.filter((a) => a.status === 'COMPLETED').length;
@@ -47,7 +203,13 @@ export default function Learning() {
           </h1>
           <p className="text-muted-foreground text-sm mt-0.5">Skill building connected to execution</p>
         </div>
-        <Button className="gap-2"><Plus className="h-4 w-4" /> Create Path</Button>
+        <div className="flex items-center gap-2">
+          {canAssign && (
+            <Button variant="outline" className="gap-2" onClick={() => setAssignOpen(true)}>
+              <Send className="h-4 w-4" /> Assign Item
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Stats */}
@@ -97,12 +259,11 @@ export default function Learning() {
               const Icon = typeIcon[a.learningItem.type] || BookOpen;
               const isOverdue = a.status !== 'COMPLETED' && a.dueDate && new Date(a.dueDate) < new Date();
               return (
-                <Card key={a.id} className="hover:shadow-sm transition-shadow cursor-pointer">
+                <Card key={a.id} className="hover:shadow-sm transition-shadow">
                   <CardContent className="p-4 flex items-center gap-3">
-                    <div className={`flex h-8 w-8 items-center justify-center rounded-lg shrink-0 ${
-                      a.status === 'COMPLETED' ? 'bg-green-100' : 'bg-indigo-100'
-                    }`}>
-                      <Icon className={`h-4 w-4 ${a.status === 'COMPLETED' ? 'text-green-600' : 'text-indigo-600'}`} />
+                    <div className={cn('flex h-8 w-8 items-center justify-center rounded-lg shrink-0',
+                      a.status === 'COMPLETED' ? 'bg-green-100' : 'bg-indigo-100')}>
+                      <Icon className={cn('h-4 w-4', a.status === 'COMPLETED' ? 'text-green-600' : 'text-indigo-600')} />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate">{a.learningItem.title}</p>
@@ -112,11 +273,23 @@ export default function Learning() {
                       {a.learningItem.estimatedMinutes && (
                         <span className="text-xs text-muted-foreground">{a.learningItem.estimatedMinutes}m</span>
                       )}
-                      <Badge variant={
-                        a.status === 'COMPLETED' ? 'success' :
-                        isOverdue ? 'destructive' :
-                        a.status === 'IN_PROGRESS' ? 'info' : 'secondary'
-                      } className="text-xs">
+                      {a.status !== 'COMPLETED' && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-xs h-7 px-2"
+                          onClick={() => completeMutation.mutate(a.id)}
+                          disabled={completeMutation.isPending}
+                        >
+                          Mark done
+                        </Button>
+                      )}
+                      <Badge className={cn('text-xs border', {
+                        'bg-green-50 text-green-700 border-green-200': a.status === 'COMPLETED',
+                        'bg-red-50 text-red-700 border-red-200': isOverdue,
+                        'bg-blue-50 text-blue-700 border-blue-200': a.status === 'IN_PROGRESS',
+                        'bg-gray-50 text-gray-600': a.status === 'ASSIGNED',
+                      })}>
                         {isOverdue ? 'Overdue' : a.status.toLowerCase().replace('_', ' ')}
                       </Badge>
                     </div>
@@ -129,7 +302,9 @@ export default function Learning() {
 
         {/* Learning Paths */}
         <div>
-          <h2 className="text-base font-semibold mb-3">Learning Paths</h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-base font-semibold">Learning Paths</h2>
+          </div>
           <div className="space-y-3">
             {paths.map((path) => (
               <Card key={path.id} className="hover:shadow-sm transition-shadow cursor-pointer">
@@ -158,6 +333,8 @@ export default function Learning() {
           </div>
         </div>
       </div>
+
+      <AssignDialog open={assignOpen} onClose={() => setAssignOpen(false)} />
     </div>
   );
 }

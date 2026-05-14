@@ -41,7 +41,7 @@ export default function Register() {
     try {
       const res = await api.post('/auth/register', data);
       setAuth(res.data.token, res.data.user, res.data.org);
-      navigate('/dashboard');
+      navigate('/cockpit');
     } catch (err: unknown) {
       setError((err as { response?: { data?: { error?: string } } }).response?.data?.error || 'Registration failed');
     }
