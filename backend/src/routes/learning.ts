@@ -3,6 +3,7 @@ import { z } from 'zod';
 import prisma from '../lib/prisma';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { auditLog } from '../middleware/audit';
+import { generateLearningRecommendations } from '../services/ai.service';
 
 const router = Router();
 router.use(authenticate);
@@ -87,7 +88,9 @@ router.get('/assignments', async (req: AuthRequest, res: Response) => {
   const assignments = await prisma.learningAssignment.findMany({
     where: { userId },
     include: {
-      learningItem: { include: { learningPath: { select: { id: true, title: true } } } },
+      learningItem: {
+        include: { learningPath: { select: { id: true, title: true } } },
+      },
     },
     orderBy: { dueDate: 'asc' },
   });
@@ -107,7 +110,7 @@ router.post('/assignments', async (req: AuthRequest, res: Response) => {
     },
   });
 
-  auditLog('learning', 'ASSIGN');
+  auditLog('learning', 'CREATE');
   res.status(201).json(assignment);
 });
 
@@ -118,6 +121,15 @@ router.patch('/assignments/:id/complete', async (req: AuthRequest, res: Response
     data: { status: 'COMPLETED', completedAt: new Date(), score: req.body.score },
   });
   res.json(assignment);
+});
+
+// GET /learning/ai-recommend — M7.5: personalised learning recommendations
+router.get('/ai-recommend', async (req: AuthRequest, res: Response) => {
+  const recommendations = await generateLearningRecommendations(
+    req.user!.userId,
+    req.user!.orgId
+  );
+  res.json({ recommendations });
 });
 
 // GET /learning/:departmentSlug/dashboard

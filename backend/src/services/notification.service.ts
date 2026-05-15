@@ -55,6 +55,21 @@ export async function createNotification(
   });
 }
 
+// M10.4: check quiet hours for org
+async function isQuietHours(orgId: string): Promise<boolean> {
+  const org = await prisma.organization.findUnique({
+    where: { id: orgId },
+    select: { quietHoursStart: true, quietHoursEnd: true },
+  });
+  if (!org || org.quietHoursStart == null || org.quietHoursEnd == null) return false;
+  const nowH = new Date().getUTCHours() + 5; // rough IST approximation
+  const { quietHoursStart: start, quietHoursEnd: end } = org;
+  if (start > end) {
+    return nowH >= start || nowH < end; // overnight: e.g. 22–7
+  }
+  return nowH >= start && nowH < end;
+}
+
 export async function fanOutNotification(
   orgId: string,
   userIds: string[],
@@ -62,6 +77,12 @@ export async function fanOutNotification(
   data: Record<string, unknown>
 ) {
   if (userIds.length === 0) return { count: 0 };
+
+  // M10.4: skip non-critical notifications during quiet hours
+  const criticalEvents: NotificationEvent[] = ['TASK_BLOCKED', 'BLOCKER_ESCALATED'];
+  if (!criticalEvents.includes(event) && await isQuietHours(orgId)) {
+    return { count: 0, skipped: 'quiet_hours' };
+  }
 
   const users = await prisma.user.findMany({
     where: { id: { in: userIds } },
@@ -89,5 +110,36 @@ export async function fanOutNotification(
       sentAt: new Date(),
     })),
     skipDuplicates: true,
+  });
+}
+
+// M10.5: mark notification delivery as failed and schedule retry
+export async function markNotificationFailed(notificationId: string, errorMessage: string) {
+  const notif = await prisma.notification.findUnique({
+    where: { id: notificationId },
+    select: { retryCount: true },
+  });
+  if (!notif) return;
+
+  const maxRetries = 3;
+  const newRetryCount = (notif.retryCount ?? 0) + 1;
+
+  await prisma.notification.update({
+    where: { id: notificationId },
+    data: {
+      status: newRetryCount >= maxRetries ? 'FAILED' : 'RETRIED',
+      retryCount: newRetryCount,
+      errorMessage,
+    },
+  });
+}
+
+// M10.6: get failed notifications for admin
+export async function getFailedNotifications(orgId: string, limit = 50) {
+  return prisma.notification.findMany({
+    where: { orgId, status: 'FAILED' },
+    include: { user: { select: { id: true, name: true, email: true } } },
+    orderBy: { createdAt: 'desc' },
+    take: limit,
   });
 }

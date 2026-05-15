@@ -16,6 +16,13 @@ import goalsRouter from './routes/goals';
 import ownerRouter from './routes/owner';
 import notificationsRouter from './routes/notifications';
 import superAdminRouter from './routes/superadmin';
+import reviewsRouter from './routes/reviews';
+import hiringRouter from './routes/hiring';
+import magicRouter from './routes/magic';
+import eventsRouter from './routes/events';
+import integrationsRouter from './routes/integrations';
+import uploadRouter from './routes/upload';
+import mfaRouter from './routes/mfa';
 import { setOrgContext } from './middleware/rls';
 import { scheduleRecurringJobs } from './services/queues';
 import './services/worker';
@@ -53,6 +60,14 @@ app.use('/api/goals', goalsRouter);
 app.use('/api/owner', ownerRouter);
 app.use('/api/notifications', notificationsRouter);
 app.use('/api/superadmin', superAdminRouter);
+app.use('/api/reviews', reviewsRouter);
+app.use('/api/hiring', hiringRouter);
+app.use('/api/magic', magicRouter);
+app.use('/api/events', eventsRouter);
+app.use('/api/integrations', integrationsRouter);
+app.use('/api/upload', uploadRouter);
+app.use('/uploads', express.static('uploads')); // serve uploaded files
+app.use('/api/mfa', mfaRouter);
 
 // Health
 app.get('/health', (_req, res) => res.json({ status: 'ok', ts: new Date() }));

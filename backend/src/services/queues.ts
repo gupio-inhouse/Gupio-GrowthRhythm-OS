@@ -8,6 +8,7 @@ export const escalationQueue = new Queue('escalation', { connection });
 export const notificationQueue = new Queue('notification', { connection });
 export const aiQueue = new Queue('ai', { connection });
 export const retentionQueue = new Queue('retention', { connection });
+export const reminderQueue = new Queue('standup-reminder', { connection });
 
 export async function scheduleRecurringJobs() {
   // Nightly standup card generation — every day 11 PM IST (17:30 UTC)
@@ -38,5 +39,11 @@ export async function scheduleRecurringJobs() {
   await retentionQueue.add('cleanup', {}, {
     repeat: { pattern: '30 20 * * 0' },
     jobId: 'weekly-retention-cleanup',
+  });
+
+  // M5.3: T-15 reminder check — every 15 minutes
+  await reminderQueue.add('check-t15', {}, {
+    repeat: { pattern: '*/15 * * * *' },
+    jobId: 't15-reminder-check',
   });
 }

@@ -4,6 +4,7 @@ import prisma from '../lib/prisma';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { auditLog } from '../middleware/audit';
 import { fanOutNotification, createNotification } from '../services/notification.service';
+import { generateTaskSuggestions } from '../services/ai.service';
 
 const router = Router();
 router.use(authenticate);
@@ -181,8 +182,21 @@ router.post('/:id/comments', async (req: AuthRequest, res: Response) => {
   res.status(201).json(comment);
 });
 
+// GET /tasks/:id/ai-suggestions — M4.7: AI next-step suggestions for blocked task
+router.get('/:id/ai-suggestions', async (req: AuthRequest, res: Response) => {
+  const task = await prisma.task.findUnique({
+    where: { id: req.params.id as string, orgId: req.user!.orgId },
+    select: { id: true, status: true },
+  });
+  if (!task) { res.status(404).json({ error: 'Task not found' }); return; }
+  if (task.status !== 'BLOCKED') { res.status(400).json({ error: 'Task is not blocked' }); return; }
+
+  const suggestions = await generateTaskSuggestions(task.id, req.user!.orgId);
+  res.json({ suggestions });
+});
+
 // POST /tasks/import-csv
-router.post('/import-csv', auditLog('task', 'IMPORT'), async (req: AuthRequest, res: Response) => {
+router.post('/import-csv', auditLog('task', 'CREATE'), async (req: AuthRequest, res: Response) => {
   const { rows } = req.body as { rows: Array<Record<string, string>> };
   if (!Array.isArray(rows) || rows.length === 0) {
     res.status(400).json({ error: 'rows array required' });

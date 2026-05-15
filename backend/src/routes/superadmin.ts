@@ -1,5 +1,7 @@
 import { Router, Response } from 'express';
+import jwt from 'jsonwebtoken';
 import prisma from '../lib/prisma';
+import redis from '../lib/redis';
 import { authenticate, AuthRequest, requireRole } from '../middleware/auth';
 
 const router = Router();
@@ -58,15 +60,60 @@ router.get('/stats', async (_req: AuthRequest, res: Response) => {
   res.json({ totalOrgs, totalUsers, totalTasks, activeOrgs });
 });
 
-// POST /superadmin/orgs/:id/impersonate — get a temp token for org owner
+// POST /superadmin/orgs/:id/impersonate — M12.5: issue short-lived impersonation JWT
 router.post('/orgs/:id/impersonate', async (req: AuthRequest, res: Response) => {
+  const org = await prisma.organization.findUnique({
+    where: { id: req.params.id as string },
+    select: { id: true, name: true },
+  });
+  if (!org) { res.status(404).json({ error: 'Org not found' }); return; }
+
   const owner = await prisma.user.findFirst({
     where: { orgId: req.params.id as string, role: 'OWNER' },
-    select: { id: true, name: true, email: true, role: true },
+    select: { id: true, name: true, email: true, role: true, orgId: true },
   });
-  if (!owner) { res.status(404).json({ error: 'Owner not found' }); return; }
-  // In production: sign short-lived JWT with impersonation flag
-  res.json({ message: 'Impersonation ready (sign JWT in production)', user: owner });
+  if (!owner) { res.status(404).json({ error: 'Owner not found in this org' }); return; }
+
+  const token = jwt.sign(
+    { userId: owner.id, orgId: owner.orgId, role: owner.role, impersonatedBy: req.user!.userId },
+    process.env.JWT_SECRET || 'dev-secret',
+    { expiresIn: '1h' }
+  );
+
+  res.json({ token, user: owner, org, expiresIn: 3600 });
+});
+
+// GET /superadmin/health — M12.6: system health metrics
+router.get('/health', async (_req: AuthRequest, res: Response) => {
+  const [dbOk, redisOk] = await Promise.all([
+    prisma.$queryRaw`SELECT 1`.then(() => true).catch(() => false),
+    redis.ping().then(() => true).catch(() => false),
+  ]);
+
+  const [orgCount, userCount, taskCount, notifCount] = await Promise.all([
+    prisma.organization.count(),
+    prisma.user.count(),
+    prisma.task.count(),
+    prisma.notification.count({ where: { status: 'SCHEDULED' } }),
+  ]);
+
+  const memUsage = process.memoryUsage();
+
+  res.json({
+    status: dbOk && redisOk ? 'healthy' : 'degraded',
+    services: {
+      database: dbOk ? 'ok' : 'error',
+      redis: redisOk ? 'ok' : 'error',
+    },
+    stats: { orgCount, userCount, taskCount, pendingNotifications: notifCount },
+    process: {
+      uptime: Math.round(process.uptime()),
+      memoryMB: Math.round(memUsage.rss / 1024 / 1024),
+      heapMB: Math.round(memUsage.heapUsed / 1024 / 1024),
+      nodeVersion: process.version,
+    },
+    ts: new Date(),
+  });
 });
 
 export default router;

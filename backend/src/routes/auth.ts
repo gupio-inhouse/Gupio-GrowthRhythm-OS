@@ -15,7 +15,21 @@ const registerSchema = z.object({
   industry: z.string(),
   employeeCount: z.number().int().min(1).optional(),
   phone: z.string().optional(),
+  fiscalYearStart: z.number().int().min(1).max(12).optional().default(4),
+  preferredLanguage: z.string().optional().default('en'),
 });
+
+// M1.6: Industry template default departments
+const INDUSTRY_TEMPLATES: Record<string, string[]> = {
+  'Digital Marketing Agency': ['Strategy', 'Creative', 'Performance Marketing', 'Client Servicing', 'Operations'],
+  'IT Services': ['Engineering', 'Product', 'QA', 'DevOps', 'Sales', 'Customer Success'],
+  'Consulting / Coaching': ['Delivery', 'Business Development', 'Operations', 'Research & Insights'],
+  'Event Management': ['Creative', 'Operations', 'Client Relations', 'Logistics', 'Marketing'],
+  'Healthcare Clinic': ['Clinical', 'Administration', 'Pharmacy', 'Diagnostics', 'Front Desk'],
+  'Education Business': ['Academic', 'Student Affairs', 'Administration', 'Marketing', 'Technology'],
+  'Light Manufacturing': ['Production', 'Quality Control', 'Procurement', 'Sales', 'Logistics'],
+  'Retail Chain': ['Store Operations', 'Inventory', 'Marketing', 'HR', 'Finance'],
+};
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -30,14 +44,14 @@ router.post('/register', async (req: Request, res: Response) => {
     return;
   }
 
-  const { name, email, password, companyName, industry, employeeCount, phone } = parsed.data;
+  const { name, email, password, companyName, industry, employeeCount, phone, fiscalYearStart, preferredLanguage } = parsed.data;
 
   const passwordHash = await bcrypt.hash(password, 12);
 
   try {
     const result = await prisma.$transaction(async (tx) => {
       const org = await tx.organization.create({
-        data: { name: companyName, industry, employeeCount },
+        data: { name: companyName, industry, employeeCount, fiscalYearStart, preferredLanguage },
       });
 
       const user = await tx.user.create({
@@ -51,6 +65,15 @@ router.post('/register', async (req: Request, res: Response) => {
           passwordHash,
         },
       });
+
+      // M1.6: auto-create default departments from industry template
+      const defaultDepts = INDUSTRY_TEMPLATES[industry] ?? ['Operations', 'Sales', 'Finance'];
+      for (const deptName of defaultDepts) {
+        const slug = deptName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        await tx.department.create({
+          data: { orgId: org.id, name: deptName, slug: `${slug}-${org.id.slice(-4)}` },
+        });
+      }
 
       return { org, user };
     });

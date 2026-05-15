@@ -256,32 +256,53 @@ export default function OwnerCockpit() {
         </CardContent>
       </Card>
 
-      {/* Today's standups */}
+      {/* Today's standups — M8.4: attendance breakdown */}
       {data?.todayStandups?.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <Clock className="h-4 w-4 text-blue-500" />
               Today's Standups
+              <span className="ml-auto text-xs font-normal text-muted-foreground">
+                {data.standupAttendance?.filter((a: { status: string }) => a.status === 'COMPLETED').length ?? 0} of {data.todayStandups.length} completed
+              </span>
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {data.todayStandups.map((s: { id: string; status: string; department?: { name: string }; scheduledAt: string }) => (
-                <div key={s.id} className="flex items-center justify-between p-3 rounded-lg border">
-                  <div>
-                    <p className="text-sm font-medium">{s.department?.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {new Date(s.scheduledAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
-                    </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {(data.standupAttendance ?? data.todayStandups).map((s: {
+                id?: string; departmentName: string; status: string; scheduledAt?: string;
+                totalMembers?: number; submitted?: number; attendanceRate?: number;
+                overrunMinutes?: number; attendees?: string[];
+              }) => (
+                <div key={s.id ?? s.departmentName} className="rounded-lg border p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium">{s.departmentName ?? (s as unknown as { department?: { name: string } }).department?.name}</p>
+                    <Badge className={cn('text-xs', {
+                      'bg-green-100 text-green-700': s.status === 'COMPLETED',
+                      'bg-blue-100 text-blue-700': s.status === 'IN_PROGRESS',
+                      'bg-gray-100 text-gray-600': s.status === 'SCHEDULED',
+                    })}>
+                      {s.status.toLowerCase().replace('_', ' ')}
+                    </Badge>
                   </div>
-                  <Badge className={cn('text-xs', {
-                    'bg-green-100 text-green-700': s.status === 'COMPLETED',
-                    'bg-blue-100 text-blue-700': s.status === 'IN_PROGRESS',
-                    'bg-gray-100 text-gray-600': s.status === 'SCHEDULED',
-                  })}>
-                    {s.status.toLowerCase().replace('_', ' ')}
-                  </Badge>
+                  {s.totalMembers != null && (
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>{s.submitted}/{s.totalMembers} submitted</span>
+                        <span>{s.attendanceRate}%</span>
+                      </div>
+                      <div className="w-full bg-gray-100 rounded-full h-1.5">
+                        <div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${s.attendanceRate}%` }} />
+                      </div>
+                      {(s.overrunMinutes ?? 0) > 0 && (
+                        <p className="text-xs text-orange-600">+{Math.round(s.overrunMinutes ?? 0)}m overrun</p>
+                      )}
+                      {s.attendees && s.attendees.length > 0 && (
+                        <p className="text-xs text-muted-foreground truncate">{s.attendees.join(', ')}</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

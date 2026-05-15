@@ -2,6 +2,7 @@ import { Worker, Job } from 'bullmq';
 import redis from '../lib/redis';
 import prisma from '../lib/prisma';
 import { fanOutNotification } from './notification.service';
+import { generateWeeklyDigest } from './ai.service';
 
 const connection = redis;
 
@@ -146,10 +147,73 @@ export const retentionWorker = new Worker('retention', async (job: Job) => {
   console.log(`[retention-worker] Deleted ${deletedNotifs.count} notifications, ${deletedTasks.count} cancelled tasks`);
 }, { connection });
 
+// ── T-15 standup reminder worker ──────────────────────────────────────────────
+export const reminderWorker = new Worker('standup-reminder', async (job: Job) => {
+  if (job.name !== 'check-t15') return;
+
+  const now = new Date();
+  const h = now.getUTCHours();
+  const m = now.getUTCMinutes();
+
+  // Target window: standups starting in 10–20 min from now (UTC)
+  const windowStart = new Date(now.getTime() + 10 * 60000);
+  const windowEnd = new Date(now.getTime() + 20 * 60000);
+
+  const departments = await prisma.department.findMany({
+    where: { isActive: true },
+    include: {
+      users: { where: { status: 'ACTIVE' }, select: { id: true } },
+    },
+  });
+
+  let reminded = 0;
+  for (const dept of departments) {
+    if (!dept.standupTime || dept.users.length === 0) continue;
+
+    // Parse "HH:MM" standup time in IST (UTC+5:30)
+    const [sh, sm] = dept.standupTime.split(':').map(Number);
+    const standupUtcMinutes = sh * 60 + sm - 330; // subtract IST offset
+    const nowUtcMinutes = h * 60 + m;
+    const windowStartMin = windowStart.getUTCHours() * 60 + windowStart.getUTCMinutes();
+    const windowEndMin = windowEnd.getUTCHours() * 60 + windowEnd.getUTCMinutes();
+
+    // Normalize negative times
+    const normalized = ((standupUtcMinutes % 1440) + 1440) % 1440;
+    if (normalized < windowStartMin || normalized > windowEndMin) continue;
+
+    await fanOutNotification(
+      dept.orgId,
+      dept.users.map((u) => u.id),
+      'STANDUP_REMINDER',
+      { departmentName: dept.name, time: dept.standupTime, minutesUntil: 15 }
+    );
+    reminded++;
+  }
+
+  if (reminded > 0) console.log(`[t15-worker] Sent T-15 reminders to ${reminded} departments`);
+}, { connection });
+
 // AI worker — handles async AI requests
 export const aiWorker = new Worker('ai', async (job: Job) => {
   if (job.name === 'weekly-digest') {
-    console.log('[ai-worker] Weekly digest job triggered — Claude AI not configured in env');
+    const orgs = await prisma.organization.findMany({
+      where: { isActive: true },
+      select: { id: true },
+    });
+    for (const org of orgs) {
+      try {
+        const digest = await generateWeeklyDigest(org.id);
+        const owners = await prisma.user.findMany({
+          where: { orgId: org.id, role: { in: ['OWNER', 'COMPANY_ADMIN'] }, status: 'ACTIVE' },
+          select: { id: true },
+        });
+        if (owners.length > 0) {
+          await fanOutNotification(org.id, owners.map((u) => u.id), 'WEEKLY_DIGEST', { digest });
+        }
+      } catch (e) {
+        console.error(`[ai-worker] weekly-digest error for org ${org.id}:`, e);
+      }
+    }
   }
 }, { connection });
 
@@ -160,5 +224,6 @@ export function shutdownWorkers() {
     escalationWorker.close(),
     retentionWorker.close(),
     aiWorker.close(),
+    reminderWorker.close(),
   ]);
 }

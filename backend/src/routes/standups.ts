@@ -1,6 +1,8 @@
 import { Router, Response } from 'express';
 import prisma from '../lib/prisma';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { generateStandupDigest } from '../services/ai.service';
+import { fanOutNotification } from '../services/notification.service';
 
 const router = Router();
 router.use(authenticate);
@@ -40,7 +42,28 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     return;
   }
 
-  res.json(standup);
+  // M7.7: add overdue learning assignments for each card member
+  const userIds = standup.cards.map((c) => c.userId);
+  const overdueAssignments = userIds.length > 0
+    ? await prisma.learningAssignment.findMany({
+        where: { userId: { in: userIds }, status: 'OVERDUE' },
+        include: { learningItem: { select: { title: true, type: true } } },
+        orderBy: { dueDate: 'asc' },
+        take: 50,
+      })
+    : [];
+
+  const overdueByUser: Record<string, Array<{ title: string; type: string; dueDate: string | null }>> = {};
+  for (const la of overdueAssignments) {
+    if (!overdueByUser[la.userId]) overdueByUser[la.userId] = [];
+    overdueByUser[la.userId].push({
+      title: la.learningItem.title,
+      type: la.learningItem.type,
+      dueDate: la.dueDate?.toISOString() ?? null,
+    });
+  }
+
+  res.json({ ...standup, overdueLearnByUser: overdueByUser });
 });
 
 // POST /standups — create / schedule
@@ -83,6 +106,30 @@ router.post('/:id/end', async (req: AuthRequest, res: Response) => {
     data: { status: 'COMPLETED', endedAt, overrunMinutes: overrun },
   });
   res.json(updated);
+
+  // M5.7: trigger AI digest in background (T+60s)
+  setTimeout(async () => {
+    try {
+      const digest = await generateStandupDigest(standup.id);
+      if (!digest || digest === 'Insufficient AI credits') return;
+
+      const dept = await prisma.department.findUnique({
+        where: { id: standup.departmentId },
+        include: { users: { where: { status: 'ACTIVE' }, select: { id: true } } },
+      });
+      if (!dept) return;
+
+      await prisma.standup.update({ where: { id: standup.id }, data: { aiDigestSent: true } });
+      await fanOutNotification(
+        standup.orgId,
+        dept.users.map((u) => u.id),
+        'STANDUP_REMINDER',
+        { departmentName: dept.name, digest, time: '' }
+      );
+    } catch (e) {
+      console.error('[standup-digest] error:', e);
+    }
+  }, 60_000);
 });
 
 // PATCH /standups/:id/cards/:cardId — update own standup card

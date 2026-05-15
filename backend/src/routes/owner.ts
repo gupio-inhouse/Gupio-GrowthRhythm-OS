@@ -41,7 +41,14 @@ router.get('/cockpit', async (req: AuthRequest, res: Response) => {
           lt: new Date(new Date().setHours(23, 59, 59, 999)),
         },
       },
-      include: { department: { select: { name: true } } },
+      include: {
+        department: { select: { name: true } },
+        _count: { select: { cards: true } },
+        cards: {
+          where: { status: 'SUBMITTED' },
+          include: { user: { select: { id: true, name: true } } },
+        },
+      },
     }),
     prisma.kRA.findMany({
       where: { orgId, status: { not: 'MISSED' } },
@@ -51,6 +58,19 @@ router.get('/cockpit', async (req: AuthRequest, res: Response) => {
     }),
   ]);
 
+  // M8.4: standup attendance breakdown per department
+  const standupAttendance = todayStandups.map((s) => ({
+    departmentName: s.department.name,
+    status: s.status,
+    totalMembers: s._count.cards,
+    submitted: s.cards.length,
+    attendanceRate: s._count.cards > 0
+      ? Math.round((s.cards.length / s._count.cards) * 100)
+      : 0,
+    overrunMinutes: (s as unknown as { overrunMinutes?: number }).overrunMinutes ?? 0,
+    attendees: s.cards.map((c) => c.user.name),
+  }));
+
   res.json({
     totalUsers,
     activeUsers,
@@ -59,6 +79,7 @@ router.get('/cockpit', async (req: AuthRequest, res: Response) => {
     todayStandups,
     kras,
     standupAttendanceToday: Math.round((todayStandups.filter(s => s.status === 'COMPLETED').length / Math.max(todayStandups.length, 1)) * 100),
+    standupAttendance,
   });
 });
 
@@ -114,6 +135,48 @@ router.post('/ai/goal-suggestions', async (req: AuthRequest, res: Response) => {
   const { description } = req.body;
   const suggestions = await generateGoalSuggestions(description, req.user!.orgId);
   res.json({ suggestions });
+});
+
+// GET /owner/data-export — full org data export (GDPR/DPDPA)
+router.get('/data-export', requireRole('OWNER', 'COMPANY_ADMIN'), async (req: AuthRequest, res: Response) => {
+  const orgId = req.user!.orgId;
+
+  const [users, tasks, departments, kras, goals, standups, auditLogs] = await Promise.all([
+    prisma.user.findMany({
+      where: { orgId },
+      select: { id: true, name: true, email: true, phone: true, role: true, status: true, createdAt: true },
+    }),
+    prisma.task.findMany({
+      where: { orgId },
+      select: { id: true, title: true, status: true, priority: true, dueDate: true, completedAt: true, createdAt: true },
+    }),
+    prisma.department.findMany({
+      where: { orgId },
+      select: { id: true, name: true, slug: true, createdAt: true },
+    }),
+    prisma.kRA.findMany({
+      where: { orgId },
+      select: { id: true, name: true, target: true, current: true, status: true },
+    }),
+    prisma.goal.findMany({
+      where: { orgId },
+      select: { id: true, title: true, type: true, status: true, dueDate: true },
+    }),
+    prisma.standup.findMany({
+      where: { orgId },
+      select: { id: true, scheduledAt: true, status: true, overrunMinutes: true },
+    }),
+    prisma.auditLog.findMany({
+      where: { user: { orgId } },
+      select: { id: true, entityType: true, action: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+      take: 1000,
+    }),
+  ]);
+
+  res.setHeader('Content-Disposition', `attachment; filename="growthrhythm-export-${new Date().toISOString().split('T')[0]}.json"`);
+  res.setHeader('Content-Type', 'application/json');
+  res.json({ exportedAt: new Date(), orgId, users, tasks, departments, kras, goals, standups, auditLogs });
 });
 
 export default router;

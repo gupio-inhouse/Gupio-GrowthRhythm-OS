@@ -1,8 +1,11 @@
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import NotificationBell from './NotificationBell';
+import { useRealtimeUpdates } from '@/hooks/useEventSource';
 
 export default function AppShell() {
+  useRealtimeUpdates(); // M6.4: SSE realtime updates
+
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <Sidebar />

@@ -89,6 +89,7 @@ export default function Team() {
   const [deptFilter, setDeptFilter] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [invited, setInvited] = useState(false);
 
   const canInvite = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'].includes(me?.role || '');
@@ -142,10 +143,16 @@ export default function Team() {
           <p className="text-muted-foreground text-sm mt-0.5">{members.length} members across your organization</p>
         </div>
         {canInvite && (
-          <Button onClick={() => setInviteOpen(true)} className="gap-2">
-            <UserPlus className="h-4 w-4" />
-            Invite Member
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setBulkImportOpen(true)} className="gap-2">
+              <Users className="h-4 w-4" />
+              Bulk Import
+            </Button>
+            <Button onClick={() => setInviteOpen(true)} className="gap-2">
+              <UserPlus className="h-4 w-4" />
+              Invite Member
+            </Button>
+          </div>
         )}
       </div>
 
@@ -344,6 +351,115 @@ export default function Team() {
           )}
         </DialogContent>
       </Dialog>
+
+      {bulkImportOpen && (
+        <BulkUserImportDialog
+          onClose={() => setBulkImportOpen(false)}
+          onImported={() => {
+            qc.invalidateQueries({ queryKey: ['users'] });
+            setBulkImportOpen(false);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+// ── Bulk user import ──────────────────────────────────────────────────────────
+
+function BulkUserImportDialog({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
+  const fileRef = useState<HTMLInputElement | null>(null);
+  const [fileEl, setFileEl] = useState<HTMLInputElement | null>(null);
+  const [preview, setPreview] = useState<string[][]>([]);
+  const [result, setResult] = useState<{ created: number; errors: string[] } | null>(null);
+  const [importing, setImporting] = useState(false);
+
+  const parseCsv = (text: string): Record<string, string>[] => {
+    const [headerLine, ...rows] = text.trim().split('\n');
+    const headers = headerLine.split(',').map((h) => h.trim().replace(/"/g, ''));
+    return rows.filter((r) => r.trim()).map((row) => {
+      const vals = row.split(',').map((v) => v.trim().replace(/"/g, ''));
+      return Object.fromEntries(headers.map((h, i) => [h, vals[i] ?? '']));
+    });
+  };
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      const lines = text.trim().split('\n').slice(0, 4);
+      setPreview(lines.map((l) => l.split(',').map((c) => c.trim().replace(/"/g, ''))));
+      setResult(null);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleImport = async () => {
+    if (!fileEl?.files?.[0]) return;
+    setImporting(true);
+    const text = await fileEl.files[0].text();
+    const rows = parseCsv(text);
+    try {
+      const res = await api.post('/users/bulk-import', { rows });
+      setResult(res.data);
+      if (res.data.created > 0) onImported();
+    } catch {
+      setResult({ created: 0, errors: ['Import failed.'] });
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Users className="h-4 w-4" /> Bulk User Import
+          </DialogTitle>
+          <DialogDescription>Import multiple users at once from a CSV file</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="rounded-md bg-muted/50 p-3 text-xs space-y-1">
+            <p className="font-medium">Required columns: <code>name</code>, <code>email</code></p>
+            <p className="text-muted-foreground">Optional: <code>role</code> (TEAM_MEMBER/MANAGER/DEPARTMENT_HEAD/COMPANY_ADMIN), <code>phone</code>, <code>departmentId</code></p>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Select CSV file</Label>
+            <Input type="file" accept=".csv" ref={setFileEl} onChange={handleFile} />
+          </div>
+          {preview.length > 0 && (
+            <div className="overflow-x-auto rounded border">
+              <table className="text-xs w-full">
+                <thead className="bg-muted"><tr>{preview[0].map((h, i) => <th key={i} className="px-2 py-1.5 text-left font-medium">{h}</th>)}</tr></thead>
+                <tbody>{preview.slice(1).map((row, ri) => (
+                  <tr key={ri} className="border-t">{row.map((cell, ci) => <td key={ci} className="px-2 py-1 text-muted-foreground truncate max-w-[120px]">{cell}</td>)}</tr>
+                ))}</tbody>
+              </table>
+            </div>
+          )}
+          {result && (
+            <div className={`rounded-md p-3 text-sm ${result.errors.length === 0 ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>
+              <p className="font-medium">✓ Created {result.created} users</p>
+              {result.errors.length > 0 && (
+                <ul className="mt-1 list-disc list-inside space-y-0.5">
+                  {result.errors.slice(0, 5).map((e, i) => <li key={i} className="text-xs">{e}</li>)}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Close</Button>
+          <Button onClick={handleImport} disabled={importing || !fileEl?.files?.length}>
+            {importing ? 'Importing...' : 'Import Users'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

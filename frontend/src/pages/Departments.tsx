@@ -1,22 +1,33 @@
-import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { Building2, Users, CheckSquare, Target, ArrowRight } from 'lucide-react';
+import { Building2, Users, CheckSquare, Target, ArrowRight, Clock, Settings } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { getInitials } from '@/lib/utils';
+import { useAuthStore } from '@/store/authStore';
 import api from '@/api/client';
 
 type Department = {
   id: string; name: string; slug: string;
+  standupTime?: string; standupDuration?: number;
   head?: { id: string; name: string; email: string; avatarUrl?: string };
   _count: { users: number; kras: number; tasks: number };
 };
 
 export default function Departments() {
+  const { user } = useAuthStore();
+  const [scheduleTarget, setScheduleTarget] = useState<Department | null>(null);
   const { data: departments = [], isLoading } = useQuery<Department[]>({
     queryKey: ['departments'],
     queryFn: () => api.get('/departments').then((r) => r.data),
   });
+
+  const canConfigure = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'].includes(user?.role || '');
 
   return (
     <div className="p-8 space-y-6">
@@ -41,12 +52,23 @@ export default function Departments() {
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-100">
                     <Building2 className="h-5 w-5 text-purple-600" />
                   </div>
-                  <Link
-                    to={`/dashboard/${dept.slug}`}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary"
-                  >
-                    <ArrowRight className="h-4 w-4" />
-                  </Link>
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {canConfigure && (
+                      <button
+                        onClick={() => setScheduleTarget(dept)}
+                        className="text-muted-foreground hover:text-primary p-1 rounded"
+                        title="Configure standup schedule"
+                      >
+                        <Settings className="h-4 w-4" />
+                      </button>
+                    )}
+                    <Link
+                      to={`/dashboard/${dept.slug}`}
+                      className="text-muted-foreground hover:text-primary"
+                    >
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  </div>
                 </div>
 
                 <h3 className="font-semibold text-lg">{dept.name}</h3>
@@ -58,6 +80,13 @@ export default function Departments() {
                       <AvatarFallback className="text-xs bg-blue-100 text-blue-700">{getInitials(dept.head.name)}</AvatarFallback>
                     </Avatar>
                     <span className="text-sm text-muted-foreground">{dept.head.name}</span>
+                  </div>
+                )}
+
+                {dept.standupTime && (
+                  <div className="flex items-center gap-1.5 mt-2 text-xs text-muted-foreground">
+                    <Clock className="h-3 w-3" />
+                    <span>Standup at {dept.standupTime} · {dept.standupDuration ?? 15} min</span>
                   </div>
                 )}
 
@@ -80,6 +109,71 @@ export default function Departments() {
           ))}
         </div>
       )}
+
+      {scheduleTarget && (
+        <StandupScheduleDialog
+          dept={scheduleTarget}
+          onClose={() => setScheduleTarget(null)}
+        />
+      )}
     </div>
+  );
+}
+
+function StandupScheduleDialog({ dept, onClose }: { dept: Department; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [time, setTime] = useState(dept.standupTime || '09:00');
+  const [duration, setDuration] = useState(String(dept.standupDuration ?? 15));
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await api.patch(`/departments/${dept.id}`, {
+        standupTime: time,
+        standupDuration: parseInt(duration, 10) || 15,
+      });
+      qc.invalidateQueries({ queryKey: ['departments'] });
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Clock className="h-4 w-4 text-purple-500" />
+            Standup Schedule — {dept.name}
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Daily standup time</Label>
+            <Input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Duration (minutes)</Label>
+            <Input
+              type="number"
+              min={5}
+              max={60}
+              value={duration}
+              onChange={(e) => setDuration(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? 'Saving...' : 'Save Schedule'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

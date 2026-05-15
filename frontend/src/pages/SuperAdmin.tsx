@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Shield, Building2, Users, CheckSquare, Activity, Pencil, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Shield, Building2, Users, CheckSquare, Activity, Pencil, ToggleLeft, ToggleRight, LogIn, Server, Database, Wifi } from 'lucide-react';
+import { useAuthStore } from '@/store/authStore';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -51,7 +52,7 @@ interface OrgOwner {
 interface OrgDetail extends OrgListItem {
   aiCreditsUsed: number;
   aiCreditsTotal: number;
-  owners: OrgOwner[];
+  users: OrgOwner[];
 }
 
 interface SuperAdminStats {
@@ -67,6 +68,14 @@ interface PatchOrgPayload {
   plan?: Plan;
   isActive?: boolean;
   aiCreditsTotal?: number;
+}
+
+interface HealthData {
+  status: 'healthy' | 'degraded';
+  services: { database: string; redis: string };
+  stats: { orgCount: number; userCount: number; taskCount: number; pendingNotifications: number };
+  process: { uptime: number; memoryMB: number; heapMB: number; nodeVersion: string };
+  ts: string;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -220,11 +229,11 @@ function OrgDetailDialog({ orgId, onClose }: OrgDetailDialogProps) {
             </div>
 
             {/* Owners */}
-            {org.owners && org.owners.length > 0 && (
+            {org.users && org.users.length > 0 && (
               <div>
-                <p className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Owners</p>
+                <p className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Owners / Admins</p>
                 <div className="space-y-2">
-                  {org.owners.map((owner) => (
+                  {org.users.map((owner) => (
                     <div
                       key={owner.id}
                       className="flex items-center gap-3 rounded-md border px-3 py-2 text-sm"
@@ -311,7 +320,29 @@ function OrgDetailDialog({ orgId, onClose }: OrgDetailDialogProps) {
 
 export default function SuperAdmin() {
   const qc = useQueryClient();
+  const { setAuth } = useAuthStore();
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
+  const [impersonating, setImpersonating] = useState<string | null>(null);
+
+  const { data: health, isLoading: healthLoading } = useQuery<HealthData>({
+    queryKey: ['superadmin-health'],
+    queryFn: () => api.get('/superadmin/health').then((r) => r.data),
+    refetchInterval: 30_000,
+  });
+
+  async function handleImpersonate(orgId: string, orgName: string) {
+    if (!confirm(`Impersonate owner of "${orgName}"? This grants you full owner access for 1 hour.`)) return;
+    setImpersonating(orgId);
+    try {
+      const res = await api.post(`/superadmin/orgs/${orgId}/impersonate`);
+      const { token, user, org } = res.data;
+      setAuth(token, user, org);
+      window.location.href = '/cockpit';
+    } catch {
+      alert('Impersonation failed');
+      setImpersonating(null);
+    }
+  }
 
   const { data: stats, isLoading: statsLoading } = useQuery<SuperAdminStats>({
     queryKey: ['superadmin-stats'],
@@ -497,6 +528,16 @@ export default function SuperAdmin() {
                           </Button>
                           <Button
                             size="sm"
+                            variant="outline"
+                            className="h-7 px-2.5 text-xs text-orange-600 border-orange-200 hover:bg-orange-50"
+                            disabled={impersonating === org.id}
+                            onClick={() => handleImpersonate(org.id, org.name)}
+                          >
+                            <LogIn className="h-3 w-3 mr-1" />
+                            {impersonating === org.id ? '...' : 'Login as'}
+                          </Button>
+                          <Button
+                            size="sm"
                             variant={org.isActive ? 'destructive' : 'outline'}
                             className="h-7 px-2.5 text-xs"
                             disabled={
@@ -530,6 +571,57 @@ export default function SuperAdmin() {
               </table>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* M12.6: System Health */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Server className="h-4 w-4 text-muted-foreground" />
+            System Health
+            {!healthLoading && health && (
+              <span className={`ml-2 text-xs font-medium px-2 py-0.5 rounded-full ${health.status === 'healthy' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
+                {health.status}
+              </span>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {healthLoading ? (
+            <div className="h-24 rounded bg-muted animate-pulse" />
+          ) : health ? (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground flex items-center gap-1"><Database className="h-3 w-3" />Database</p>
+                <p className={`font-medium ${health.services.database === 'ok' ? 'text-green-600' : 'text-red-600'}`}>{health.services.database}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground flex items-center gap-1"><Wifi className="h-3 w-3" />Redis</p>
+                <p className={`font-medium ${health.services.redis === 'ok' ? 'text-green-600' : 'text-red-600'}`}>{health.services.redis}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Memory (RSS)</p>
+                <p className="font-medium">{health.process.memoryMB} MB</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Uptime</p>
+                <p className="font-medium">{Math.floor(health.process.uptime / 60)}m {health.process.uptime % 60}s</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Pending Notifications</p>
+                <p className="font-medium">{health.stats.pendingNotifications}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Node Version</p>
+                <p className="font-medium font-mono text-xs">{health.process.nodeVersion}</p>
+              </div>
+              <div className="space-y-1 col-span-2">
+                <p className="text-xs text-muted-foreground">Last Checked</p>
+                <p className="font-medium text-xs text-muted-foreground">{new Date(health.ts).toLocaleTimeString()}</p>
+              </div>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 

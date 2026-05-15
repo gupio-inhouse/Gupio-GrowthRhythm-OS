@@ -10,6 +10,7 @@ interface User {
   departmentId?: string;
   departmentSlug?: string;
   avatarUrl?: string;
+  mfaEnabled?: boolean;
 }
 
 interface Org {

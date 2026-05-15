@@ -3,6 +3,9 @@ import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import prisma from '../lib/prisma';
 import { authenticate, AuthRequest, requireRole } from '../middleware/auth';
+import { generateMagicLink } from '../services/magic-link.service';
+import { sendMagicLinkEmail } from '../services/email.service';
+import { encryptField, decryptField } from '../services/crypto.service';
 
 const router = Router();
 router.use(authenticate);
@@ -25,7 +28,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     },
     orderBy: { name: 'asc' },
   });
-  res.json(users);
+  res.json(users.map((u) => ({ ...u, phone: decryptField(u.phone) })));
 });
 
 // GET /users/:id
@@ -47,7 +50,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     return;
   }
 
-  res.json(user);
+  res.json({ ...user, phone: decryptField(user.phone) });
 });
 
 // POST /users/invite — invite a team member
@@ -74,11 +77,38 @@ router.post('/invite', requireRole('OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'),
     const user = await prisma.user.create({
       data: {
         ...parsed.data,
+        phone: encryptField(parsed.data.phone) ?? null,
         orgId: req.user!.orgId,
         status: 'INVITED',
         passwordHash,
       },
     });
+
+    // Generate magic link and send invite email
+    let emailSent = true;
+    try {
+      const purpose =
+        parsed.data.role === 'DEPARTMENT_HEAD'
+          ? ('DEPARTMENT_HEAD_INVITE' as const)
+          : ('MEMBER_INVITE' as const);
+
+      const { link } = await generateMagicLink({
+        userId: user.id,
+        orgId: req.user!.orgId,
+        purpose,
+        expiresInHours: 48,
+      });
+
+      await sendMagicLinkEmail({
+        to: user.email,
+        name: user.name,
+        magicLinkUrl: link,
+        purpose,
+      });
+    } catch (emailErr) {
+      console.error('[users/invite] Failed to send invite email:', emailErr);
+      emailSent = false;
+    }
 
     res.status(201).json({
       id: user.id,
@@ -86,6 +116,7 @@ router.post('/invite', requireRole('OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'),
       email: user.email,
       role: user.role,
       status: user.status,
+      emailSent,
     });
   } catch (err: unknown) {
     if ((err as { code?: string }).code === 'P2002') {
@@ -110,7 +141,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
 
   const data: Record<string, unknown> = {};
   if (name) data.name = name;
-  if (phone !== undefined) data.phone = phone;
+  if (phone !== undefined) data.phone = encryptField(phone);
   if (avatarUrl) data.avatarUrl = avatarUrl;
   if (notificationPrefs !== undefined) data.notificationPrefs = notificationPrefs;
   if (isOwnerOrAdmin && departmentId !== undefined) data.departmentId = departmentId;
@@ -124,7 +155,58 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
     select: { id: true, name: true, email: true, role: true, status: true, phone: true, notificationPrefs: true },
   });
 
-  res.json(user);
+  res.json({ ...user, phone: decryptField(user.phone) });
+});
+
+// POST /users/bulk-import — CSV bulk user import (OWNER/ADMIN only)
+router.post('/bulk-import', requireRole('OWNER', 'COMPANY_ADMIN'), async (req: AuthRequest, res: Response) => {
+  const { rows } = req.body as { rows: Array<Record<string, string>> };
+  if (!Array.isArray(rows) || rows.length === 0) {
+    res.status(400).json({ error: 'rows array required' });
+    return;
+  }
+
+  const rowSchema = z.object({
+    name: z.string().min(2),
+    email: z.string().email(),
+    role: z.enum(['TEAM_MEMBER', 'MANAGER', 'DEPARTMENT_HEAD', 'COMPANY_ADMIN']).default('TEAM_MEMBER'),
+    phone: z.string().optional(),
+    departmentId: z.string().optional(),
+  });
+
+  const results = { created: 0, errors: [] as string[] };
+
+  for (const row of rows.slice(0, 200)) {
+    const parsed = rowSchema.safeParse({
+      name: row.name,
+      email: row.email?.toLowerCase(),
+      role: row.role?.toUpperCase() || 'TEAM_MEMBER',
+      phone: row.phone || undefined,
+      departmentId: row.departmentId || undefined,
+    });
+    if (!parsed.success) {
+      results.errors.push(`${row.email}: ${JSON.stringify(parsed.error.flatten().fieldErrors)}`);
+      continue;
+    }
+    try {
+      const tempPassword = Math.random().toString(36).slice(-10);
+      const hashedPassword = await bcrypt.hash(tempPassword, 10);
+      await prisma.user.create({
+        data: {
+          ...parsed.data,
+          phone: encryptField(parsed.data.phone) ?? null,
+          orgId: req.user!.orgId,
+          passwordHash: hashedPassword,
+          status: 'INVITED',
+        },
+      });
+      results.created++;
+    } catch (e: unknown) {
+      const code = (e as { code?: string }).code;
+      results.errors.push(`${row.email}: ${code === 'P2002' ? 'Email already exists' : (e as Error).message}`);
+    }
+  }
+  res.json(results);
 });
 
 export default router;

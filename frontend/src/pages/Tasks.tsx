@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, CheckSquare, AlertTriangle, Clock, Search, LayoutGrid, List } from 'lucide-react';
+import { Plus, CheckSquare, AlertTriangle, Clock, Search, LayoutGrid, List, Upload } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -8,6 +8,8 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn, statusColor, priorityColor, formatDate, getInitials } from '@/lib/utils';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
 import { BlockerDialog } from '@/components/tasks/BlockerDialog';
 import { NewTaskDialog } from '@/components/tasks/NewTaskDialog';
 import { TaskDetailDrawer } from '@/components/tasks/TaskDetailDrawer';
@@ -42,6 +44,7 @@ export default function Tasks() {
   const [view, setView] = useState<'list' | 'kanban'>('list');
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [csvImportOpen, setCsvImportOpen] = useState(false);
 
   // Blocker dialog state (for inline list status change)
   const [blockerCtx, setBlockerCtx] = useState<{ taskId: string; taskTitle: string } | null>(null);
@@ -116,6 +119,9 @@ export default function Tasks() {
               <LayoutGrid className="h-4 w-4" />
             </button>
           </div>
+          <Button variant="outline" className="gap-2" onClick={() => setCsvImportOpen(true)}>
+            <Upload className="h-4 w-4" /> Import CSV
+          </Button>
           <Button className="gap-2" onClick={() => setNewTaskOpen(true)}>
             <Plus className="h-4 w-4" /> New Task
           </Button>
@@ -201,6 +207,15 @@ export default function Tasks() {
         onConfirm={handleBlockerConfirm}
         onCancel={() => setBlockerCtx(null)}
         isLoading={updateMutation.isPending}
+      />
+
+      <CsvImportDialog
+        open={csvImportOpen}
+        onClose={() => setCsvImportOpen(false)}
+        onImported={() => {
+          qc.invalidateQueries({ queryKey: ['tasks'] });
+          setCsvImportOpen(false);
+        }}
       />
     </div>
   );
@@ -393,5 +408,129 @@ function KanbanCard({ task, onStatusChange, onClick }: {
         </button>
       )}
     </div>
+  );
+}
+
+// ── CSV Import Dialog ─────────────────────────────────────────────────────────
+
+function CsvImportDialog({ open, onClose, onImported }: {
+  open: boolean; onClose: () => void; onImported: () => void;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [result, setResult] = useState<{ created: number; errors: string[] } | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [preview, setPreview] = useState<string[][]>([]);
+
+  const parseCsv = (text: string): Record<string, string>[] => {
+    const [headerLine, ...rows] = text.trim().split('\n');
+    const headers = headerLine.split(',').map((h) => h.trim().replace(/"/g, ''));
+    return rows
+      .filter((r) => r.trim())
+      .map((row) => {
+        const vals = row.split(',').map((v) => v.trim().replace(/"/g, ''));
+        return Object.fromEntries(headers.map((h, i) => [h, vals[i] ?? '']));
+      });
+  };
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      const lines = text.trim().split('\n').slice(0, 4);
+      setPreview(lines.map((l) => l.split(',').map((c) => c.trim().replace(/"/g, ''))));
+      setResult(null);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleImport = async () => {
+    const file = fileRef.current?.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    const text = await file.text();
+    const rows = parseCsv(text);
+    try {
+      const res = await api.post('/tasks/import-csv', { rows });
+      setResult(res.data);
+      if (res.data.created > 0) onImported();
+    } catch (err: unknown) {
+      setResult({ created: 0, errors: ['Import failed. Check CSV format.'] });
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleClose = () => {
+    setResult(null);
+    setPreview([]);
+    if (fileRef.current) fileRef.current.value = '';
+    onClose();
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Upload className="h-4 w-4" /> Import Tasks from CSV
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground space-y-1">
+            <p className="font-medium text-foreground">Required CSV columns:</p>
+            <p><code>title</code>, <code>assigneeUserId</code></p>
+            <p className="text-muted-foreground">Optional: <code>description</code>, <code>priority</code> (LOW/MEDIUM/HIGH/CRITICAL), <code>departmentId</code>, <code>kraId</code>, <code>dueDate</code></p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Select CSV file</Label>
+            <Input ref={fileRef} type="file" accept=".csv" onChange={handleFile} />
+          </div>
+
+          {preview.length > 0 && (
+            <div className="overflow-x-auto rounded border">
+              <table className="text-xs w-full">
+                <thead className="bg-muted">
+                  <tr>{preview[0].map((h, i) => <th key={i} className="px-2 py-1.5 text-left font-medium">{h}</th>)}</tr>
+                </thead>
+                <tbody>
+                  {preview.slice(1).map((row, ri) => (
+                    <tr key={ri} className="border-t">
+                      {row.map((cell, ci) => <td key={ci} className="px-2 py-1 text-muted-foreground truncate max-w-[120px]">{cell}</td>)}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="text-xs text-muted-foreground px-2 py-1.5">Preview (first 3 rows)</p>
+            </div>
+          )}
+
+          {result && (
+            <div className={cn('rounded-md p-3 text-sm', result.errors.length === 0 ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700')}>
+              <p className="font-medium">✓ Created {result.created} tasks</p>
+              {result.errors.length > 0 && (
+                <ul className="mt-1 list-disc list-inside space-y-0.5">
+                  {result.errors.slice(0, 5).map((e, i) => <li key={i} className="text-xs">{e}</li>)}
+                  {result.errors.length > 5 && <li className="text-xs">...and {result.errors.length - 5} more errors</li>}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={handleClose}>Close</Button>
+          <Button
+            onClick={handleImport}
+            disabled={importing || !fileRef.current?.files?.length}
+          >
+            {importing ? 'Importing...' : 'Import'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

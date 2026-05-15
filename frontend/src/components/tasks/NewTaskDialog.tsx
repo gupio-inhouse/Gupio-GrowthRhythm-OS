@@ -16,7 +16,8 @@ const schema = z.object({
   expectedOutcome: z.string().optional(),
   assigneeUserId: z.string().min(1, 'Assignee required'),
   departmentId: z.string().optional(),
-  kraId: z.string().optional(),
+  kraId: z.string().min(1, 'KRA is required — every task must link to a result area'),
+  dependencyId: z.string().optional(),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).default('MEDIUM'),
   dueDate: z.string().optional(),
 });
@@ -32,6 +33,7 @@ interface Props {
 type User = { id: string; name: string; role: string };
 type Department = { id: string; name: string };
 type KRA = { id: string; name: string };
+type Task = { id: string; title: string };
 
 export function NewTaskDialog({ open, onClose, onCreated }: Props) {
   const { data: users = [] } = useQuery<User[]>({
@@ -49,6 +51,12 @@ export function NewTaskDialog({ open, onClose, onCreated }: Props) {
   const { data: kras = [] } = useQuery<KRA[]>({
     queryKey: ['kras'],
     queryFn: () => api.get('/kras').then((r) => r.data),
+    enabled: open,
+  });
+
+  const { data: allTasks = [] } = useQuery<Task[]>({
+    queryKey: ['tasks-list'],
+    queryFn: () => api.get('/tasks').then((r) => r.data),
     enabled: open,
   });
 
@@ -71,6 +79,7 @@ export function NewTaskDialog({ open, onClose, onCreated }: Props) {
       dueDate: data.dueDate ? new Date(data.dueDate).toISOString() : undefined,
       kraId: data.kraId || undefined,
       departmentId: data.departmentId || undefined,
+      dependencyId: data.dependencyId || undefined,
     };
     await api.post('/tasks', payload);
     reset();
@@ -148,10 +157,10 @@ export function NewTaskDialog({ open, onClose, onCreated }: Props) {
             </div>
 
             <div className="space-y-1.5">
-              <Label>KRA</Label>
+              <Label>KRA *</Label>
               <Select onValueChange={(v) => setValue('kraId', v)}>
                 <SelectTrigger>
-                  <SelectValue placeholder="None" />
+                  <SelectValue placeholder="Select KRA" />
                 </SelectTrigger>
                 <SelectContent>
                   {kras.map((k) => (
@@ -159,12 +168,29 @@ export function NewTaskDialog({ open, onClose, onCreated }: Props) {
                   ))}
                 </SelectContent>
               </Select>
+              {errors.kraId && <p className="text-xs text-destructive">{errors.kraId.message}</p>}
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <Label>Due Date</Label>
-            <Input type="date" {...register('dueDate')} />
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label>Due Date</Label>
+              <Input type="date" {...register('dueDate')} />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Depends On</Label>
+              <Select onValueChange={(v) => setValue('dependencyId', v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="None" />
+                </SelectTrigger>
+                <SelectContent>
+                  {allTasks.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>{t.title}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           <DialogFooter>

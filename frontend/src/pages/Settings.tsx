@@ -59,6 +59,101 @@ const DEFAULT_NOTIF_PREFS: Record<string, boolean> = {
   kraUpdate: false, weeklyDigest: true, reviewDue: false,
 };
 
+function MfaSection() {
+  const { user } = useAuthStore();
+  const [step, setStep] = useState<'idle' | 'setup' | 'verify' | 'enabled'>('idle');
+  const [qrCode, setQrCode] = useState('');
+  const [secret, setSecret] = useState('');
+  const [code, setCode] = useState('');
+  const [error, setError] = useState('');
+  const [disableCode, setDisableCode] = useState('');
+
+  const mfaEnabled = user?.mfaEnabled ?? false;
+
+  async function handleSetup() {
+    setError('');
+    const res = await api.post('/mfa/setup');
+    setQrCode(res.data.qrCode);
+    setSecret(res.data.secret);
+    setStep('setup');
+  }
+
+  async function handleVerify() {
+    setError('');
+    try {
+      await api.post('/mfa/verify-setup', { code });
+      setStep('enabled');
+    } catch {
+      setError('Invalid code — try again');
+    }
+  }
+
+  async function handleDisable() {
+    setError('');
+    try {
+      await api.delete('/mfa/disable', { data: { code: disableCode } });
+      setDisableCode('');
+      window.location.reload();
+    } catch {
+      setError('Invalid code — MFA not disabled');
+    }
+  }
+
+  return (
+    <Card className="mt-4">
+      <CardHeader>
+        <CardTitle className="text-base">Two-Factor Authentication (TOTP)</CardTitle>
+        <CardDescription>Add an extra layer of security using an authenticator app.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {mfaEnabled && step !== 'enabled' ? (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 text-green-600 text-sm font-medium">
+              <CheckCircle2 className="h-4 w-4" /> MFA is enabled
+            </div>
+            <div className="flex items-center gap-2">
+              <Input
+                placeholder="Enter TOTP code to disable"
+                value={disableCode}
+                onChange={(e) => setDisableCode(e.target.value)}
+                className="w-40"
+              />
+              <Button variant="destructive" size="sm" onClick={handleDisable}>Disable MFA</Button>
+            </div>
+            {error && <p className="text-xs text-destructive">{error}</p>}
+          </div>
+        ) : step === 'idle' ? (
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-muted-foreground">Not enabled</p>
+            <Button size="sm" onClick={handleSetup}>Enable MFA</Button>
+          </div>
+        ) : step === 'setup' ? (
+          <div className="space-y-4">
+            <p className="text-sm">Scan this QR code with <strong>Google Authenticator</strong> or <strong>Authy</strong>:</p>
+            {qrCode && <img src={qrCode} alt="TOTP QR code" className="w-40 h-40 border rounded" />}
+            <p className="text-xs text-muted-foreground">Manual code: <code className="font-mono bg-muted px-1 rounded">{secret}</code></p>
+            <div className="flex items-center gap-2">
+              <Input
+                placeholder="Enter 6-digit code"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                maxLength={6}
+                className="w-40"
+              />
+              <Button size="sm" onClick={handleVerify}>Verify & Enable</Button>
+            </div>
+            {error && <p className="text-xs text-destructive">{error}</p>}
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 text-green-600 text-sm font-medium">
+            <CheckCircle2 className="h-4 w-4" /> MFA enabled successfully! You&apos;ll need your authenticator app for future logins.
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function Settings() {
   const { user, org, setAuth, token } = useAuthStore();
   const qc = useQueryClient();
@@ -152,6 +247,11 @@ export default function Settings() {
           {org && (
             <TabsTrigger value="organization" className="gap-2">
               <Building2 className="h-4 w-4" />Organization
+            </TabsTrigger>
+          )}
+          {['OWNER', 'COMPANY_ADMIN'].includes(user?.role || '') && (
+            <TabsTrigger value="data" className="gap-2">
+              <Shield className="h-4 w-4" />Data & Privacy
             </TabsTrigger>
           )}
         </TabsList>
@@ -295,6 +395,8 @@ export default function Settings() {
             </CardContent>
           </Card>
 
+          <MfaSection />
+
           <Card className="mt-4 border-destructive/30">
             <CardHeader>
               <CardTitle className="text-destructive text-base">Danger Zone</CardTitle>
@@ -345,6 +447,35 @@ export default function Settings() {
                   To update organization details or upgrade your plan, contact{' '}
                   <a href="mailto:support@gupio.com" className="text-primary hover:underline">support@gupio.com</a>.
                 </p>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
+
+        {/* Data & Privacy tab */}
+        {['OWNER', 'COMPANY_ADMIN'].includes(user?.role || '') && (
+          <TabsContent value="data">
+            <Card>
+              <CardHeader>
+                <CardTitle>Data & Privacy</CardTitle>
+                <CardDescription>Export your organisation data or request deletion (DPDPA 2023)</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="rounded-md border p-4 space-y-2">
+                  <p className="text-sm font-medium">Export Organisation Data</p>
+                  <p className="text-xs text-muted-foreground">Download a full JSON export of all users, tasks, goals, KRAs, standups, and audit logs. This file may be used for compliance, migration, or backup purposes.</p>
+                  <a
+                    href="/api/owner/data-export"
+                    download
+                    className="inline-flex items-center gap-2 rounded-md bg-primary text-primary-foreground text-sm font-medium h-9 px-4 hover:bg-primary/90 transition-colors"
+                  >
+                    Download Export
+                  </a>
+                </div>
+                <div className="rounded-md border border-red-200 bg-red-50 p-4 space-y-2">
+                  <p className="text-sm font-medium text-red-700">Data Deletion</p>
+                  <p className="text-xs text-red-600">To request deletion of all organisation data, contact <a href="mailto:privacy@gupio.com" className="underline">privacy@gupio.com</a>. Account and all associated data will be permanently removed within 30 days.</p>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>

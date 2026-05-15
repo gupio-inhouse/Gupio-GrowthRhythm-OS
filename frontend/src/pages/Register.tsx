@@ -17,6 +17,9 @@ const schema = z.object({
   companyName: z.string().min(2, 'Company name required'),
   industry: z.string().min(2, 'Industry required'),
   phone: z.string().optional(),
+  employeeCount: z.number().min(1).max(10000).optional(),
+  fiscalYearStart: z.number().min(1).max(12).default(4),
+  preferredLanguage: z.string().default('en'),
 });
 
 type FormData = z.infer<typeof schema>;
@@ -29,6 +32,7 @@ const industries = [
 
 export default function Register() {
   const [error, setError] = useState('');
+  const [registered, setRegistered] = useState(false);
   const navigate = useNavigate();
   const setAuth = useAuthStore((s) => s.setAuth);
 
@@ -41,7 +45,9 @@ export default function Register() {
     try {
       const res = await api.post('/auth/register', data);
       setAuth(res.data.token, res.data.user, res.data.org);
-      navigate('/cockpit');
+      setRegistered(true);
+      // Owner accounts are immediately active — redirect after short delay
+      setTimeout(() => navigate('/cockpit'), 2000);
     } catch (err: unknown) {
       setError((err as { response?: { data?: { error?: string } } }).response?.data?.error || 'Registration failed');
     }
@@ -112,17 +118,59 @@ export default function Register() {
                     </select>
                     {errors.industry && <p className="text-red-400 text-xs mt-1">{errors.industry.message}</p>}
                   </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-blue-100 mb-1.5">Headcount</label>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={10000}
+                        placeholder="e.g. 45"
+                        {...register('employeeCount', { valueAsNumber: true })}
+                        className="bg-white/10 border-white/20 text-white placeholder:text-white/40"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-blue-100 mb-1.5">Fiscal Year Start</label>
+                      <select
+                        {...register('fiscalYearStart', { valueAsNumber: true })}
+                        className="flex h-10 w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      >
+                        {[
+                          [1, 'Jan (Q1)'], [4, 'Apr (India)'], [7, 'Jul'], [10, 'Oct'],
+                        ].map(([v, l]) => (
+                          <option key={v} value={v} className="bg-slate-800">{l}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              {error && (
+              {registered && (
+                <div className="rounded-md bg-emerald-500/20 border border-emerald-500/30 px-3 py-3 text-sm text-emerald-300 flex items-start gap-2">
+                  <span className="mt-0.5">&#10003;</span>
+                  <span>
+                    <strong>Workspace created!</strong> Check your email — we sent a magic link to sign in.
+                    Redirecting you now&hellip;
+                  </span>
+                </div>
+              )}
+
+              {!registered && error && (
                 <div className="rounded-md bg-red-500/20 border border-red-500/30 px-3 py-2 text-sm text-red-300">
                   {error}
                 </div>
               )}
 
-              <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-500" disabled={isSubmitting}>
-                {isSubmitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Creating workspace...</> : 'Create workspace'}
+              <div className="rounded-md bg-white/5 border border-white/10 px-3 py-3 text-xs text-blue-200/70 space-y-1">
+                <p className="font-medium text-blue-200/90">Data & Privacy Notice</p>
+                <p>By creating a workspace, you agree that GrowthRhythm OS will process and store your organisation's data (including employee information, tasks, and standups) in accordance with applicable Indian data protection laws (IT Act 2000, DPDPA 2023).</p>
+                <p>Employee data is collected only for legitimate business operations and may be exported or deleted upon request. You are responsible for obtaining consent from employees you invite.</p>
+              </div>
+
+              <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-500" disabled={isSubmitting || registered}>
+                {isSubmitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Creating workspace...</> : 'I agree — Create workspace'}
               </Button>
             </form>
 

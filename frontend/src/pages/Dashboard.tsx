@@ -201,9 +201,12 @@ function DepartmentDashboard({ slug }: { slug: string }) {
         {/* Widget 8: Learning stats */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <BookOpen className="h-4 w-4 text-indigo-500" />
-              Learning
+            <CardTitle className="text-base flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2">
+                <BookOpen className="h-4 w-4 text-indigo-500" />
+                Learning
+              </span>
+              {slug && <Link to={`/learning/${slug}`} className="text-xs text-indigo-600 hover:underline">View all →</Link>}
             </CardTitle>
           </CardHeader>
           <CardContent>

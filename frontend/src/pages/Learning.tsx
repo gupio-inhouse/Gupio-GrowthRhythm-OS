@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { BookOpen, CheckCircle2, Clock, Video, FileText, HelpCircle, Plus, Send } from 'lucide-react';
+import { BookOpen, CheckCircle2, Clock, Video, FileText, HelpCircle, Send, Play, Trophy, XCircle, Sparkles, ChevronUp, ChevronDown } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -18,15 +19,26 @@ const typeIcon: Record<string, React.ElementType> = {
   ASSIGNMENT: CheckCircle2, ROLE_PLAY: BookOpen, EXTERNAL_LINK: BookOpen, COACHING_NOTE: BookOpen,
 };
 
+type QuizQuestion = {
+  id: string; text: string; options: string[]; correct: number; explanation?: string;
+};
+type QuizJson = { questions: QuizQuestion[]; passMark?: number };
+
+type LearningItemFull = {
+  id: string; title: string; type: string; estimatedMinutes?: number;
+  contentUrl?: string; quizJson?: QuizJson; learningPathId: string;
+  learningPath: { id: string; title: string };
+};
+
 type Assignment = {
   id: string; status: string; dueDate?: string;
-  learningItem: { id: string; title: string; type: string; estimatedMinutes?: number; learningPath: { id: string; title: string } };
+  learningItem: LearningItemFull;
 };
 
 type LearningPath = {
   id: string; title: string; description?: string;
   _count: { items: number };
-  department?: { name: string };
+  department?: { id: string; name: string; slug: string };
 };
 
 type LearningItem = {
@@ -166,12 +178,83 @@ function AssignDialog({ open, onClose }: { open: boolean; onClose: () => void })
   );
 }
 
+// ── AI Recommendations panel ──────────────────────────────────────────────────
+
+type Recommendation = { title: string; reason: string; priority: 'high' | 'medium' | 'low' };
+
+function AiRecommendPanel() {
+  const [open, setOpen] = useState(false);
+  const { data, isFetching, refetch } = useQuery<{ recommendations: Recommendation[] }>({
+    queryKey: ['learning-ai-recommend'],
+    queryFn: () => api.get('/learning/ai-recommend').then((r) => r.data),
+    enabled: false,
+    staleTime: 1800_000,
+  });
+
+  const priorityColor: Record<string, string> = {
+    high: 'bg-red-50 text-red-700 border-red-200',
+    medium: 'bg-yellow-50 text-yellow-700 border-yellow-200',
+    low: 'bg-gray-50 text-gray-600 border-gray-200',
+  };
+
+  const handleOpen = () => {
+    if (!open) refetch();
+    setOpen((v) => !v);
+  };
+
+  return (
+    <Card className="border-indigo-200 bg-indigo-50/30">
+      <CardHeader className="pb-3 cursor-pointer" onClick={handleOpen}>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm flex items-center gap-2 text-indigo-700">
+            <Sparkles className="h-4 w-4" />
+            AI Learning Recommendations
+          </CardTitle>
+          <div className="flex items-center gap-2">
+            {open && (
+              <Button size="sm" variant="ghost" className="h-6 px-2 text-xs text-indigo-600" onClick={(e) => { e.stopPropagation(); refetch(); }}>
+                Refresh
+              </Button>
+            )}
+            {open ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+          </div>
+        </div>
+      </CardHeader>
+      {open && (
+        <CardContent className="pt-0">
+          {isFetching ? (
+            <p className="text-xs text-muted-foreground animate-pulse">Generating personalised recommendations…</p>
+          ) : data?.recommendations?.length ? (
+            <div className="space-y-2">
+              {data.recommendations.map((r, i) => (
+                <div key={i} className="rounded-md border bg-white p-3 space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium">{r.title}</p>
+                    <Badge className={`text-xs border shrink-0 ${priorityColor[r.priority] || priorityColor.low}`}>
+                      {r.priority}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{r.reason}</p>
+                </div>
+              ))}
+            </div>
+          ) : data ? (
+            <p className="text-xs text-muted-foreground">All pending items look good — no specific recommendations right now.</p>
+          ) : null}
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function Learning() {
   const { user } = useAuthStore();
+  const { deptSlug } = useParams<{ deptSlug?: string }>();
   const qc = useQueryClient();
   const [assignOpen, setAssignOpen] = useState(false);
+  const [quizTarget, setQuizTarget] = useState<{ assignmentId: string; item: LearningItemFull } | null>(null);
   const canAssign = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
 
   const { data: assignments = [] } = useQuery<Assignment[]>({
@@ -179,10 +262,15 @@ export default function Learning() {
     queryFn: () => api.get('/learning/assignments').then((r) => r.data),
   });
 
-  const { data: paths = [] } = useQuery<LearningPath[]>({
+  const { data: allPaths = [] } = useQuery<LearningPath[]>({
     queryKey: ['learning-paths'],
     queryFn: () => api.get('/learning/paths').then((r) => r.data),
   });
+
+  const paths = useMemo(
+    () => deptSlug ? allPaths.filter((p) => p.department?.slug === deptSlug) : allPaths,
+    [allPaths, deptSlug]
+  );
 
   const completeMutation = useMutation({
     mutationFn: (id: string) => api.patch(`/learning/assignments/${id}/complete`, {}),
@@ -199,9 +287,11 @@ export default function Learning() {
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <BookOpen className="h-6 w-6 text-indigo-500" />
-            Learning Hub
+            {deptSlug ? `Learning — ${deptSlug}` : 'Learning Hub'}
           </h1>
-          <p className="text-muted-foreground text-sm mt-0.5">Skill building connected to execution</p>
+          <p className="text-muted-foreground text-sm mt-0.5">
+            {deptSlug ? `Showing paths for ${deptSlug} department` : 'Skill building connected to execution'}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           {canAssign && (
@@ -245,6 +335,8 @@ export default function Learning() {
         </Card>
       </div>
 
+      <AiRecommendPanel />
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* My Assignments */}
         <div>
@@ -273,7 +365,16 @@ export default function Learning() {
                       {a.learningItem.estimatedMinutes && (
                         <span className="text-xs text-muted-foreground">{a.learningItem.estimatedMinutes}m</span>
                       )}
-                      {a.status !== 'COMPLETED' && (
+                      {a.status !== 'COMPLETED' && a.learningItem.type === 'QUIZ' && a.learningItem.quizJson?.questions?.length ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-xs h-7 px-2 gap-1"
+                          onClick={() => setQuizTarget({ assignmentId: a.id, item: a.learningItem })}
+                        >
+                          <Play className="h-3 w-3" /> Take Quiz
+                        </Button>
+                      ) : a.status !== 'COMPLETED' ? (
                         <Button
                           size="sm"
                           variant="ghost"
@@ -283,7 +384,7 @@ export default function Learning() {
                         >
                           Mark done
                         </Button>
-                      )}
+                      ) : null}
                       <Badge className={cn('text-xs border', {
                         'bg-green-50 text-green-700 border-green-200': a.status === 'COMPLETED',
                         'bg-red-50 text-red-700 border-red-200': isOverdue,
@@ -335,6 +436,169 @@ export default function Learning() {
       </div>
 
       <AssignDialog open={assignOpen} onClose={() => setAssignOpen(false)} />
+
+      {quizTarget && (
+        <QuizDialog
+          assignmentId={quizTarget.assignmentId}
+          item={quizTarget.item}
+          onClose={() => setQuizTarget(null)}
+          onPassed={() => {
+            completeMutation.mutate(quizTarget.assignmentId);
+            setQuizTarget(null);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+// ── Quiz engine ───────────────────────────────────────────────────────────────
+
+function QuizDialog({ assignmentId, item, onClose, onPassed }: {
+  assignmentId: string;
+  item: LearningItemFull;
+  onClose: () => void;
+  onPassed: () => void;
+}) {
+  const quiz = item.quizJson as QuizJson;
+  const questions = quiz?.questions ?? [];
+  const passMark = quiz?.passMark ?? 70;
+
+  const [answers, setAnswers] = useState<Record<string, number>>({});
+  const [submitted, setSubmitted] = useState(false);
+  const [currentQ, setCurrentQ] = useState(0);
+
+  const score = submitted
+    ? Math.round((questions.filter((q) => answers[q.id] === q.correct).length / questions.length) * 100)
+    : 0;
+  const passed = submitted && score >= passMark;
+
+  const handleSelect = (qId: string, idx: number) => {
+    if (!submitted) setAnswers((prev) => ({ ...prev, [qId]: idx }));
+  };
+
+  const handleSubmit = () => {
+    if (Object.keys(answers).length < questions.length) return;
+    setSubmitted(true);
+  };
+
+  const question = questions[currentQ];
+  const answered = Object.keys(answers).length;
+
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <HelpCircle className="h-4 w-4 text-indigo-500" />
+            {item.title}
+          </DialogTitle>
+        </DialogHeader>
+
+        {submitted ? (
+          <div className="py-6 text-center space-y-4">
+            {passed ? (
+              <>
+                <Trophy className="h-12 w-12 text-yellow-500 mx-auto" />
+                <p className="text-xl font-bold text-green-600">Passed! 🎉</p>
+              </>
+            ) : (
+              <>
+                <XCircle className="h-12 w-12 text-red-400 mx-auto" />
+                <p className="text-xl font-bold text-red-600">Not passed</p>
+              </>
+            )}
+            <p className="text-3xl font-bold">{score}%</p>
+            <p className="text-sm text-muted-foreground">Pass mark: {passMark}% · {questions.filter((q) => answers[q.id] === q.correct).length}/{questions.length} correct</p>
+
+            {/* Answer review */}
+            <div className="text-left space-y-3 max-h-48 overflow-y-auto mt-2">
+              {questions.map((q, i) => {
+                const isCorrect = answers[q.id] === q.correct;
+                return (
+                  <div key={q.id} className={cn('rounded p-3 text-sm', isCorrect ? 'bg-green-50' : 'bg-red-50')}>
+                    <p className="font-medium">{i + 1}. {q.text}</p>
+                    <p className={cn('text-xs mt-1', isCorrect ? 'text-green-700' : 'text-red-700')}>
+                      {isCorrect ? '✓ Correct' : `✗ You chose: ${q.options[answers[q.id]]} · Correct: ${q.options[q.correct]}`}
+                    </p>
+                    {q.explanation && <p className="text-xs text-muted-foreground mt-1">{q.explanation}</p>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>Question {currentQ + 1} of {questions.length}</span>
+              <span>{answered}/{questions.length} answered</span>
+            </div>
+            <Progress value={((currentQ + 1) / questions.length) * 100} className="h-1" />
+
+            {question && (
+              <div className="space-y-3">
+                <p className="font-medium">{question.text}</p>
+                <div className="space-y-2">
+                  {question.options.map((opt, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => handleSelect(question.id, idx)}
+                      className={cn(
+                        'w-full text-left text-sm rounded-md border px-3 py-2.5 transition-colors',
+                        answers[question.id] === idx
+                          ? 'border-primary bg-primary/5 text-primary font-medium'
+                          : 'hover:border-muted-foreground hover:bg-muted/50'
+                      )}
+                    >
+                      <span className="font-medium mr-2">{String.fromCharCode(65 + idx)}.</span>
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between pt-2">
+              <Button
+                variant="outline" size="sm"
+                onClick={() => setCurrentQ((q) => Math.max(0, q - 1))}
+                disabled={currentQ === 0}
+              >
+                Previous
+              </Button>
+              {currentQ < questions.length - 1 ? (
+                <Button
+                  size="sm"
+                  onClick={() => setCurrentQ((q) => Math.min(questions.length - 1, q + 1))}
+                  disabled={!answers[question?.id]}
+                >
+                  Next
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  onClick={handleSubmit}
+                  disabled={answered < questions.length}
+                >
+                  Submit Quiz
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+
+        <DialogFooter>
+          {submitted && passed ? (
+            <Button onClick={onPassed} className="gap-2">
+              <CheckCircle2 className="h-4 w-4" /> Mark Complete
+            </Button>
+          ) : submitted ? (
+            <Button variant="outline" onClick={onClose}>Close (Retry later)</Button>
+          ) : (
+            <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

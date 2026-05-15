@@ -174,6 +174,8 @@ model Organization {
   isActive         Boolean  @default(true) @map("is_active")
   aiCreditsTotal   Int      @default(1000) @map("ai_credits_total")
   aiCreditsUsed    Int      @default(0) @map("ai_credits_used")
+  quietHoursStart  Int?     @default(22) @map("quiet_hours_start")
+  quietHoursEnd    Int?     @default(7) @map("quiet_hours_end")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
@@ -190,6 +192,10 @@ model Organization {
   skills          Skill[]
   learningPaths   LearningPath[]
   industryTemplate IndustryTemplate?
+  jobDescriptions JobDescription[]
+  candidates      Candidate[]
+  onboardingChecklists OnboardingChecklist[]
+  oauthTokens     OAuthToken[]
 
   @@map("organizations")
 }
@@ -229,6 +235,8 @@ model User {
   notifications        Notification[]
   auditLogs            AuditLog[]
   headOfDepartments    Department[]       @relation("DepartmentHead")
+  interviewScorecards  InterviewScorecard[]
+  onboardingChecklists OnboardingChecklist[]
 
   @@unique([orgId, email])
   @@map("users")
@@ -252,12 +260,13 @@ model Department {
   parent       Department?  @relation("SubDepartments", fields: [parentDeptId], references: [id])
   subDepts     Department[] @relation("SubDepartments")
 
-  users         User[]
-  kras          KRA[]
-  tasks         Task[]
-  standups      Standup[]
-  learningPaths LearningPath[]
-  skills        Skill[]
+  users           User[]
+  kras            KRA[]
+  tasks           Task[]
+  standups        Standup[]
+  learningPaths   LearningPath[]
+  skills          Skill[]
+  jobDescriptions JobDescription[]
 
   @@unique([orgId, slug])
   @@map("departments")
@@ -595,4 +604,124 @@ model IndustryTemplate {
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@map("industry_templates")
+}
+
+// ─── Hiring & Capability Planner (M15) ───────────────────────────────────────
+
+enum HiringStage {
+  OPEN
+  SOURCING
+  SCREENING
+  INTERVIEWING
+  OFFER
+  HIRED
+  REJECTED
+  ON_HOLD
+}
+
+enum CandidateStatus {
+  ACTIVE
+  ARCHIVED
+  HIRED
+  REJECTED
+}
+
+model JobDescription {
+  id           String    @id @default(cuid())
+  orgId        String    @map("org_id")
+  departmentId String?   @map("department_id")
+  title        String
+  description  String?
+  requirements String?
+  niceToHave   String?
+  salaryMin    Int?      @map("salary_min")
+  salaryMax    Int?      @map("salary_max")
+  location     String?
+  isRemote     Boolean   @default(false) @map("is_remote")
+  stage        HiringStage @default(OPEN)
+  createdBy    String    @map("created_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  org        Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  department Department?   @relation(fields: [departmentId], references: [id])
+  candidates Candidate[]
+
+  @@map("job_descriptions")
+}
+
+model Candidate {
+  id              String          @id @default(cuid())
+  orgId           String          @map("org_id")
+  jobId           String          @map("job_id")
+  name            String
+  email           String
+  phone           String?
+  resumeUrl       String?         @map("resume_url")
+  linkedinUrl     String?         @map("linkedin_url")
+  stage           HiringStage     @default(SOURCING)
+  status          CandidateStatus @default(ACTIVE)
+  notes           String?
+  consentGiven    Boolean         @default(false) @map("consent_given")
+  consentGivenAt  DateTime?       @map("consent_given_at")
+  createdBy       String          @map("created_by")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  org          Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  job          JobDescription      @relation(fields: [jobId], references: [id])
+  scorecards   InterviewScorecard[]
+
+  @@map("candidates")
+}
+
+model InterviewScorecard {
+  id          String   @id @default(cuid())
+  candidateId String   @map("candidate_id")
+  interviewerId String @map("interviewer_id")
+  round       String
+  scores      Json
+  overallRating Int?   @map("overall_rating")
+  recommendation String?
+  notes       String?
+  conductedAt DateTime @default(now()) @map("conducted_at")
+
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  interviewer User      @relation(fields: [interviewerId], references: [id])
+
+  @@map("interview_scorecards")
+}
+
+model OnboardingChecklist {
+  id          String   @id @default(cuid())
+  orgId       String   @map("org_id")
+  userId      String   @map("user_id")
+  title       String
+  items       Json
+  completedAt DateTime? @map("completed_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User         @relation(fields: [userId], references: [id])
+
+  @@map("onboarding_checklists")
+}
+
+// ─── OAuth Tokens (M11.1 / M11.2) ────────────────────────────────────────────
+
+model OAuthToken {
+  id           String    @id @default(cuid())
+  orgId        String    @map("org_id")
+  provider     String
+  accessToken  String    @map("access_token")
+  refreshToken String?   @map("refresh_token")
+  expiresAt    DateTime? @map("expires_at")
+  scope        String?
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, provider])
+  @@map("oauth_tokens")
 }
