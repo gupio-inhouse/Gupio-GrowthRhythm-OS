@@ -61,8 +61,9 @@ export default function Login() {
           <CardContent>
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-blue-100 mb-1.5">Email</label>
+                <label htmlFor="email" className="block text-sm font-medium text-blue-100 mb-1.5">Email</label>
                 <Input
+                  id="email"
                   {...register('email')}
                   type="email"
                   placeholder="you@company.com"
@@ -72,9 +73,10 @@ export default function Login() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-blue-100 mb-1.5">Password</label>
+                <label htmlFor="password" className="block text-sm font-medium text-blue-100 mb-1.5">Password</label>
                 <div className="relative">
                   <Input
+                    id="password"
                     {...register('password')}
                     type={showPw ? 'text' : 'password'}
                     placeholder="••••••••"

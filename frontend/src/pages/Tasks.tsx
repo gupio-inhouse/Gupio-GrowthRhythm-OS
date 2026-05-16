@@ -14,6 +14,7 @@ import { BlockerDialog } from '@/components/tasks/BlockerDialog';
 import { NewTaskDialog } from '@/components/tasks/NewTaskDialog';
 import { TaskDetailDrawer } from '@/components/tasks/TaskDetailDrawer';
 import api from '@/api/client';
+import { useAuthStore } from '@/store/authStore';
 
 type Task = {
   id: string; title: string; status: string; priority: string;
@@ -39,12 +40,14 @@ const STATUS_COLORS: Record<string, string> = {
 
 export default function Tasks() {
   const qc = useQueryClient();
+  const { user } = useAuthStore();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [view, setView] = useState<'list' | 'kanban'>('list');
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [csvImportOpen, setCsvImportOpen] = useState(false);
+  const canCreateTasks = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
 
   // Blocker dialog state (for inline list status change)
   const [blockerCtx, setBlockerCtx] = useState<{ taskId: string; taskTitle: string } | null>(null);
@@ -119,12 +122,16 @@ export default function Tasks() {
               <LayoutGrid className="h-4 w-4" />
             </button>
           </div>
-          <Button variant="outline" className="gap-2" onClick={() => setCsvImportOpen(true)}>
-            <Upload className="h-4 w-4" /> Import CSV
-          </Button>
-          <Button className="gap-2" onClick={() => setNewTaskOpen(true)}>
-            <Plus className="h-4 w-4" /> New Task
-          </Button>
+          {canCreateTasks && (
+            <>
+              <Button variant="outline" className="gap-2" onClick={() => setCsvImportOpen(true)}>
+                <Upload className="h-4 w-4" /> Import CSV
+              </Button>
+              <Button className="gap-2" onClick={() => setNewTaskOpen(true)}>
+                <Plus className="h-4 w-4" /> New Task
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -190,11 +197,13 @@ export default function Tasks() {
       )}
 
       {/* Dialogs / Drawers */}
-      <NewTaskDialog
-        open={newTaskOpen}
-        onClose={() => setNewTaskOpen(false)}
-        onCreated={() => qc.invalidateQueries({ queryKey: ['tasks'] })}
-      />
+      {canCreateTasks && (
+        <NewTaskDialog
+          open={newTaskOpen}
+          onClose={() => setNewTaskOpen(false)}
+          onCreated={() => qc.invalidateQueries({ queryKey: ['tasks'] })}
+        />
+      )}
 
       <TaskDetailDrawer
         taskId={selectedTaskId}
@@ -209,14 +218,16 @@ export default function Tasks() {
         isLoading={updateMutation.isPending}
       />
 
-      <CsvImportDialog
-        open={csvImportOpen}
-        onClose={() => setCsvImportOpen(false)}
-        onImported={() => {
-          qc.invalidateQueries({ queryKey: ['tasks'] });
-          setCsvImportOpen(false);
-        }}
-      />
+      {canCreateTasks && (
+        <CsvImportDialog
+          open={csvImportOpen}
+          onClose={() => setCsvImportOpen(false)}
+          onImported={() => {
+            qc.invalidateQueries({ queryKey: ['tasks'] });
+            setCsvImportOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -115,21 +115,31 @@ router.post('/login', async (req: Request, res: Response) => {
 
   const { email, password } = parsed.data;
 
-  const user = await prisma.user.findFirst({
+  const users = await prisma.user.findMany({
     where: { email },
+    orderBy: { createdAt: 'desc' },
     include: {
       org: { select: { id: true, name: true, plan: true, industry: true } },
       department: { select: { id: true, name: true, slug: true } },
     },
   });
 
-  if (!user || !user.passwordHash) {
+  if (users.length === 0) {
     res.status(401).json({ error: 'Invalid credentials' });
     return;
   }
 
-  const valid = await bcrypt.compare(password, user.passwordHash);
-  if (!valid) {
+  let user = null as (typeof users)[number] | null;
+  for (const candidate of users) {
+    if (!candidate.passwordHash) continue;
+    const valid = await bcrypt.compare(password, candidate.passwordHash);
+    if (valid) {
+      user = candidate;
+      break;
+    }
+  }
+
+  if (!user) {
     res.status(401).json({ error: 'Invalid credentials' });
     return;
   }

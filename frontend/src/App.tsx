@@ -18,6 +18,7 @@ import MagicLinkVerify from '@/pages/MagicLinkVerify';
 import Hiring from '@/pages/Hiring';
 import Integrations from '@/pages/Integrations';
 import { useAuthStore } from '@/store/authStore';
+import { getRoleRedirect } from '@/lib/roleRedirect';
 
 const qc = new QueryClient({
   defaultOptions: {
@@ -35,7 +36,10 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 function PublicRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  return isAuthenticated ? <Navigate to="/dashboard" replace /> : <>{children}</>;
+  const user = useAuthStore((s) => s.user);
+  return isAuthenticated
+    ? <Navigate to={getRoleRedirect(user?.role || '', user?.departmentSlug)} replace />
+    : <>{children}</>;
 }
 
 export default function App() {

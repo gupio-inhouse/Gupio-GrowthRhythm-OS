@@ -108,28 +108,30 @@ router.post('/:id/end', async (req: AuthRequest, res: Response) => {
   res.json(updated);
 
   // M5.7: trigger AI digest in background (T+60s)
-  setTimeout(async () => {
-    try {
-      const digest = await generateStandupDigest(standup.id);
-      if (!digest || digest === 'Insufficient AI credits') return;
+  if (process.env.NODE_ENV !== 'test') {
+    setTimeout(async () => {
+      try {
+        const digest = await generateStandupDigest(standup.id);
+        if (!digest || digest === 'Insufficient AI credits') return;
 
-      const dept = await prisma.department.findUnique({
-        where: { id: standup.departmentId },
-        include: { users: { where: { status: 'ACTIVE' }, select: { id: true } } },
-      });
-      if (!dept) return;
+        const dept = await prisma.department.findUnique({
+          where: { id: standup.departmentId },
+          include: { users: { where: { status: 'ACTIVE' }, select: { id: true } } },
+        });
+        if (!dept) return;
 
-      await prisma.standup.update({ where: { id: standup.id }, data: { aiDigestSent: true } });
-      await fanOutNotification(
-        standup.orgId,
-        dept.users.map((u) => u.id),
-        'STANDUP_REMINDER',
-        { departmentName: dept.name, digest, time: '' }
-      );
-    } catch (e) {
-      console.error('[standup-digest] error:', e);
-    }
-  }, 60_000);
+        await prisma.standup.update({ where: { id: standup.id }, data: { aiDigestSent: true } });
+        await fanOutNotification(
+          standup.orgId,
+          dept.users.map((u) => u.id),
+          'STANDUP_REMINDER',
+          { departmentName: dept.name, digest, time: '' }
+        );
+      } catch (e) {
+        console.error('[standup-digest] error:', e);
+      }
+    }, 60_000);
+  }
 });
 
 // PATCH /standups/:id/cards/:cardId — update own standup card

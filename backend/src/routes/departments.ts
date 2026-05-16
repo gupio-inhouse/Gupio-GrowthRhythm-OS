@@ -9,6 +9,14 @@ const router = Router();
 
 router.use(authenticate);
 
+async function getActorDepartmentId(userId: string) {
+  const actor = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { departmentId: true },
+  });
+  return actor?.departmentId ?? null;
+}
+
 const createSchema = z.object({
   name: z.string().min(2),
   slug: z.string().min(2).regex(/^[a-z0-9-]+$/),
@@ -75,6 +83,14 @@ router.get('/:slug', async (req: AuthRequest, res: Response) => {
     return;
   }
 
+  if (['DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'].includes(req.user!.role)) {
+    const actorDepartmentId = await getActorDepartmentId(req.user!.userId);
+    if (!actorDepartmentId || actorDepartmentId !== dept.id) {
+      res.status(403).json({ error: 'Forbidden' });
+      return;
+    }
+  }
+
   res.json(dept);
 });
 
@@ -103,6 +119,14 @@ router.post('/', requireRole('OWNER', 'COMPANY_ADMIN'), auditLog('department', '
 
 // PATCH /departments/:id
 router.patch('/:id', requireRole('OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'), auditLog('department', 'UPDATE'), async (req: AuthRequest, res: Response) => {
+  if (req.user!.role === 'DEPARTMENT_HEAD') {
+    const actorDepartmentId = await getActorDepartmentId(req.user!.userId);
+    if (!actorDepartmentId || actorDepartmentId !== req.params.id) {
+      res.status(403).json({ error: 'You can only update your own department' });
+      return;
+    }
+  }
+
   const dept = await prisma.department.update({
     where: { id: req.params.id as string, orgId: req.user!.orgId },
     data: req.body,
@@ -126,6 +150,14 @@ router.get('/:slug/dashboard', async (req: AuthRequest, res: Response) => {
   if (!dept) {
     res.status(404).json({ error: 'Department not found' });
     return;
+  }
+
+  if (['DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'].includes(req.user!.role)) {
+    const actorDepartmentId = await getActorDepartmentId(req.user!.userId);
+    if (!actorDepartmentId || actorDepartmentId !== dept.id) {
+      res.status(403).json({ error: 'Forbidden' });
+      return;
+    }
   }
 
   const now = new Date();

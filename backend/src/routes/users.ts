@@ -10,16 +10,53 @@ import { encryptField, decryptField } from '../services/crypto.service';
 const router = Router();
 router.use(authenticate);
 
+async function getViewerScope(userId: string) {
+  const viewer = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, role: true, departmentId: true },
+  });
+
+  return viewer;
+}
+
+function canViewUserDirectory(viewerRole: string) {
+  return ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'].includes(viewerRole);
+}
+
+function canAccessUser(viewer: { id: string; role: string; departmentId: string | null }, target: { id: string; departmentId: string | null }) {
+  if (['OWNER', 'COMPANY_ADMIN', 'SUPER_ADMIN'].includes(viewer.role)) return true;
+  if (viewer.role === 'TEAM_MEMBER') return viewer.id === target.id;
+  return !!viewer.departmentId && viewer.departmentId === target.departmentId;
+}
+
 // GET /users
 router.get('/', async (req: AuthRequest, res: Response) => {
+  const viewer = await getViewerScope(req.user!.userId);
+  if (!viewer || !canViewUserDirectory(viewer.role)) {
+    res.status(403).json({ error: 'Forbidden' });
+    return;
+  }
+
   const { departmentId, role } = req.query;
+  const where: Record<string, unknown> = {
+    orgId: req.user!.orgId,
+    ...(departmentId ? { departmentId: departmentId as string } : {}),
+    ...(role ? { role: role as never } : {}),
+    status: { not: 'DEACTIVATED' },
+  };
+
+  if (viewer.role === 'TEAM_MEMBER') {
+    where.id = viewer.id;
+  } else if (['MANAGER', 'DEPARTMENT_HEAD'].includes(viewer.role)) {
+    if (!viewer.departmentId) {
+      res.json([]);
+      return;
+    }
+    where.departmentId = viewer.departmentId;
+  }
+
   const users = await prisma.user.findMany({
-    where: {
-      orgId: req.user!.orgId,
-      ...(departmentId ? { departmentId: departmentId as string } : {}),
-      ...(role ? { role: role as never } : {}),
-      status: { not: 'DEACTIVATED' },
-    },
+    where,
     select: {
       id: true, name: true, email: true, phone: true, role: true,
       departmentId: true, managerId: true, status: true, avatarUrl: true,
@@ -28,11 +65,24 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     },
     orderBy: { name: 'asc' },
   });
-  res.json(users.map((u) => ({ ...u, phone: decryptField(u.phone) })));
+  res.json(
+    users.map((u) => ({
+      ...u,
+      phone: ['OWNER', 'COMPANY_ADMIN', 'SUPER_ADMIN'].includes(viewer.role) || u.id === viewer.id
+        ? decryptField(u.phone)
+        : null,
+    }))
+  );
 });
 
 // GET /users/:id
 router.get('/:id', async (req: AuthRequest, res: Response) => {
+  const viewer = await getViewerScope(req.user!.userId);
+  if (!viewer) {
+    res.status(403).json({ error: 'Forbidden' });
+    return;
+  }
+
   const user = await prisma.user.findUnique({
     where: { id: req.params.id as string, orgId: req.user!.orgId },
     select: {
@@ -50,7 +100,17 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     return;
   }
 
-  res.json({ ...user, phone: decryptField(user.phone) });
+  if (!canAccessUser(viewer, user)) {
+    res.status(403).json({ error: 'Forbidden' });
+    return;
+  }
+
+  res.json({
+    ...user,
+    phone: ['OWNER', 'COMPANY_ADMIN', 'SUPER_ADMIN'].includes(viewer.role) || user.id === viewer.id
+      ? decryptField(user.phone)
+      : null,
+  });
 });
 
 // POST /users/invite — invite a team member
@@ -63,7 +123,7 @@ const inviteSchema = z.object({
   phone: z.string().optional(),
 });
 
-router.post('/invite', requireRole('OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'), async (req: AuthRequest, res: Response) => {
+router.post('/invite', requireRole('OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'), async (req: AuthRequest, res: Response) => {
   const parsed = inviteSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.flatten() });
@@ -71,13 +131,38 @@ router.post('/invite', requireRole('OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'),
   }
 
   try {
+    let inviteData = { ...parsed.data };
+
+    if (req.user!.role === 'MANAGER') {
+      if (inviteData.role !== 'TEAM_MEMBER') {
+        res.status(403).json({ error: 'Managers can only invite team members' });
+        return;
+      }
+
+      const manager = await prisma.user.findUnique({
+        where: { id: req.user!.userId },
+        select: { departmentId: true },
+      });
+
+      if (!manager?.departmentId) {
+        res.status(400).json({ error: 'Manager must belong to a department before inviting team members' });
+        return;
+      }
+
+      inviteData = {
+        ...inviteData,
+        departmentId: manager.departmentId,
+        managerId: req.user!.userId,
+      };
+    }
+
     const tempPassword = Math.random().toString(36).slice(-10);
     const passwordHash = await bcrypt.hash(tempPassword, 12);
 
     const user = await prisma.user.create({
       data: {
-        ...parsed.data,
-        phone: encryptField(parsed.data.phone) ?? null,
+        ...inviteData,
+        phone: encryptField(inviteData.phone) ?? null,
         orgId: req.user!.orgId,
         status: 'INVITED',
         passwordHash,
@@ -85,10 +170,11 @@ router.post('/invite', requireRole('OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'),
     });
 
     // Generate magic link and send invite email
-    let emailSent = true;
+    let emailSent = false;
+    let inviteLink: string | null = null;
     try {
       const purpose =
-        parsed.data.role === 'DEPARTMENT_HEAD'
+        inviteData.role === 'DEPARTMENT_HEAD'
           ? ('DEPARTMENT_HEAD_INVITE' as const)
           : ('MEMBER_INVITE' as const);
 
@@ -98,8 +184,9 @@ router.post('/invite', requireRole('OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'),
         purpose,
         expiresInHours: 48,
       });
+      inviteLink = link;
 
-      await sendMagicLinkEmail({
+      emailSent = await sendMagicLinkEmail({
         to: user.email,
         name: user.name,
         magicLinkUrl: link,
@@ -117,6 +204,7 @@ router.post('/invite', requireRole('OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'),
       role: user.role,
       status: user.status,
       emailSent,
+      inviteLink,
     });
   } catch (err: unknown) {
     if ((err as { code?: string }).code === 'P2002') {

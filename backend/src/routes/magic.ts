@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import bcrypt from 'bcryptjs';
 import { prisma } from '../lib/prisma';
 import { signToken } from '../lib/jwt';
 import { authenticate, AuthRequest, requireRole } from '../middleware/auth';
@@ -12,6 +13,10 @@ const router = Router();
 
 // ─── POST /magic/verify — public ─────────────────────────────────────────────
 const verifySchema = z.object({ token: z.string().min(1) });
+const acceptInviteSchema = z.object({
+  token: z.string().min(1),
+  password: z.string().min(8),
+});
 
 router.post('/verify', async (req: Request, res: Response) => {
   const parsed = verifySchema.safeParse(req.body);
@@ -47,6 +52,27 @@ router.post('/verify', async (req: Request, res: Response) => {
 
   const { magicLink, user } = verifyResult;
 
+  const isInvitePurpose =
+    magicLink.purpose === 'DEPARTMENT_HEAD_INVITE' ||
+    magicLink.purpose === 'MEMBER_INVITE' ||
+    magicLink.purpose === 'COMPANY_ONBOARDING';
+
+  if (user.status === 'INVITED' && isInvitePurpose) {
+    res.json({
+      setupRequired: true,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        departmentId: user.departmentId,
+        departmentSlug: user.department?.slug ?? null,
+      },
+      org: user.org,
+    });
+    return;
+  }
+
   // Mark as consumed
   await consumeMagicLink(magicLink.id);
 
@@ -70,6 +96,98 @@ router.post('/verify', async (req: Request, res: Response) => {
         orgId: user.orgId,
         userId: user.id,
         entityType: 'magic_link',
+        entityId: magicLink.id,
+        action: 'LOGIN',
+        after: { purpose: magicLink.purpose, userId: user.id },
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      },
+    })
+    .catch(console.error);
+
+  const jwtToken = signToken({
+    userId: user.id,
+    orgId: user.orgId,
+    role: user.role,
+    email: user.email,
+  });
+
+  res.json({
+    token: jwtToken,
+    setupRequired: false,
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      departmentId: user.departmentId,
+      departmentSlug: user.department?.slug ?? null,
+    },
+    org: user.org,
+  });
+});
+
+router.post('/accept-invite', async (req: Request, res: Response) => {
+  const parsed = acceptInviteSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'token and password are required' });
+    return;
+  }
+
+  const { token, password } = parsed.data;
+
+  let verifyResult: Awaited<ReturnType<typeof verifyMagicLink>>;
+
+  try {
+    verifyResult = await verifyMagicLink(token);
+  } catch (err) {
+    const msg = (err as Error).message;
+    const statusMap: Record<string, number> = {
+      EXPIRED: 410,
+      USED: 410,
+      REVOKED: 410,
+      NOT_FOUND: 404,
+    };
+    const status = statusMap[msg] ?? 400;
+    const readable: Record<string, string> = {
+      EXPIRED: 'This invite link has expired. Please request a new one.',
+      USED: 'This invite link has already been used.',
+      REVOKED: 'This invite link has been revoked.',
+      NOT_FOUND: 'Invite link not found.',
+    };
+    res.status(status).json({ error: readable[msg] ?? 'Invalid invite link.' });
+    return;
+  }
+
+  const { magicLink, user } = verifyResult;
+  const isInvitePurpose =
+    magicLink.purpose === 'DEPARTMENT_HEAD_INVITE' ||
+    magicLink.purpose === 'MEMBER_INVITE' ||
+    magicLink.purpose === 'COMPANY_ONBOARDING';
+
+  if (!isInvitePurpose) {
+    res.status(400).json({ error: 'This link is not for account setup.' });
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12);
+
+  await consumeMagicLink(magicLink.id);
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      status: 'ACTIVE',
+      passwordHash,
+      lastLoginAt: new Date(),
+    },
+  });
+
+  prisma.auditLog
+    .create({
+      data: {
+        orgId: user.orgId,
+        userId: user.id,
+        entityType: 'invite_acceptance',
         entityId: magicLink.id,
         action: 'LOGIN',
         after: { purpose: magicLink.purpose, userId: user.id },

@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
-import { Building2, Users, CheckSquare, Target, ArrowRight, Clock, Settings } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { Building2, Users, CheckSquare, Target, ArrowRight, Clock, Settings, Plus } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -21,22 +21,92 @@ type Department = {
 
 export default function Departments() {
   const { user } = useAuthStore();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [scheduleTarget, setScheduleTarget] = useState<Department | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [slug, setSlug] = useState('');
+  const [error, setError] = useState('');
   const { data: departments = [], isLoading } = useQuery<Department[]>({
     queryKey: ['departments'],
     queryFn: () => api.get('/departments').then((r) => r.data),
   });
 
   const canConfigure = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'].includes(user?.role || '');
+  const canCreate = ['OWNER', 'COMPANY_ADMIN'].includes(user?.role || '');
+  const qc = useQueryClient();
+
+  useEffect(() => {
+    if (searchParams.get('create') === 'department') {
+      setCreateOpen(true);
+    }
+  }, [searchParams]);
+
+  const clearCreateParam = () => {
+    if (!searchParams.get('create')) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete('create');
+    setSearchParams(next, { replace: true });
+  };
+
+  const createDepartment = useMutation({
+    mutationFn: async () => {
+      const finalName = name.trim();
+      const finalSlug = slug.trim();
+
+      if (finalName.length < 2) throw new Error('Department name must be at least 2 characters');
+      if (finalSlug.length < 2) throw new Error('Department slug must be at least 2 characters');
+
+      return api.post('/departments', {
+        name: finalName,
+        slug: finalSlug,
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['departments'] });
+      qc.invalidateQueries({ queryKey: ['cockpit'] });
+      setCreateOpen(false);
+      setName('');
+      setSlug('');
+      setError('');
+      clearCreateParam();
+    },
+    onError: (err: unknown) => {
+      setError(err instanceof Error ? err.message : 'Unable to create department');
+    },
+  });
+
+  const handleNameChange = (value: string) => {
+    setName(value);
+    if (!slug || slug === toSlug(name)) {
+      setSlug(toSlug(value));
+    }
+  };
+
+  const handleCreateOpen = (open: boolean) => {
+    setCreateOpen(open);
+    if (!open) {
+      setError('');
+      clearCreateParam();
+    }
+  };
 
   return (
     <div className="p-8 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Building2 className="h-6 w-6 text-purple-500" />
-          Departments
-        </h1>
-        <p className="text-muted-foreground text-sm mt-0.5">{departments.length} departments</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <Building2 className="h-6 w-6 text-purple-500" />
+            Departments
+          </h1>
+          <p className="text-muted-foreground text-sm mt-0.5">{departments.length} departments</p>
+        </div>
+        {canCreate && (
+          <Button className="gap-2" onClick={() => handleCreateOpen(true)}>
+            <Plus className="h-4 w-4" />
+            Add Department
+          </Button>
+        )}
       </div>
 
       {isLoading ? (
@@ -116,8 +186,67 @@ export default function Departments() {
           onClose={() => setScheduleTarget(null)}
         />
       )}
+
+      <Dialog open={createOpen} onOpenChange={handleCreateOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Building2 className="h-4 w-4 text-purple-500" />
+              Create Department
+            </DialogTitle>
+          </DialogHeader>
+
+          <form
+            className="space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              setError('');
+              createDepartment.mutate();
+            }}
+          >
+            <div className="space-y-1.5">
+              <Label htmlFor="department-name">Department name</Label>
+              <Input
+                id="department-name"
+                value={name}
+                onChange={(e) => handleNameChange(e.target.value)}
+                placeholder="Customer Success"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="department-slug">Department slug</Label>
+              <Input
+                id="department-slug"
+                value={slug}
+                onChange={(e) => setSlug(toSlug(e.target.value))}
+                placeholder="customer-success"
+              />
+              <p className="text-xs text-muted-foreground">Used in dashboard URLs. Lowercase letters, numbers, and dashes only.</p>
+            </div>
+
+            {error && <p className="text-sm text-destructive">{error}</p>}
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => handleCreateOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={createDepartment.isPending}>
+                {createDepartment.isPending ? 'Creating...' : 'Create Department'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
+}
+
+function toSlug(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
 function StandupScheduleDialog({ dept, onClose }: { dept: Department; onClose: () => void }) {

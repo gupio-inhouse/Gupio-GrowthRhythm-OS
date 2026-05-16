@@ -30,9 +30,9 @@ interface Props {
   onCreated: () => void;
 }
 
-type User = { id: string; name: string; role: string };
+type User = { id: string; name: string; role: string; departmentId?: string };
 type Department = { id: string; name: string };
-type KRA = { id: string; name: string };
+type KRA = { id: string; name: string; departmentId?: string };
 type Task = { id: string; title: string };
 
 export function NewTaskDialog({ open, onClose, onCreated }: Props) {
@@ -64,12 +64,21 @@ export function NewTaskDialog({ open, onClose, onCreated }: Props) {
     register,
     handleSubmit,
     setValue,
+    watch,
     reset,
     formState: { errors, isSubmitting },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: { priority: 'MEDIUM' },
   });
+
+  const selectedDepartmentId = watch('departmentId');
+  const departmentUsers = selectedDepartmentId
+    ? users.filter((user) => user.departmentId === selectedDepartmentId)
+    : [];
+  const departmentKras = selectedDepartmentId
+    ? kras.filter((kra) => kra.departmentId === selectedDepartmentId)
+    : [];
 
   const handleClose = () => { reset(); onClose(); };
 
@@ -112,18 +121,21 @@ export function NewTaskDialog({ open, onClose, onCreated }: Props) {
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label>Assignee *</Label>
-              <Select onValueChange={(v) => setValue('assigneeUserId', v)}>
+              <Label>Department</Label>
+              <Select onValueChange={(v) => {
+                setValue('departmentId', v);
+                setValue('assigneeUserId', '');
+                setValue('kraId', '');
+              }}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select person" />
+                  <SelectValue placeholder="Select department" />
                 </SelectTrigger>
                 <SelectContent>
-                  {users.map((u) => (
-                    <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                  {departments.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              {errors.assigneeUserId && <p className="text-xs text-destructive">{errors.assigneeUserId.message}</p>}
             </div>
 
             <div className="space-y-1.5">
@@ -143,27 +155,28 @@ export function NewTaskDialog({ open, onClose, onCreated }: Props) {
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label>Department</Label>
-              <Select onValueChange={(v) => setValue('departmentId', v)}>
+              <Label>Assignee *</Label>
+              <Select onValueChange={(v) => setValue('assigneeUserId', v)}>
                 <SelectTrigger>
-                  <SelectValue placeholder="None" />
+                  <SelectValue placeholder={selectedDepartmentId ? 'Select person' : 'Select department first'} />
                 </SelectTrigger>
                 <SelectContent>
-                  {departments.map((d) => (
-                    <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                  {departmentUsers.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {errors.assigneeUserId && <p className="text-xs text-destructive">{errors.assigneeUserId.message}</p>}
             </div>
 
             <div className="space-y-1.5">
               <Label>KRA *</Label>
               <Select onValueChange={(v) => setValue('kraId', v)}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select KRA" />
+                  <SelectValue placeholder={selectedDepartmentId ? 'Select KRA' : 'Select department first'} />
                 </SelectTrigger>
                 <SelectContent>
-                  {kras.map((k) => (
+                  {departmentKras.map((k) => (
                     <SelectItem key={k.id} value={k.id}>{k.name}</SelectItem>
                   ))}
                 </SelectContent>

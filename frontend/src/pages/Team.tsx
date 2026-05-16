@@ -1,17 +1,18 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
   UserPlus, Search, Users, Shield, Crown, Briefcase, User as UserIcon,
-  Mail, Phone, Building2, MoreHorizontal, CheckCircle2,
+  Mail, Phone, Building2, CheckCircle2, Plus,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
@@ -20,6 +21,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
+import { useSearchParams } from 'react-router-dom';
 import { cn, getInitials } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/api/client';
@@ -42,6 +44,16 @@ type Department = {
   slug: string;
 };
 
+type Team = {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  department: { id: string; name: string; slug: string };
+  manager?: { id: string; name: string; email: string; avatarUrl?: string };
+  memberCount: number;
+};
+
 const roleConfig: Record<string, { label: string; icon: React.ElementType; color: string }> = {
   OWNER: { label: 'Owner', icon: Crown, color: 'text-amber-600 bg-amber-50' },
   COMPANY_ADMIN: { label: 'Admin', icon: Shield, color: 'text-purple-600 bg-purple-50' },
@@ -60,6 +72,25 @@ const inviteSchema = z.object({
 });
 
 type InviteForm = z.infer<typeof inviteSchema>;
+type InviteResult = {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  status: string;
+  emailSent: boolean;
+  inviteLink?: string | null;
+};
+
+const teamSchema = z.object({
+  name: z.string().min(2, 'Team name must be at least 2 characters'),
+  slug: z.string().min(2, 'Team slug must be at least 2 characters'),
+  departmentId: z.string().min(1, 'Department is required'),
+  managerUserId: z.string().optional(),
+  description: z.string().optional(),
+});
+
+type TeamForm = z.infer<typeof teamSchema>;
 
 function RoleBadge({ role }: { role: string }) {
   const cfg = roleConfig[role] || { label: role, icon: UserIcon, color: 'text-gray-600 bg-gray-100' };
@@ -85,14 +116,28 @@ function StatusDot({ status }: { status: string }) {
 export default function Team() {
   const { user: me } = useAuthStore();
   const qc = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
-  const [deptFilter, setDeptFilter] = useState('');
+  const [deptFilter, setDeptFilter] = useState('all');
   const [roleFilter, setRoleFilter] = useState('');
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [teamOpen, setTeamOpen] = useState(false);
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [invited, setInvited] = useState(false);
+  const [inviteResult, setInviteResult] = useState<InviteResult | null>(null);
+  const [teamError, setTeamError] = useState('');
+  const [teamForm, setTeamForm] = useState<TeamForm>({
+    name: '',
+    slug: '',
+    departmentId: '',
+    managerUserId: '',
+    description: '',
+  });
 
-  const canInvite = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'].includes(me?.role || '');
+  const canInvite = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(me?.role || '');
+  const canCreateTeam = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(me?.role || '');
+  const canBulkImport = ['OWNER', 'COMPANY_ADMIN'].includes(me?.role || '');
+  const canInviteOnlyTeamMembers = me?.role === 'MANAGER';
 
   const { data: members = [], isLoading } = useQuery<TeamMember[]>({
     queryKey: ['users'],
@@ -104,27 +149,77 @@ export default function Team() {
     queryFn: () => api.get('/departments').then((r) => r.data),
   });
 
+  const { data: teams = [] } = useQuery<Team[]>({
+    queryKey: ['teams'],
+    queryFn: () => api.get('/teams').then((r) => r.data),
+  });
+
+  const visibleDepartments =
+    me?.role === 'MANAGER'
+      ? departments.filter((department) => department.id === me.departmentId)
+      : departments;
+
+  useEffect(() => {
+    if (searchParams.get('create') === 'team') {
+      setTeamOpen(true);
+    }
+  }, [searchParams]);
+
   const { register, handleSubmit, setValue, reset, formState: { errors } } = useForm<InviteForm>({
     resolver: zodResolver(inviteSchema),
     defaultValues: { role: 'TEAM_MEMBER' },
   });
 
   const invite = useMutation({
-    mutationFn: (data: InviteForm) => api.post('/users/invite', data).then((r) => r.data),
-    onSuccess: () => {
+    mutationFn: (data: InviteForm) => api.post('/users/invite', data).then((r) => r.data as InviteResult),
+    onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ['users'] });
+      setInviteResult(result);
       setInvited(true);
-      setTimeout(() => {
-        setInviteOpen(false);
-        setInvited(false);
-        reset();
-      }, 1800);
     },
   });
 
+  const createTeam = useMutation({
+    mutationFn: async (payload: TeamForm) => {
+      const parsed = teamSchema.safeParse(payload);
+      if (!parsed.success) {
+        throw new Error(parsed.error.issues[0]?.message || 'Please check the team details');
+      }
+
+      return api.post('/teams', {
+        ...parsed.data,
+        managerUserId: parsed.data.managerUserId || undefined,
+        description: parsed.data.description?.trim() || undefined,
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['teams'] });
+      setTeamOpen(false);
+      setTeamError('');
+      setTeamForm({
+        name: '',
+        slug: '',
+        departmentId: '',
+        managerUserId: '',
+        description: '',
+      });
+      clearCreateParam();
+    },
+    onError: (error: unknown) => {
+      setTeamError(error instanceof Error ? error.message : 'Unable to create team');
+    },
+  });
+
+  const clearCreateParam = () => {
+    if (!searchParams.get('create')) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete('create');
+    setSearchParams(next, { replace: true });
+  };
+
   const filtered = members.filter((m) => {
     if (search && !m.name.toLowerCase().includes(search.toLowerCase()) && !m.email.toLowerCase().includes(search.toLowerCase())) return false;
-    if (deptFilter && m.department?.id !== deptFilter) return false;
+    if (deptFilter !== 'all' && m.department?.id !== deptFilter) return false;
     if (roleFilter && m.role !== roleFilter) return false;
     return true;
   });
@@ -134,24 +229,133 @@ export default function Team() {
     return acc;
   }, {});
 
+  const candidateManagers = members.filter((member) => {
+    if (member.status !== 'ACTIVE') return false;
+    if (!['MANAGER', 'DEPARTMENT_HEAD', 'COMPANY_ADMIN', 'OWNER'].includes(member.role)) return false;
+    if (teamForm.departmentId && member.department?.id !== teamForm.departmentId) return false;
+    return true;
+  });
+
+  const handleTeamOpen = (open: boolean) => {
+    setTeamOpen(open);
+    if (!open) {
+      setTeamError('');
+      clearCreateParam();
+    }
+  };
+
+  const closeInviteDialog = () => {
+    setInviteOpen(false);
+    setInvited(false);
+    setInviteResult(null);
+    reset();
+  };
+
+  const handleTeamNameChange = (value: string) => {
+    setTeamForm((prev) => {
+      const currentAutoSlug = toSlug(prev.name);
+      const nextName = value;
+      const shouldSyncSlug = !prev.slug || prev.slug === currentAutoSlug;
+      return {
+        ...prev,
+        name: nextName,
+        slug: shouldSyncSlug ? toSlug(nextName) : prev.slug,
+      };
+    });
+  };
+
   return (
     <div className="p-8 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Team</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">{members.length} members across your organization</p>
+          <p className="text-muted-foreground text-sm mt-0.5">{teams.length} teams · {members.length} members across your organization</p>
         </div>
-        {canInvite && (
+        {(canInvite || canCreateTeam || canBulkImport) && (
           <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={() => setBulkImportOpen(true)} className="gap-2">
-              <Users className="h-4 w-4" />
-              Bulk Import
+            {canCreateTeam && (
+              <Button variant="outline" onClick={() => handleTeamOpen(true)} className="gap-2">
+                <Plus className="h-4 w-4" />
+                Create Team
+              </Button>
+            )}
+            {canBulkImport && (
+              <Button variant="outline" onClick={() => setBulkImportOpen(true)} className="gap-2">
+                <Users className="h-4 w-4" />
+                Bulk Import
+              </Button>
+            )}
+            {canInvite && (
+              <Button onClick={() => setInviteOpen(true)} className="gap-2">
+                <UserPlus className="h-4 w-4" />
+                Invite Member
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+
+      <Card className="border-dashed bg-muted/20">
+        <CardContent className="p-4 flex flex-col gap-1.5 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-sm font-medium">How teams work today</p>
+            <p className="text-sm text-muted-foreground">
+              Teams are created inside a department and led by a manager. Member counts currently reflect that manager&apos;s active direct reports.
+            </p>
+          </div>
+          {canCreateTeam && teams.length === 0 && (
+            <Button variant="outline" onClick={() => handleTeamOpen(true)}>
+              Create your first team
             </Button>
-            <Button onClick={() => setInviteOpen(true)} className="gap-2">
-              <UserPlus className="h-4 w-4" />
-              Invite Member
-            </Button>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {teams.map((team) => (
+          <Card key={team.id} className="hover:shadow-sm transition-shadow">
+            <CardHeader className="pb-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <CardTitle className="text-lg">{team.name}</CardTitle>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {team.department.name} · /{team.slug}
+                  </p>
+                </div>
+                <Badge variant="secondary">{team.memberCount} members</Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {team.description && (
+                <p className="text-sm text-muted-foreground">{team.description}</p>
+              )}
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Avatar className="h-8 w-8">
+                    <AvatarImage src={team.manager?.avatarUrl} />
+                    <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                      {getInitials(team.manager?.name || 'TM')}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{team.manager?.name || 'Unassigned manager'}</p>
+                    <p className="text-xs text-muted-foreground truncate">{team.manager?.email || 'Assign a manager to shape this team'}</p>
+                  </div>
+                </div>
+                <span className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
+                  <Building2 className="h-3 w-3" />
+                  {team.department.name}
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+        {teams.length === 0 && (
+          <div className="col-span-full text-center py-14 text-muted-foreground border rounded-xl bg-muted/20">
+            <Users className="h-12 w-12 mx-auto mb-4 opacity-20" />
+            <p>No teams created yet</p>
+            <p className="text-sm mt-2">Create a team, pick its department, then assign a manager so reporting starts making sense.</p>
           </div>
         )}
       </div>
@@ -195,14 +399,14 @@ export default function Team() {
             <SelectValue placeholder="All Departments" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All Departments</SelectItem>
+            <SelectItem value="all">All Departments</SelectItem>
             {departments.map((d) => (
               <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
             ))}
           </SelectContent>
         </Select>
-        {(search || deptFilter || roleFilter) && (
-          <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setDeptFilter(''); setRoleFilter(''); }}>
+        {(search || deptFilter !== 'all' || roleFilter) && (
+          <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setDeptFilter('all'); setRoleFilter(''); }}>
             Clear filters
           </Button>
         )}
@@ -275,19 +479,65 @@ export default function Team() {
       )}
 
       {/* Invite dialog */}
-      <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
+      <Dialog open={inviteOpen} onOpenChange={(open) => {
+        if (open) {
+          setInviteOpen(true);
+          return;
+        }
+        closeInviteDialog();
+      }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Invite a Team Member</DialogTitle>
             <DialogDescription>
-              They'll receive an invitation email to join your workspace.
+              {canInviteOnlyTeamMembers
+                ? 'Managers can invite team members into their own department.'
+                : 'They\'ll receive an invitation email to join your workspace.'}
             </DialogDescription>
           </DialogHeader>
 
           {invited ? (
             <div className="flex flex-col items-center justify-center py-8 gap-3">
-              <CheckCircle2 className="h-12 w-12 text-green-500" />
-              <p className="font-medium">Invitation sent!</p>
+              <CheckCircle2 className={`h-12 w-12 ${inviteResult?.emailSent ? 'text-green-500' : 'text-amber-500'}`} />
+              <p className="font-medium">{inviteResult?.emailSent ? 'Invitation email sent!' : 'Invite created, but email was not sent'}</p>
+              <p className="text-sm text-center text-muted-foreground">
+                {inviteResult?.emailSent
+                  ? 'The invited user can open the email and finish account setup from the magic link.'
+                  : 'Share the invite link below manually so the user can finish account setup.'}
+              </p>
+              {!inviteResult?.emailSent && (
+                <>
+                  {inviteResult?.inviteLink && (
+                    <div className="w-full rounded-lg border bg-muted/40 p-3 space-y-2">
+                      <p className="text-xs font-medium text-muted-foreground">Share this invite link manually</p>
+                      <p className="text-xs break-all">{inviteResult.inviteLink}</p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full"
+                        onClick={() => navigator.clipboard.writeText(inviteResult.inviteLink!)}
+                      >
+                        Copy Invite Link
+                      </Button>
+                    </div>
+                  )}
+                </>
+              )}
+              <DialogFooter className="w-full">
+                {!inviteResult?.emailSent && inviteResult?.inviteLink && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => navigator.clipboard.writeText(inviteResult.inviteLink!)}
+                  >
+                    Copy Invite Link Again
+                  </Button>
+                )}
+                <Button type="button" className="w-full" onClick={closeInviteDialog}>
+                  Done
+                </Button>
+              </DialogFooter>
             </div>
           ) : (
             <form onSubmit={handleSubmit((data) => invite.mutate(data))} className="space-y-4">
@@ -305,32 +555,42 @@ export default function Team() {
 
               <div className="space-y-1.5">
                 <Label>Role</Label>
-                <Select defaultValue="TEAM_MEMBER" onValueChange={(v) => setValue('role', v as InviteForm['role'])}>
+                <Select
+                  defaultValue="TEAM_MEMBER"
+                  onValueChange={(v) => setValue('role', v as InviteForm['role'])}
+                  disabled={canInviteOnlyTeamMembers}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="DEPARTMENT_HEAD">Department Head</SelectItem>
-                    <SelectItem value="MANAGER">Manager</SelectItem>
                     <SelectItem value="TEAM_MEMBER">Team Member</SelectItem>
-                    <SelectItem value="COACH_ADVISOR">Coach / Advisor</SelectItem>
+                    {!canInviteOnlyTeamMembers && (
+                      <>
+                        <SelectItem value="DEPARTMENT_HEAD">Department Head</SelectItem>
+                        <SelectItem value="MANAGER">Manager</SelectItem>
+                        <SelectItem value="COACH_ADVISOR">Coach / Advisor</SelectItem>
+                      </>
+                    )}
                   </SelectContent>
                 </Select>
               </div>
 
-              <div className="space-y-1.5">
-                <Label>Department (optional)</Label>
-                <Select onValueChange={(v) => setValue('departmentId', v)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select department" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {departments.map((d) => (
-                      <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {!canInviteOnlyTeamMembers && (
+                <div className="space-y-1.5">
+                  <Label>Department (optional)</Label>
+                  <Select onValueChange={(v) => setValue('departmentId', v)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select department" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {departments.map((d) => (
+                        <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               <div className="space-y-1.5">
                 <Label htmlFor="phone">Phone (optional)</Label>
@@ -340,7 +600,7 @@ export default function Team() {
               <Separator />
 
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setInviteOpen(false)}>
+                <Button type="button" variant="outline" onClick={closeInviteDialog}>
                   Cancel
                 </Button>
                 <Button type="submit" disabled={invite.isPending} className="gap-2">
@@ -361,8 +621,113 @@ export default function Team() {
           }}
         />
       )}
+
+      <Dialog open={teamOpen} onOpenChange={handleTeamOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Create Team</DialogTitle>
+            <DialogDescription>
+              Create a real team under a department and optionally assign a manager.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              setTeamError('');
+              createTeam.mutate(teamForm);
+            }}
+            className="space-y-4"
+          >
+            <div className="space-y-1.5">
+              <Label htmlFor="team-name">Team Name</Label>
+              <Input
+                id="team-name"
+                value={teamForm.name}
+                onChange={(e) => handleTeamNameChange(e.target.value)}
+                placeholder="Enterprise Sales"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="team-slug">Team Slug</Label>
+              <Input
+                id="team-slug"
+                value={teamForm.slug}
+                onChange={(e) => setTeamForm((prev) => ({ ...prev, slug: toSlug(e.target.value) }))}
+                placeholder="enterprise-sales"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Department</Label>
+                <Select
+                  value={teamForm.departmentId}
+                  onValueChange={(value) => setTeamForm((prev) => ({ ...prev, departmentId: value, managerUserId: '' }))}
+                >
+                  <SelectTrigger>
+                  <SelectValue placeholder="Select department" />
+                  </SelectTrigger>
+                  <SelectContent>
+                  {visibleDepartments.map((department) => (
+                    <SelectItem key={department.id} value={department.id}>{department.name}</SelectItem>
+                  ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+            <div className="space-y-1.5">
+              <Label>Manager</Label>
+              <Select
+                value={teamForm.managerUserId || 'none'}
+                onValueChange={(value) => setTeamForm((prev) => ({ ...prev, managerUserId: value === 'none' ? '' : value }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Optional" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No manager yet</SelectItem>
+                  {candidateManagers.map((manager) => (
+                    <SelectItem key={manager.id} value={manager.id}>
+                      {manager.name} {manager.department ? `· ${manager.department.name}` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="team-description">Description</Label>
+              <Textarea
+                id="team-description"
+                value={teamForm.description}
+                onChange={(e) => setTeamForm((prev) => ({ ...prev, description: e.target.value }))}
+                placeholder="What mission or functional scope does this team own?"
+              />
+            </div>
+
+            {teamError && <p className="text-sm text-destructive">{teamError}</p>}
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => handleTeamOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={createTeam.isPending}>
+                {createTeam.isPending ? 'Creating...' : 'Create Team'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
+}
+
+function toSlug(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
 // ── Bulk user import ──────────────────────────────────────────────────────────

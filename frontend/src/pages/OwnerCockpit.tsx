@@ -4,6 +4,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { AlertTriangle, CheckSquare, Users, Building2, TrendingUp, Zap, Clock, Target, ExternalLink } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { cn, kraStatusColor } from '@/lib/utils';
 import api from '@/api/client';
@@ -59,16 +60,61 @@ export default function OwnerCockpit() {
   }));
 
   const kras: KRA[] = data?.kras || [];
+  const hasSetupData = (data?.departments?.length || 0) > 0 || (data?.totalUsers || 0) > 0 || goalsCount(data) > 0;
+
+  function goalsCount(payload: { kras?: unknown[] } | undefined) {
+    return payload?.kras?.length || 0;
+  }
 
   return (
     <div className="p-8 space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Zap className="h-6 w-6 text-blue-500" />
-          Owner Cockpit
-        </h1>
-        <p className="text-muted-foreground text-sm mt-0.5">Company-wide execution overview</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <Zap className="h-6 w-6 text-blue-500" />
+            Owner Cockpit
+          </h1>
+          <p className="text-muted-foreground text-sm mt-0.5">Company-wide execution overview</p>
+        </div>
+        <div className="flex gap-2">
+          <Button asChild variant="outline">
+            <Link to="/team?create=team">Add Team</Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link to="/departments?create=department">Add Department</Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link to="/goals?create=kra">Add KRA</Link>
+          </Button>
+          <Button asChild>
+            <Link to="/goals?create=goal">Add Goal</Link>
+          </Button>
+        </div>
       </div>
+
+      {!hasSetupData && (
+        <Card className="border-dashed bg-muted/20">
+          <CardContent className="p-5 space-y-3">
+            <p className="font-medium">Your workspace is ready for setup</p>
+            <div className="text-sm text-muted-foreground space-y-1">
+              <p>1. Add a department so work has a clear home.</p>
+              <p>2. Invite managers or team members into that department.</p>
+              <p>3. Create goals and KRAs so task execution can roll up into outcomes.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button asChild variant="outline">
+                <Link to="/departments?create=department">Add Department</Link>
+              </Button>
+              <Button asChild variant="outline">
+                <Link to="/team">Invite People</Link>
+              </Button>
+              <Button asChild>
+                <Link to="/goals?create=goal">Create First Goal</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* KPI Strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -211,35 +257,26 @@ export default function OwnerCockpit() {
         </Card>
       )}
 
-      {/* Department Execution Scores (M8.2) + drill-down links (M8.5) */}
+      {/* Department Activity Snapshot */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <TrendingUp className="h-4 w-4 text-green-500" />
-            Department Execution Scores
+            Department Activity Snapshot
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
             {(data?.departments || []).map((dept: Department) => {
-              // Score: task health proxy — penalise blocked and overdue (approximate from counts)
-              const total = dept._count.tasks;
-              const score = total === 0 ? 0 : Math.min(100, Math.round(
-                (1 - (0 / Math.max(total, 1))) * 100  // actual done/total would need backend change
-              ));
-              const displayScore = total === 0 ? 0 : 70 + Math.floor((dept._count.kras * 5 + dept._count.users * 2) % 25);
-
               return (
                 <div key={dept.id} className="flex items-center gap-4">
                   <div className="w-36 shrink-0">
                     <p className="text-sm font-medium truncate">{dept.name}</p>
                     <p className="text-xs text-muted-foreground">{dept._count.users} people · {dept._count.tasks} tasks</p>
                   </div>
-                  <Progress value={displayScore} className="flex-1 h-2" />
-                  <span className={cn('text-sm font-medium w-10 text-right shrink-0',
-                    displayScore >= 80 ? 'text-green-600' : displayScore >= 60 ? 'text-yellow-600' : 'text-red-600')}>
-                    {displayScore}%
-                  </span>
+                  <div className="flex-1 rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                    {dept._count.kras} KRAs tracking execution across {dept._count.tasks} active task records
+                  </div>
                   {dept.slug && (
                     <Link
                       to={`/dashboard/${dept.slug}`}

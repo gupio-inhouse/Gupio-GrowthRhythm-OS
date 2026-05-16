@@ -31,14 +31,14 @@ interface SendEmailParams {
   text?: string;
 }
 
-export async function sendEmail({ to, subject, html, text }: SendEmailParams): Promise<void> {
+export async function sendEmail({ to, subject, html, text }: SendEmailParams): Promise<boolean> {
   if (!apiKey || !sgMail) {
     // Dev mode: log instead of sending
     console.log('[email.service] DEV MODE — email not sent (no SENDGRID_API_KEY or package missing)');
     console.log(`  To:      ${to}`);
     console.log(`  Subject: ${subject}`);
     console.log(`  Body:    ${(text ?? html.replace(/<[^>]+>/g, ' ').trim()).slice(0, 300)}`);
-    return;
+    return false;
   }
 
   await sgMail.send({
@@ -48,6 +48,7 @@ export async function sendEmail({ to, subject, html, text }: SendEmailParams): P
     html,
     ...(text ? { text } : {}),
   });
+  return true;
 }
 
 // ─── Magic link email ────────────────────────────────────────────────────────
@@ -92,7 +93,7 @@ interface SendMagicLinkEmailParams {
   purpose: MagicLinkPurpose;
 }
 
-export async function sendMagicLinkEmail({ to, name, magicLinkUrl, purpose }: SendMagicLinkEmailParams): Promise<void> {
+export async function sendMagicLinkEmail({ to, name, magicLinkUrl, purpose }: SendMagicLinkEmailParams): Promise<boolean> {
   const config = PURPOSE_CONFIG[purpose];
   const firstName = name.split(' ')[0];
 
@@ -181,7 +182,7 @@ export async function sendMagicLinkEmail({ to, name, magicLinkUrl, purpose }: Se
 
   const text = `${config.heading}\n\nHi ${firstName},\n\n${config.intro}\n\n${config.buttonLabel}: ${magicLinkUrl}\n\nThis link is single-use and expires in 48 hours.`;
 
-  await sendEmail({ to, subject: config.subject, html, text });
+  return sendEmail({ to, subject: config.subject, html, text });
 }
 
 // ─── Welcome email ───────────────────────────────────────────────────────────
@@ -192,7 +193,7 @@ interface SendWelcomeEmailParams {
   orgName: string;
 }
 
-export async function sendWelcomeEmail({ to, name, orgName }: SendWelcomeEmailParams): Promise<void> {
+export async function sendWelcomeEmail({ to, name, orgName }: SendWelcomeEmailParams): Promise<boolean> {
   const firstName = name.split(' ')[0];
   const subject = `Welcome to ${orgName} on GrowthRhythm OS`;
 
@@ -269,5 +270,5 @@ export async function sendWelcomeEmail({ to, name, orgName }: SendWelcomeEmailPa
 
   const text = `Welcome aboard, ${firstName}!\n\nYou are now part of ${orgName} on GrowthRhythm OS. Your account is active and ready to go.`;
 
-  await sendEmail({ to, subject, html, text });
+  return sendEmail({ to, subject, html, text });
 }
