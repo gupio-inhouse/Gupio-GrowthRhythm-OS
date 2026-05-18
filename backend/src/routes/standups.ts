@@ -3,6 +3,7 @@ import prisma from '../lib/prisma';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { generateStandupDigest } from '../services/ai.service';
 import { fanOutNotification } from '../services/notification.service';
+import { generateMeetUrl } from '../services/meet.service';
 
 const router = Router();
 router.use(authenticate);
@@ -69,11 +70,23 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 // POST /standups — create / schedule
 router.post('/', async (req: AuthRequest, res: Response) => {
   const { departmentId, scheduledAt } = req.body;
+  const date = new Date(scheduledAt);
+
+  const dept = await prisma.department.findUnique({
+    where: { id: departmentId as string },
+    select: { slug: true, name: true, standupDuration: true },
+  });
+
+  const meetUrl = dept
+    ? await generateMeetUrl(req.user!.orgId, dept.slug, dept.name, date, dept.standupDuration ?? 15)
+    : undefined;
+
   const standup = await prisma.standup.create({
     data: {
       orgId: req.user!.orgId,
       departmentId,
-      scheduledAt: new Date(scheduledAt),
+      scheduledAt: date,
+      meetUrl,
     },
   });
   res.status(201).json(standup);

@@ -3,6 +3,7 @@ import redis from '../lib/redis';
 import prisma from '../lib/prisma';
 import { fanOutNotification } from './notification.service';
 import { generateWeeklyDigest } from './ai.service';
+import { generateMeetUrl } from './meet.service';
 
 const connection = redis;
 
@@ -31,8 +32,15 @@ export const standupWorker = new Worker('standup', async (job: Job) => {
       where: { departmentId: dept.id, scheduledAt: tomorrow },
     });
     if (!standup) {
+      const meetUrl = await generateMeetUrl(
+        dept.orgId,
+        dept.slug,
+        dept.name,
+        tomorrow,
+        dept.standupDuration ?? 15
+      );
       standup = await prisma.standup.create({
-        data: { orgId: dept.orgId, departmentId: dept.id, scheduledAt: tomorrow, timerMinutes: 15 },
+        data: { orgId: dept.orgId, departmentId: dept.id, scheduledAt: tomorrow, timerMinutes: 15, meetUrl },
       });
     }
 
@@ -54,6 +62,7 @@ export const standupWorker = new Worker('standup', async (job: Job) => {
       {
         departmentName: dept.name,
         time: dept.standupTime || '09:00',
+        meetUrl: standup.meetUrl,
       }
     );
   }

@@ -421,6 +421,7 @@ model Standup {
   status       StandupStatus @default(SCHEDULED)
   timerMinutes Int           @default(15) @map("timer_minutes")
   overrunMinutes Float?      @map("overrun_minutes")
+  meetUrl      String?       @map("meet_url")
   aiDigestSent Boolean       @default(false) @map("ai_digest_sent")
   createdAt    DateTime      @default(now()) @map("created_at")
   updatedAt    DateTime      @updatedAt @map("updated_at")

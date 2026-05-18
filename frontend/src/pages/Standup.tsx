@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Play, Square, Zap, CheckCircle2, AlertTriangle, Circle, Clock, Edit2, Check, X, Plus } from 'lucide-react';
+import { Play, Square, Zap, CheckCircle2, AlertTriangle, Circle, Clock, Edit2, Check, X, Plus, Video } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -34,6 +34,7 @@ type BlockerType = typeof BLOCKER_TYPES[number]['value'];
 type StandupSummary = {
   id: string; status: string; scheduledAt: string;
   timerMinutes: number; overrunMinutes?: number;
+  meetUrl?: string;
   department: { id: string; name: string; slug: string };
   _count: { cards: number };
 };
@@ -41,6 +42,7 @@ type StandupSummary = {
 type StandupDetail = StandupSummary & {
   startedAt?: string;
   endedAt?: string;
+  meetUrl?: string;
   cards: StandupCard[];
 };
 
@@ -118,11 +120,32 @@ export default function Standup() {
       {activeId && activeStandup ? (
         <Card className="border-blue-200 bg-blue-50/50">
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-lg">{activeStandup.department.name} Standup</CardTitle>
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <CardTitle className="text-lg">{activeStandup.department.name} Standup</CardTitle>
+                {activeStandup.meetUrl && (
+                  <a
+                    href={activeStandup.meetUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 mt-1 font-medium"
+                  >
+                    <Video className="h-3.5 w-3.5" />
+                    {activeStandup.meetUrl.includes('meet.google.com') ? 'Join Google Meet' : 'Join Jitsi Meet'}
+                  </a>
+                )}
+              </div>
               <div className="flex items-center gap-3">
                 {activeStandup.status === 'IN_PROGRESS' && activeStandup.startedAt && (
                   <Timer startedAt={activeStandup.startedAt} limit={activeStandup.timerMinutes} />
+                )}
+                {activeStandup.meetUrl && (
+                  <Button size="sm" variant="outline" asChild className="gap-1.5 border-blue-200 text-blue-700 hover:bg-blue-50">
+                    <a href={activeStandup.meetUrl} target="_blank" rel="noopener noreferrer">
+                      <Video className="h-3.5 w-3.5" />
+                      {activeStandup.meetUrl.includes('meet.google.com') ? 'Google Meet' : 'Jitsi Meet'}
+                    </a>
+                  </Button>
                 )}
                 {activeStandup.status === 'SCHEDULED' ? (
                   <Button onClick={() => startMutation.mutate(activeStandup.id)} className="gap-2" disabled={startMutation.isPending}>
@@ -187,6 +210,18 @@ export default function Standup() {
                     {new Date(s.scheduledAt).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}
                     {' · '}{s._count.cards} participants
                   </p>
+                  {s.meetUrl && s.status !== 'COMPLETED' && (
+                    <a
+                      href={s.meetUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline mt-0.5"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Video className="h-3 w-3" />
+                      {s.meetUrl.includes('meet.google.com') ? 'Google Meet' : 'Jitsi Meet'}
+                    </a>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   {s.overrunMinutes && s.overrunMinutes > 0 && (
