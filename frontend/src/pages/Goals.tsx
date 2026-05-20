@@ -44,7 +44,7 @@ type KRA = {
   current: number;
   unit?: string;
   period: string;
-  owner: { name: string; avatarUrl?: string };
+  owner: { id?: string; name: string; avatarUrl?: string };
   department: { id: string; name: string };
   _count: { tasks: number };
 };
@@ -68,6 +68,7 @@ const kraSchema = z.object({
   description: z.string().optional(),
   departmentId: z.string().min(1, 'Department is required'),
   goalId: z.string().optional(),
+  ownerUserId: z.string().min(1, 'Owner is required'),
   target: z.string().min(1, 'Target is required'),
   unit: z.string().optional(),
   period: z.string().min(2, 'Period is required'),
@@ -90,6 +91,7 @@ const EMPTY_KRA_FORM: KRAForm = {
   description: '',
   departmentId: '',
   goalId: '',
+  ownerUserId: '',
   target: '',
   unit: '',
   period: '',
@@ -125,6 +127,12 @@ export default function Goals() {
   const { data: departments = [] } = useQuery<Department[]>({
     queryKey: ['departments'],
     queryFn: () => api.get('/departments').then((r) => r.data),
+  });
+
+  const { data: deptUsers = [] } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ['users-by-dept', kraForm.departmentId],
+    queryFn: () => api.get('/users', { params: { departmentId: kraForm.departmentId } }).then((r) => r.data),
+    enabled: !!kraForm.departmentId,
   });
 
   useEffect(() => {
@@ -203,7 +211,7 @@ export default function Goals() {
         description: parsed.data.description?.trim() || undefined,
         departmentId: parsed.data.departmentId,
         goalId: parsed.data.goalId || undefined,
-        ownerUserId: user.id,
+        ownerUserId: parsed.data.ownerUserId,
         target: Number(parsed.data.target),
         unit: parsed.data.unit?.trim() || undefined,
         period: parsed.data.period.trim(),
@@ -265,13 +273,15 @@ export default function Goals() {
         description: '',
         departmentId: kra.department.id,
         goalId: '',
+        ownerUserId: kra.owner.id || '',
         target: String(kra.target),
         unit: kra.unit || '',
         period: kra.period,
       });
     } else {
       setEditingKraId(null);
-      setKraForm(EMPTY_KRA_FORM);
+      // Pre-fill owner with current user if they belong to a department
+      setKraForm({ ...EMPTY_KRA_FORM, ownerUserId: user?.id || '' });
     }
     setKraOpen(true);
   };
@@ -610,7 +620,7 @@ export default function Goals() {
                 <Label>Department</Label>
                 <Select
                   value={kraForm.departmentId}
-                  onValueChange={(value) => setKraForm((prev) => ({ ...prev, departmentId: value }))}
+                  onValueChange={(value) => setKraForm((prev) => ({ ...prev, departmentId: value, ownerUserId: '' }))}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select department" />
@@ -640,6 +650,27 @@ export default function Goals() {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Owner</Label>
+              <Select
+                value={kraForm.ownerUserId || 'none'}
+                onValueChange={(value) => setKraForm((prev) => ({ ...prev, ownerUserId: value === 'none' ? '' : value }))}
+                disabled={!kraForm.departmentId}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={kraForm.departmentId ? 'Select owner' : 'Select department first'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {deptUsers.length === 0 && kraForm.departmentId && (
+                    <SelectItem value="none" disabled>No active members in this department</SelectItem>
+                  )}
+                  {deptUsers.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
