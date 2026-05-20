@@ -52,6 +52,12 @@ router.post('/verify', async (req: Request, res: Response) => {
 
   const { magicLink, user } = verifyResult;
 
+  // Password reset — return token back so frontend can call /auth/reset-password
+  if (magicLink.purpose === 'PASSWORD_RESET') {
+    res.json({ resetRequired: true, token });
+    return;
+  }
+
   const isInvitePurpose =
     magicLink.purpose === 'DEPARTMENT_HEAD_INVITE' ||
     magicLink.purpose === 'MEMBER_INVITE' ||

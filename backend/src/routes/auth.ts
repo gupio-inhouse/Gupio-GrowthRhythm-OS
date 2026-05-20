@@ -4,6 +4,8 @@ import { z } from 'zod';
 import prisma from '../lib/prisma';
 import { signToken } from '../lib/jwt';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { generateMagicLink, verifyMagicLink, consumeMagicLink } from '../services/magic-link.service';
+import { sendMagicLinkEmail } from '../services/email.service';
 
 const router = Router();
 
@@ -183,6 +185,82 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
   }
 
   res.json(user);
+});
+
+// POST /auth/forgot-password — public, sends reset email
+router.post('/forgot-password', async (req: Request, res: Response) => {
+  const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  if (!email) { res.status(400).json({ error: 'Email required' }); return; }
+
+  const user = await prisma.user.findFirst({
+    where: { email, status: 'ACTIVE' },
+    select: { id: true, name: true, email: true, orgId: true },
+  });
+
+  // Always return success to prevent email enumeration
+  if (user) {
+    const { link } = await generateMagicLink({
+      userId: user.id,
+      orgId: user.orgId,
+      purpose: 'PASSWORD_RESET',
+      expiresInHours: 1,
+    });
+    sendMagicLinkEmail({ to: user.email, name: user.name, magicLinkUrl: link, purpose: 'PASSWORD_RESET' })
+      .catch(console.error);
+  }
+
+  res.json({ success: true });
+});
+
+// POST /auth/reset-password — public, consumes reset token + sets new password
+router.post('/reset-password', async (req: Request, res: Response) => {
+  const { token, password } = req.body as { token?: string; password?: string };
+  if (!token || !password || password.length < 8) {
+    res.status(400).json({ error: 'token and password (min 8 chars) required' });
+    return;
+  }
+
+  let verifyResult: Awaited<ReturnType<typeof verifyMagicLink>>;
+  try {
+    verifyResult = await verifyMagicLink(token);
+  } catch (err) {
+    const msg = (err as Error).message;
+    const readable: Record<string, string> = {
+      EXPIRED: 'Reset link has expired. Please request a new one.',
+      USED: 'Reset link has already been used.',
+      REVOKED: 'Reset link has been revoked.',
+      NOT_FOUND: 'Reset link not found.',
+    };
+    res.status(410).json({ error: readable[msg] ?? 'Invalid reset link.' });
+    return;
+  }
+
+  if (verifyResult.magicLink.purpose !== 'PASSWORD_RESET') {
+    res.status(400).json({ error: 'This link is not for password reset.' });
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12);
+  await consumeMagicLink(verifyResult.magicLink.id);
+  await prisma.user.update({
+    where: { id: verifyResult.user.id },
+    data: { passwordHash, lastLoginAt: new Date() },
+  });
+
+  prisma.auditLog.create({
+    data: {
+      orgId: verifyResult.user.orgId,
+      userId: verifyResult.user.id,
+      entityType: 'user',
+      entityId: verifyResult.user.id,
+      action: 'UPDATE',
+      after: { passwordReset: true },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    },
+  }).catch(console.error);
+
+  res.json({ success: true });
 });
 
 export default router;

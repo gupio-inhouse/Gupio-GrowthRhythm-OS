@@ -761,14 +761,28 @@ model AppFeedback {
   description  String
   category     FeedbackCategory @default(OTHER)
   status       FeedbackStatus   @default(OPEN)
+  upvotes      Int              @default(0)
   createdAt    DateTime         @default(now()) @map("created_at")
   updatedAt    DateTime         @updatedAt @map("updated_at")
 
-  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  user       User         @relation(fields: [userId], references: [id])
-  department Department?  @relation(fields: [departmentId], references: [id])
+  org        Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user       User               @relation(fields: [userId], references: [id])
+  department Department?        @relation(fields: [departmentId], references: [id])
+  votes      AppFeedbackVote[]
 
   @@map("app_feedback")
+}
+
+model AppFeedbackVote {
+  id         String   @id @default(cuid())
+  feedbackId String   @map("feedback_id")
+  userId     String   @map("user_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  feedback AppFeedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+
+  @@unique([feedbackId, userId])
+  @@map("app_feedback_votes")
 }
 
 // ─── OAuth Tokens (M11.1 / M11.2) ────────────────────────────────────────────

@@ -9,6 +9,13 @@ export const notificationQueue = new Queue('notification', { connection });
 export const aiQueue = new Queue('ai', { connection });
 export const retentionQueue = new Queue('retention', { connection });
 export const reminderQueue = new Queue('standup-reminder', { connection });
+export const taskReminderQueue = new Queue('task-reminder', { connection });
+export const emailQueue = new Queue('email', { connection, defaultJobOptions: {
+  attempts: 3,
+  backoff: { type: 'exponential', delay: 60000 }, // 1m, 2m, 4m
+  removeOnComplete: 500,
+  removeOnFail: 200,
+} });
 
 export async function scheduleRecurringJobs() {
   // Nightly standup card generation — every day 11 PM IST (17:30 UTC)
@@ -45,5 +52,11 @@ export async function scheduleRecurringJobs() {
   await reminderQueue.add('check-t15', {}, {
     repeat: { pattern: '*/15 * * * *' },
     jobId: 't15-reminder-check',
+  });
+
+  // Task due-date reminder + overdue alerts — every day 8 AM IST (02:30 UTC)
+  await taskReminderQueue.add('check-due-and-overdue', {}, {
+    repeat: { pattern: '30 2 * * *' },
+    jobId: 'daily-task-reminder',
   });
 }

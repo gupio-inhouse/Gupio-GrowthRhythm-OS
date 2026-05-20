@@ -2,6 +2,9 @@ import { Router, Response } from 'express';
 import { z } from 'zod';
 import prisma from '../lib/prisma';
 import { authenticate, AuthRequest, requireRole } from '../middleware/auth';
+import { sendFeedbackReceivedEmail, sendFeedbackStatusEmail } from '../services/email.service';
+
+const APP_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 const router = Router();
 router.use(authenticate);
@@ -41,6 +44,28 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     },
   });
 
+  // Email all owners/admins in the org (fire-and-forget)
+  prisma.user.findMany({
+    where: { orgId: req.user!.orgId, role: { in: ['OWNER', 'COMPANY_ADMIN'] }, status: 'ACTIVE' },
+    select: { name: true, email: true },
+  }).then(async (owners) => {
+    const submitter = await prisma.user.findUnique({
+      where: { id: req.user!.userId },
+      select: { name: true, department: { select: { name: true } } },
+    });
+    for (const owner of owners) {
+      sendFeedbackReceivedEmail({
+        to: owner.email,
+        ownerName: owner.name,
+        submitterName: submitter?.name ?? 'A team member',
+        department: submitter?.department?.name ?? null,
+        title: feedback.title,
+        category: feedback.category,
+        appUrl: APP_URL,
+      }).catch(console.error);
+    }
+  }).catch(console.error);
+
   res.status(201).json(feedback);
 });
 
@@ -62,13 +87,17 @@ router.get('/', requireRole('OWNER', 'COMPANY_ADMIN'), async (req: AuthRequest, 
       description: true,
       category: true,
       status: true,
+      upvotes: true,
       createdAt: true,
       user: { select: { id: true, name: true, role: true } },
       department: { select: { id: true, name: true, slug: true } },
+      votes: { where: { userId: req.user!.userId }, select: { id: true } },
     },
   });
 
-  res.json(feedback);
+  // Flatten votes into a boolean hasVoted field
+  const result = feedback.map((f) => ({ ...f, hasVoted: f.votes.length > 0, votes: undefined }));
+  res.json(result);
 });
 
 // PATCH /feedback/:id/status — OWNER / COMPANY_ADMIN only
@@ -87,7 +116,55 @@ router.patch('/:id/status', requireRole('OWNER', 'COMPANY_ADMIN'), async (req: A
     select: { id: true, status: true },
   });
 
+  // Email the original submitter about the status change
+  prisma.appFeedback.findUnique({
+    where: { id: req.params.id as string },
+    select: { title: true, user: { select: { name: true, email: true } } },
+  }).then((fb) => {
+    if (!fb) return;
+    sendFeedbackStatusEmail({
+      to: fb.user.email,
+      submitterName: fb.user.name,
+      title: fb.title,
+      status,
+      appUrl: APP_URL,
+    }).catch(console.error);
+  }).catch(console.error);
+
   res.json(feedback);
+});
+
+// POST /feedback/:id/upvote — any authenticated user, toggles vote
+router.post('/:id/upvote', async (req: AuthRequest, res: Response) => {
+  const feedbackId = req.params.id as string;
+  const userId = req.user!.userId;
+
+  // Verify the feedback belongs to this org
+  const feedback = await prisma.appFeedback.findFirst({
+    where: { id: feedbackId, orgId: req.user!.orgId },
+    select: { id: true, upvotes: true },
+  });
+  if (!feedback) { res.status(404).json({ error: 'Not found' }); return; }
+
+  const existing = await prisma.appFeedbackVote.findUnique({
+    where: { feedbackId_userId: { feedbackId, userId } },
+  });
+
+  if (existing) {
+    // Remove vote
+    await prisma.$transaction([
+      prisma.appFeedbackVote.delete({ where: { feedbackId_userId: { feedbackId, userId } } }),
+      prisma.appFeedback.update({ where: { id: feedbackId }, data: { upvotes: { decrement: 1 } } }),
+    ]);
+    res.json({ upvoted: false, upvotes: Math.max(0, feedback.upvotes - 1) });
+  } else {
+    // Add vote
+    await prisma.$transaction([
+      prisma.appFeedbackVote.create({ data: { feedbackId, userId } }),
+      prisma.appFeedback.update({ where: { id: feedbackId }, data: { upvotes: { increment: 1 } } }),
+    ]);
+    res.json({ upvoted: true, upvotes: feedback.upvotes + 1 });
+  }
 });
 
 export default router;
