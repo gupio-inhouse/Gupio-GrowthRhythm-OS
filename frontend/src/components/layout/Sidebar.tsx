@@ -1,12 +1,13 @@
 import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, CheckSquare, Users, Target, Zap, BookOpen,
-  Building2, Settings, LogOut, ChevronDown, BarChart3, Calendar, Shield, ClipboardList, Users2, Plug,
+  Building2, Settings, LogOut, BarChart3, Calendar, Shield, ClipboardList, Users2, Plug, MessageSquare,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { getInitials } from '@/lib/utils';
+import FeedbackDialog from './FeedbackDialog';
 
 const navItems = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['OWNER', 'COMPANY_ADMIN'] },
@@ -21,6 +22,7 @@ const navItems = [
   { label: 'Hiring', href: '/hiring', icon: Users2, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'] },
   { label: 'Team', href: '/team', icon: Users, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'] },
   { label: 'Integrations', href: '/integrations', icon: Plug, roles: ['OWNER', 'COMPANY_ADMIN'] },
+  { label: 'App Feedback', href: '/app-feedback', icon: MessageSquare, roles: ['OWNER', 'COMPANY_ADMIN'] },
   { label: 'Settings', href: '/settings', icon: Settings, roles: ['OWNER', 'COMPANY_ADMIN'] },
   { label: 'Super Admin', href: '/superadmin', icon: Shield, roles: ['SUPER_ADMIN'] },
 ];
@@ -65,6 +67,11 @@ export default function Sidebar() {
           );
         })}
       </nav>
+
+      {/* Feedback button — visible to all roles */}
+      <div className="px-3 pb-1">
+        <FeedbackDialog />
+      </div>
 
       {/* User footer */}
       <div className="border-t border-sidebar-border p-3">
