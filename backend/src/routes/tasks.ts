@@ -5,6 +5,9 @@ import { authenticate, AuthRequest } from '../middleware/auth';
 import { auditLog } from '../middleware/audit';
 import { fanOutNotification, createNotification } from '../services/notification.service';
 import { generateTaskSuggestions } from '../services/ai.service';
+import { sendTaskAssignedEmail } from '../services/email.service';
+
+const APP_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 const router = Router();
 router.use(authenticate);
@@ -188,7 +191,7 @@ router.post('/', auditLog('task', 'CREATE'), async (req: AuthRequest, res: Respo
       orgId: req.user!.orgId,
       status: 'ACTIVE',
     },
-    select: { id: true, departmentId: true, managerId: true },
+    select: { id: true, name: true, email: true, departmentId: true, managerId: true },
   });
   if (!assignee) {
     res.status(400).json({ error: 'Assignee not found' });
@@ -221,11 +224,26 @@ router.post('/', auditLog('task', 'CREATE'), async (req: AuthRequest, res: Respo
     include: { assignee: { select: { id: true, name: true } } },
   });
 
-  // Notify assignee (fire-and-forget)
+  // Notify + email assignee (fire-and-forget)
   if (task.assigneeUserId !== req.user!.userId) {
     createNotification(task.assigneeUserId, 'TASK_ASSIGNED', {
       taskTitle: task.title,
       dueDate: task.dueDate?.toISOString().split('T')[0],
+    }).catch(console.error);
+
+    const assigner = await prisma.user.findUnique({
+      where: { id: req.user!.userId },
+      select: { name: true },
+    });
+    sendTaskAssignedEmail({
+      to: assignee!.email,
+      assigneeName: assignee!.name,
+      assignedByName: assigner?.name ?? 'Your manager',
+      taskTitle: task.title,
+      taskDescription: task.description,
+      priority: task.priority,
+      dueDate: task.dueDate,
+      appUrl: APP_URL,
     }).catch(console.error);
   }
 
@@ -248,7 +266,7 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
 
   const existingTask = await prisma.task.findUnique({
     where: { id: req.params.id as string, orgId: req.user!.orgId },
-    select: { id: true, assigneeUserId: true, departmentId: true },
+    select: { id: true, assigneeUserId: true, departmentId: true, title: true, description: true, priority: true, dueDate: true },
   });
   if (!existingTask) {
     res.status(404).json({ error: 'Task not found' });
@@ -273,7 +291,7 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
     const nextAssigneeId = parsed.data.assigneeUserId ?? existingTask.assigneeUserId;
     const assignee = await prisma.user.findFirst({
       where: { id: nextAssigneeId, orgId: req.user!.orgId, status: 'ACTIVE' },
-      select: { id: true, departmentId: true, managerId: true },
+      select: { id: true, name: true, email: true, departmentId: true, managerId: true },
     });
     if (!assignee) {
       res.status(400).json({ error: 'Assignee not found' });
@@ -324,6 +342,27 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
       where: { id: task.kraId },
       data: { current: newCurrent, status: newCurrent >= kra.target ? 'COMPLETED' : 'ON_TRACK' },
     });
+  }
+
+  // Email new assignee when task is reassigned to someone else
+  const newAssigneeId = parsed.data.assigneeUserId;
+  if (newAssigneeId && newAssigneeId !== existingTask!.assigneeUserId && newAssigneeId !== req.user!.userId) {
+    const [newAssignee, assigner] = await Promise.all([
+      prisma.user.findUnique({ where: { id: newAssigneeId }, select: { name: true, email: true } }),
+      prisma.user.findUnique({ where: { id: req.user!.userId }, select: { name: true } }),
+    ]);
+    if (newAssignee) {
+      sendTaskAssignedEmail({
+        to: newAssignee.email,
+        assigneeName: newAssignee.name,
+        assignedByName: assigner?.name ?? 'Your manager',
+        taskTitle: task.title,
+        taskDescription: task.description,
+        priority: task.priority,
+        dueDate: task.dueDate,
+        appUrl: APP_URL,
+      }).catch(console.error);
+    }
   }
 
   // Notify on block
