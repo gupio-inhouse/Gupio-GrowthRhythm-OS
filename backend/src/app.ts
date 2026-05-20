@@ -24,6 +24,7 @@ import eventsRouter from './routes/events';
 import integrationsRouter from './routes/integrations';
 import uploadRouter from './routes/upload';
 import mfaRouter from './routes/mfa';
+import feedbackRouter from './routes/feedback';
 import { setOrgContext } from './middleware/rls';
 
 export function createApp() {
@@ -66,6 +67,7 @@ export function createApp() {
   app.use('/api/upload', uploadRouter);
   app.use('/uploads', express.static('uploads'));
   app.use('/api/mfa', mfaRouter);
+  app.use('/api/feedback', feedbackRouter);
 
   app.get('/health', (_req, res) => res.json({ status: 'ok', ts: new Date() }));
 

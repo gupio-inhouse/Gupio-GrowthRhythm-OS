@@ -197,6 +197,7 @@ model Organization {
   candidates      Candidate[]
   onboardingChecklists OnboardingChecklist[]
   oauthTokens     OAuthToken[]
+  appFeedback     AppFeedback[]
 
   @@map("organizations")
 }
@@ -239,6 +240,7 @@ model User {
   managedTeams         Team[]             @relation("TeamManager")
   interviewScorecards  InterviewScorecard[]
   onboardingChecklists OnboardingChecklist[]
+  appFeedback          AppFeedback[]
 
   @@unique([orgId, email])
   @@map("users")
@@ -270,6 +272,7 @@ model Department {
   learningPaths   LearningPath[]
   skills          Skill[]
   jobDescriptions JobDescription[]
+  appFeedback     AppFeedback[]
 
   @@unique([orgId, slug])
   @@map("departments")
@@ -729,6 +732,43 @@ model OnboardingChecklist {
   user User         @relation(fields: [userId], references: [id])
 
   @@map("onboarding_checklists")
+}
+
+// ─── App Feedback ─────────────────────────────────────────────────────────────
+
+enum FeedbackCategory {
+  BUG
+  FEATURE_REQUEST
+  UI_UX
+  PERFORMANCE
+  OTHER
+}
+
+enum FeedbackStatus {
+  OPEN
+  UNDER_REVIEW
+  PLANNED
+  IMPLEMENTED
+  DISMISSED
+}
+
+model AppFeedback {
+  id           String           @id @default(cuid())
+  orgId        String           @map("org_id")
+  userId       String           @map("user_id")
+  departmentId String?          @map("department_id")
+  title        String
+  description  String
+  category     FeedbackCategory @default(OTHER)
+  status       FeedbackStatus   @default(OPEN)
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
+
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user       User         @relation(fields: [userId], references: [id])
+  department Department?  @relation(fields: [departmentId], references: [id])
+
+  @@map("app_feedback")
 }
 
 // ─── OAuth Tokens (M11.1 / M11.2) ────────────────────────────────────────────

@@ -17,6 +17,7 @@ import Reviews from '@/pages/Reviews';
 import MagicLinkVerify from '@/pages/MagicLinkVerify';
 import Hiring from '@/pages/Hiring';
 import Integrations from '@/pages/Integrations';
+import AppFeedback from '@/pages/AppFeedback';
 import { useAuthStore } from '@/store/authStore';
 import { getRoleRedirect } from '@/lib/roleRedirect';
 
@@ -69,6 +70,7 @@ export default function App() {
             <Route path="integrations" element={<Integrations />} />
             <Route path="reviews" element={<Reviews />} />
             <Route path="hiring" element={<Hiring />} />
+            <Route path="app-feedback" element={<AppFeedback />} />
             <Route path="settings" element={<Settings />} />
             <Route path="superadmin" element={<SuperAdmin />} />
           </Route>
