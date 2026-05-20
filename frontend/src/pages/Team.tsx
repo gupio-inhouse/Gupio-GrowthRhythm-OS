@@ -5,7 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
   UserPlus, Search, Users, Shield, Crown, Briefcase, User as UserIcon,
-  Mail, Phone, Building2, CheckCircle2, Plus,
+  Mail, Phone, Building2, CheckCircle2, Plus, UserX, UserCheck,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -138,6 +138,13 @@ export default function Team() {
   const canCreateTeam = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(me?.role || '');
   const canBulkImport = ['OWNER', 'COMPANY_ADMIN'].includes(me?.role || '');
   const canInviteOnlyTeamMembers = me?.role === 'MANAGER';
+  const canDeactivate = ['OWNER', 'COMPANY_ADMIN'].includes(me?.role || '');
+
+  const toggleStatus = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) =>
+      api.patch(`/users/${id}`, { status }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+  });
 
   const { data: members = [], isLoading } = useQuery<TeamMember[]>({
     queryKey: ['users'],
@@ -427,7 +434,7 @@ export default function Team() {
       ) : (
         <div className="space-y-2">
           {filtered.map((member) => (
-            <Card key={member.id} className="hover:shadow-sm transition-shadow">
+            <Card key={member.id} className="hover:shadow-sm transition-shadow group">
               <CardContent className="p-4">
                 <div className="flex items-center gap-4">
                   <div className="relative">
@@ -469,6 +476,24 @@ export default function Team() {
                     <RoleBadge role={member.role} />
                     {member.status === 'INVITED' && (
                       <Badge variant="warning" className="text-xs">Invited</Badge>
+                    )}
+                    {member.status === 'DEACTIVATED' && (
+                      <Badge variant="secondary" className="text-xs text-muted-foreground">Deactivated</Badge>
+                    )}
+                    {canDeactivate && member.id !== me?.id && member.role !== 'OWNER' && (
+                      <button
+                        onClick={() => toggleStatus.mutate({
+                          id: member.id,
+                          status: member.status === 'DEACTIVATED' ? 'ACTIVE' : 'DEACTIVATED',
+                        })}
+                        className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors opacity-0 group-hover:opacity-100"
+                        title={member.status === 'DEACTIVATED' ? 'Reactivate member' : 'Deactivate member'}
+                      >
+                        {member.status === 'DEACTIVATED'
+                          ? <UserCheck className="h-4 w-4 text-green-600" />
+                          : <UserX className="h-4 w-4 text-red-500" />
+                        }
+                      </button>
                     )}
                   </div>
                 </div>

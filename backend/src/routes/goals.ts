@@ -161,4 +161,18 @@ router.patch('/:id', requireRole('OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'), a
   res.json(updatedGoal);
 });
 
+router.delete('/:id', requireRole('OWNER', 'COMPANY_ADMIN'), async (req: AuthRequest, res: Response) => {
+  const goal = await prisma.goal.findUnique({
+    where: { id: req.params.id as string, orgId: req.user!.orgId },
+    select: { id: true, _count: { select: { kras: true } } },
+  });
+  if (!goal) { res.status(404).json({ error: 'Goal not found' }); return; }
+  if (goal._count.kras > 0) {
+    res.status(400).json({ error: 'Cannot delete a goal that has KRAs. Remove the KRAs first.' });
+    return;
+  }
+  await prisma.goal.delete({ where: { id: req.params.id as string, orgId: req.user!.orgId } });
+  res.json({ success: true });
+});
+
 export default router;

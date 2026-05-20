@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Building2, Users, CheckSquare, Target, ArrowRight, Clock, Settings, Plus } from 'lucide-react';
+import { Building2, Users, CheckSquare, Target, ArrowRight, Clock, Settings, Plus, Trash2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -35,6 +35,22 @@ export default function Departments() {
   const canConfigure = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'].includes(user?.role || '');
   const canCreate = ['OWNER', 'COMPANY_ADMIN'].includes(user?.role || '');
   const qc = useQueryClient();
+  const [deleteDeptId, setDeleteDeptId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState('');
+
+  const deleteDept = useMutation({
+    mutationFn: (id: string) => api.delete(`/departments/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['departments'] });
+      qc.invalidateQueries({ queryKey: ['cockpit'] });
+      setDeleteDeptId(null);
+      setDeleteError('');
+    },
+    onError: (err: unknown) => {
+      const e = err as { response?: { data?: { error?: string } } };
+      setDeleteError(e.response?.data?.error ?? 'Failed to delete department');
+    },
+  });
 
   useEffect(() => {
     if (searchParams.get('create') === 'department') {
@@ -132,6 +148,15 @@ export default function Departments() {
                         <Settings className="h-4 w-4" />
                       </button>
                     )}
+                    {canCreate && (
+                      <button
+                        onClick={() => { setDeleteError(''); setDeleteDeptId(dept.id); }}
+                        className="text-muted-foreground hover:text-red-600 p-1 rounded"
+                        title="Delete department"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
                     <Link
                       to={`/dashboard/${dept.slug}`}
                       className="text-muted-foreground hover:text-primary"
@@ -186,6 +211,28 @@ export default function Departments() {
           onClose={() => setScheduleTarget(null)}
         />
       )}
+
+      <Dialog open={!!deleteDeptId} onOpenChange={(v) => { if (!v) { setDeleteDeptId(null); setDeleteError(''); } }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Department</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This will permanently delete the department. Departments with members cannot be deleted — reassign all members first.
+          </p>
+          {deleteError && <p className="text-sm text-destructive">{deleteError}</p>}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setDeleteDeptId(null); setDeleteError(''); }}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteDeptId && deleteDept.mutate(deleteDeptId)}
+              disabled={deleteDept.isPending}
+            >
+              {deleteDept.isPending ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={createOpen} onOpenChange={handleCreateOpen}>
         <DialogContent className="sm:max-w-md">

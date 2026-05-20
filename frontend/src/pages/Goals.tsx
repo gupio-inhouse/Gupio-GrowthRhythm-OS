@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Target, Plus, TrendingUp } from 'lucide-react';
+import { Target, Plus, TrendingUp, Trash2, Pencil } from 'lucide-react';
 import { z } from 'zod';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -105,6 +105,12 @@ export default function Goals() {
   const [kraForm, setKraForm] = useState<KRAForm>(EMPTY_KRA_FORM);
   const [goalError, setGoalError] = useState('');
   const [kraError, setKraError] = useState('');
+  const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
+  const [editingKraId, setEditingKraId] = useState<string | null>(null);
+  const [deleteGoalId, setDeleteGoalId] = useState<string | null>(null);
+  const [deleteKraId, setDeleteKraId] = useState<string | null>(null);
+
+  const canManage = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'].includes(user?.role || '');
 
   const { data: goals = [] } = useQuery<Goal[]>({
     queryKey: ['goals'],
@@ -148,8 +154,7 @@ export default function Goals() {
       if (!user?.id) throw new Error('You must be logged in to create a goal');
 
       const target = parsed.data.target?.trim();
-
-      return api.post('/goals', {
+      const body = {
         title: parsed.data.title.trim(),
         description: parsed.data.description?.trim() || undefined,
         type: parsed.data.type,
@@ -157,17 +162,31 @@ export default function Goals() {
         target: target ? Number(target) : undefined,
         unit: parsed.data.unit?.trim() || undefined,
         period: parsed.data.period?.trim() || undefined,
-      });
+      };
+
+      return editingGoalId
+        ? api.patch(`/goals/${editingGoalId}`, body)
+        : api.post('/goals', body);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['goals'] });
       setGoalOpen(false);
       setGoalForm(EMPTY_GOAL_FORM);
       setGoalError('');
+      setEditingGoalId(null);
       clearCreateParam();
     },
     onError: (error: unknown) => {
-      setGoalError(error instanceof Error ? error.message : 'Unable to create goal');
+      setGoalError(error instanceof Error ? error.message : 'Unable to save goal');
+    },
+  });
+
+  const deleteGoalMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/goals/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['goals'] });
+      qc.invalidateQueries({ queryKey: ['kras'] });
+      setDeleteGoalId(null);
     },
   });
 
@@ -179,7 +198,7 @@ export default function Goals() {
       }
       if (!user?.id) throw new Error('You must be logged in to create a KRA');
 
-      return api.post('/kras', {
+      const body = {
         name: parsed.data.name.trim(),
         description: parsed.data.description?.trim() || undefined,
         departmentId: parsed.data.departmentId,
@@ -188,7 +207,11 @@ export default function Goals() {
         target: Number(parsed.data.target),
         unit: parsed.data.unit?.trim() || undefined,
         period: parsed.data.period.trim(),
-      });
+      };
+
+      return editingKraId
+        ? api.patch(`/kras/${editingKraId}`, body)
+        : api.post('/kras', body);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['kras'] });
@@ -197,20 +220,59 @@ export default function Goals() {
       setKraOpen(false);
       setKraForm(EMPTY_KRA_FORM);
       setKraError('');
+      setEditingKraId(null);
       clearCreateParam();
     },
     onError: (error: unknown) => {
-      setKraError(error instanceof Error ? error.message : 'Unable to create KRA');
+      setKraError(error instanceof Error ? error.message : 'Unable to save KRA');
     },
   });
 
-  const openGoalDialog = () => {
+  const deleteKraMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/kras/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['kras'] });
+      qc.invalidateQueries({ queryKey: ['goals'] });
+      setDeleteKraId(null);
+    },
+  });
+
+  const openGoalDialog = (goal?: Goal) => {
     setGoalError('');
+    if (goal) {
+      setEditingGoalId(goal.id);
+      setGoalForm({
+        title: goal.title,
+        description: '',
+        type: goal.type as GoalForm['type'],
+        target: goal.target != null ? String(goal.target) : '',
+        unit: goal.unit || '',
+        period: goal.period || '',
+      });
+    } else {
+      setEditingGoalId(null);
+      setGoalForm(EMPTY_GOAL_FORM);
+    }
     setGoalOpen(true);
   };
 
-  const openKraDialog = () => {
+  const openKraDialog = (kra?: KRA) => {
     setKraError('');
+    if (kra) {
+      setEditingKraId(kra.id);
+      setKraForm({
+        name: kra.name,
+        description: '',
+        departmentId: kra.department.id,
+        goalId: '',
+        target: String(kra.target),
+        unit: kra.unit || '',
+        period: kra.period,
+      });
+    } else {
+      setEditingKraId(null);
+      setKraForm(EMPTY_KRA_FORM);
+    }
     setKraOpen(true);
   };
 
@@ -218,6 +280,7 @@ export default function Goals() {
     setGoalOpen(open);
     if (!open) {
       setGoalError('');
+      setEditingGoalId(null);
       clearCreateParam();
     }
   };
@@ -226,6 +289,7 @@ export default function Goals() {
     setKraOpen(open);
     if (!open) {
       setKraError('');
+      setEditingKraId(null);
       clearCreateParam();
     }
   };
@@ -241,10 +305,10 @@ export default function Goals() {
           <p className="text-muted-foreground text-sm mt-0.5">{goals.length} goals · {kras.length} KRAs</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" className="gap-2" onClick={openKraDialog}>
+          <Button variant="outline" className="gap-2" onClick={() => openKraDialog()}>
             <Plus className="h-4 w-4" /> Add KRA
           </Button>
-          <Button className="gap-2" onClick={openGoalDialog}>
+          <Button className="gap-2" onClick={() => openGoalDialog()}>
             <Plus className="h-4 w-4" /> Add Goal
           </Button>
         </div>
@@ -260,8 +324,8 @@ export default function Goals() {
               <p>3. Create tasks against those KRAs so execution rolls up cleanly.</p>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={openKraDialog}>Add KRA</Button>
-              <Button onClick={openGoalDialog}>Create First Goal</Button>
+              <Button variant="outline" onClick={() => openKraDialog()}>Add KRA</Button>
+              <Button onClick={() => openGoalDialog()}>Create First Goal</Button>
             </div>
           </CardContent>
         </Card>
@@ -277,16 +341,36 @@ export default function Goals() {
             {goals.map((goal) => {
               const pct = goal.target && goal.current != null ? Math.min(100, Math.round((goal.current / goal.target) * 100)) : 0;
               return (
-                <Card key={goal.id}>
+                <Card key={goal.id} className="group">
                   <CardContent className="p-5">
                     <div className="flex items-start justify-between mb-3">
                       <div className="flex-1">
                         <p className="font-medium">{goal.title}</p>
                         <p className="text-xs text-muted-foreground mt-0.5">{goal.period || 'Ongoing'}</p>
                       </div>
-                      <Badge variant={goal.status === 'ACTIVE' ? 'info' : goal.status === 'COMPLETED' ? 'success' : 'secondary'}>
-                        {goal.status.toLowerCase()}
-                      </Badge>
+                      <div className="flex items-center gap-1">
+                        <Badge variant={goal.status === 'ACTIVE' ? 'info' : goal.status === 'COMPLETED' ? 'success' : 'secondary'}>
+                          {goal.status.toLowerCase()}
+                        </Badge>
+                        {canManage && (
+                          <>
+                            <button
+                              onClick={() => openGoalDialog(goal)}
+                              className="opacity-0 group-hover:opacity-100 ml-1 p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-opacity"
+                              title="Edit goal"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setDeleteGoalId(goal.id)}
+                              className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-opacity"
+                              title="Delete goal"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
                     {goal.target != null && (
                       <div className="space-y-1.5">
@@ -329,7 +413,7 @@ export default function Goals() {
           {kras.map((kra) => {
             const pct = kra.target > 0 ? Math.min(100, Math.round((kra.current / kra.target) * 100)) : 0;
             return (
-              <Card key={kra.id}>
+              <Card key={kra.id} className="group">
                 <CardContent className="p-4">
                   <div className="flex items-start gap-4">
                     <div className="flex-1">
@@ -353,6 +437,24 @@ export default function Goals() {
                         <AvatarFallback className="text-xs bg-blue-50 text-blue-700">{getInitials(kra.owner.name)}</AvatarFallback>
                       </Avatar>
                       <span className="text-xs text-muted-foreground">{kra._count.tasks} tasks</span>
+                      {canManage && (
+                        <>
+                          <button
+                            onClick={() => openKraDialog(kra)}
+                            className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-opacity"
+                            title="Edit KRA"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setDeleteKraId(kra.id)}
+                            className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-opacity"
+                            title="Delete KRA"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 </CardContent>
@@ -372,7 +474,7 @@ export default function Goals() {
       <Dialog open={goalOpen} onOpenChange={closeGoalDialog}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Create Goal</DialogTitle>
+            <DialogTitle>{editingGoalId ? 'Edit Goal' : 'Create Goal'}</DialogTitle>
           </DialogHeader>
           <form
             className="space-y-4"
@@ -463,7 +565,7 @@ export default function Goals() {
                 Cancel
               </Button>
               <Button type="submit" disabled={goalMutation.isPending}>
-                {goalMutation.isPending ? 'Creating...' : 'Create Goal'}
+                {goalMutation.isPending ? 'Saving...' : editingGoalId ? 'Save Changes' : 'Create Goal'}
               </Button>
             </DialogFooter>
           </form>
@@ -473,7 +575,7 @@ export default function Goals() {
       <Dialog open={kraOpen} onOpenChange={closeKraDialog}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Create KRA</DialogTitle>
+            <DialogTitle>{editingKraId ? 'Edit KRA' : 'Create KRA'}</DialogTitle>
           </DialogHeader>
           <form
             className="space-y-4"
@@ -582,10 +684,54 @@ export default function Goals() {
                 Cancel
               </Button>
               <Button type="submit" disabled={kraMutation.isPending}>
-                {kraMutation.isPending ? 'Creating...' : 'Create KRA'}
+                {kraMutation.isPending ? 'Saving...' : editingKraId ? 'Save Changes' : 'Create KRA'}
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Goal confirm */}
+      <Dialog open={!!deleteGoalId} onOpenChange={(v) => !v && setDeleteGoalId(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Goal</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This will permanently delete the goal and cannot be undone. Goals with linked KRAs cannot be deleted — remove the KRAs first.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteGoalId(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteGoalId && deleteGoalMutation.mutate(deleteGoalId)}
+              disabled={deleteGoalMutation.isPending}
+            >
+              {deleteGoalMutation.isPending ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete KRA confirm */}
+      <Dialog open={!!deleteKraId} onOpenChange={(v) => !v && setDeleteKraId(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete KRA</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This will permanently delete the KRA. KRAs with linked tasks cannot be deleted — remove the tasks first.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteKraId(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteKraId && deleteKraMutation.mutate(deleteKraId)}
+              disabled={deleteKraMutation.isPending}
+            >
+              {deleteKraMutation.isPending ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

@@ -456,4 +456,30 @@ router.patch('/onboarding/:id', async (req: AuthRequest, res: Response) => {
   res.json(checklist);
 });
 
+// DELETE /hiring/jobs/:id
+router.delete('/jobs/:id', requireRole('OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'), async (req: AuthRequest, res: Response) => {
+  const job = await prisma.jobDescription.findFirst({
+    where: { id: req.params.id as string, orgId: req.user!.orgId },
+    select: { id: true, _count: { select: { candidates: true } } },
+  });
+  if (!job) { res.status(404).json({ error: 'Job not found' }); return; }
+  if (job._count.candidates > 0) {
+    res.status(400).json({ error: `Cannot delete: ${job._count.candidates} candidate(s) linked to this job.` });
+    return;
+  }
+  await prisma.jobDescription.delete({ where: { id: req.params.id as string } });
+  res.json({ success: true });
+});
+
+// DELETE /hiring/candidates/:id
+router.delete('/candidates/:id', requireRole('OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'), async (req: AuthRequest, res: Response) => {
+  const candidate = await prisma.candidate.findFirst({
+    where: { id: req.params.id as string, orgId: req.user!.orgId },
+    select: { id: true },
+  });
+  if (!candidate) { res.status(404).json({ error: 'Candidate not found' }); return; }
+  await prisma.candidate.delete({ where: { id: req.params.id as string } });
+  res.json({ success: true });
+});
+
 export default router;
