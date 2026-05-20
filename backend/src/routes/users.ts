@@ -193,7 +193,8 @@ router.post('/invite', requireRole('OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 
         purpose,
       });
     } catch (emailErr) {
-      console.error('[users/invite] Failed to send invite email:', emailErr);
+      const errMsg = emailErr instanceof Error ? emailErr.message : String(emailErr);
+      console.error('[users/invite] Failed to send invite email:', errMsg);
       emailSent = false;
     }
 

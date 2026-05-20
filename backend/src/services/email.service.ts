@@ -1,26 +1,33 @@
+import nodemailer, { Transporter } from 'nodemailer';
 import { MagicLinkPurpose } from '@prisma/client';
 
-// ─── SendGrid bootstrap ───────────────────────────────────────────────────────
-// Using require() so the service degrades gracefully if the package is not yet installed.
-// After running `pnpm install`, it will be available.
+// ─── Nodemailer transporter ───────────────────────────────────────────────────
+// Supports any SMTP provider via env vars:
+//   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS
+// Common presets:
+//   Gmail:      host=smtp.gmail.com  port=587  (use App Password)
+//   Outlook:    host=smtp.office365.com  port=587
+//   Zoho:       host=smtp.zoho.in  port=587
+//   Brevo:      host=smtp-relay.brevo.com  port=587
+//   Mailtrap:   host=sandbox.smtp.mailtrap.io  port=2525  (dev testing)
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let sgMail: any = null;
+let transporter: Transporter | null = null;
 
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  sgMail = require('@sendgrid/mail');
-} catch {
-  // Package not installed yet — dev console mode will be used
+const SMTP_HOST = process.env.SMTP_HOST;
+const SMTP_PORT = parseInt(process.env.SMTP_PORT || '587', 10);
+const SMTP_USER = process.env.SMTP_USER;
+const SMTP_PASS = process.env.SMTP_PASS;
+const FROM_EMAIL = process.env.SMTP_FROM_EMAIL || SMTP_USER || 'noreply@growthrhythm.app';
+const FROM_NAME = process.env.SMTP_FROM_NAME || 'GrowthRhythm OS';
+
+if (SMTP_HOST && SMTP_USER && SMTP_PASS) {
+  transporter = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: SMTP_PORT === 465,
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+  });
 }
-
-const apiKey = process.env.SENDGRID_API_KEY;
-if (sgMail && apiKey) {
-  sgMail.setApiKey(apiKey);
-}
-
-const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || 'noreply@growthrhythm.app';
-const FROM_NAME = 'GrowthRhythm OS';
 
 // ─── Generic send ────────────────────────────────────────────────────────────
 
@@ -32,18 +39,17 @@ interface SendEmailParams {
 }
 
 export async function sendEmail({ to, subject, html, text }: SendEmailParams): Promise<boolean> {
-  if (!apiKey || !sgMail) {
-    // Dev mode: log instead of sending
-    console.log('[email.service] DEV MODE — email not sent (no SENDGRID_API_KEY or package missing)');
+  if (!transporter) {
+    console.log('[email.service] DEV MODE — SMTP not configured (set SMTP_HOST, SMTP_USER, SMTP_PASS)');
     console.log(`  To:      ${to}`);
     console.log(`  Subject: ${subject}`);
     console.log(`  Body:    ${(text ?? html.replace(/<[^>]+>/g, ' ').trim()).slice(0, 300)}`);
     return false;
   }
 
-  await sgMail.send({
+  await transporter.sendMail({
+    from: `"${FROM_NAME}" <${FROM_EMAIL}>`,
     to,
-    from: { email: FROM_EMAIL, name: FROM_NAME },
     subject,
     html,
     ...(text ? { text } : {}),
@@ -110,7 +116,6 @@ export async function sendMagicLinkEmail({ to, name, magicLinkUrl, purpose }: Se
     <tr>
       <td align="center">
         <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;">
-          <!-- Logo -->
           <tr>
             <td align="center" style="padding-bottom:32px;">
               <table cellpadding="0" cellspacing="0">
@@ -126,16 +131,12 @@ export async function sendMagicLinkEmail({ to, name, magicLinkUrl, purpose }: Se
               </table>
             </td>
           </tr>
-
-          <!-- Card -->
           <tr>
             <td style="background-color:#1e293b;border-radius:16px;border:1px solid rgba(255,255,255,0.08);padding:40px 36px;">
               <h1 style="margin:0 0 8px;font-size:24px;font-weight:700;color:#ffffff;">${config.heading}</h1>
               <p style="margin:0 0 24px;font-size:15px;color:#94a3b8;line-height:1.6;">
                 Hi ${firstName},<br/><br/>${config.intro}
               </p>
-
-              <!-- CTA Button -->
               <table cellpadding="0" cellspacing="0" style="margin:0 0 28px;">
                 <tr>
                   <td style="background-color:#2563eb;border-radius:10px;">
@@ -146,24 +147,17 @@ export async function sendMagicLinkEmail({ to, name, magicLinkUrl, purpose }: Se
                   </td>
                 </tr>
               </table>
-
-              <p style="margin:0 0 8px;font-size:13px;color:#64748b;">
-                Or copy this link into your browser:
-              </p>
+              <p style="margin:0 0 8px;font-size:13px;color:#64748b;">Or copy this link into your browser:</p>
               <p style="margin:0 0 28px;font-size:12px;color:#475569;word-break:break-all;background-color:#0f172a;padding:12px;border-radius:8px;font-family:monospace;">
                 ${magicLinkUrl}
               </p>
-
               <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:0 0 20px;" />
-
               <p style="margin:0;font-size:12px;color:#475569;line-height:1.6;">
                 This link is single-use and expires in 48 hours.
                 If you did not request this, you can safely ignore this email.
               </p>
             </td>
           </tr>
-
-          <!-- Footer -->
           <tr>
             <td align="center" style="padding-top:24px;">
               <p style="margin:0;font-size:12px;color:#334155;">
@@ -177,8 +171,7 @@ export async function sendMagicLinkEmail({ to, name, magicLinkUrl, purpose }: Se
     </tr>
   </table>
 </body>
-</html>
-  `.trim();
+</html>`.trim();
 
   const text = `${config.heading}\n\nHi ${firstName},\n\n${config.intro}\n\n${config.buttonLabel}: ${magicLinkUrl}\n\nThis link is single-use and expires in 48 hours.`;
 
@@ -210,7 +203,6 @@ export async function sendWelcomeEmail({ to, name, orgName }: SendWelcomeEmailPa
     <tr>
       <td align="center">
         <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;">
-          <!-- Logo -->
           <tr>
             <td align="center" style="padding-bottom:32px;">
               <table cellpadding="0" cellspacing="0">
@@ -226,17 +218,12 @@ export async function sendWelcomeEmail({ to, name, orgName }: SendWelcomeEmailPa
               </table>
             </td>
           </tr>
-
-          <!-- Card -->
           <tr>
             <td style="background-color:#1e293b;border-radius:16px;border:1px solid rgba(255,255,255,0.08);padding:40px 36px;">
               <h1 style="margin:0 0 8px;font-size:24px;font-weight:700;color:#ffffff;">Welcome aboard, ${firstName}!</h1>
               <p style="margin:0 0 24px;font-size:15px;color:#94a3b8;line-height:1.6;">
                 You are now part of <strong style="color:#e2e8f0;">${orgName}</strong> on GrowthRhythm OS.
                 Your account is active and ready to go.
-              </p>
-              <p style="margin:0 0 24px;font-size:15px;color:#94a3b8;line-height:1.6;">
-                Here is what you can do on GrowthRhythm OS:
               </p>
               <ul style="margin:0 0 28px;padding-left:20px;color:#94a3b8;font-size:14px;line-height:1.8;">
                 <li>Track your daily tasks and blockers</li>
@@ -250,8 +237,6 @@ export async function sendWelcomeEmail({ to, name, orgName }: SendWelcomeEmailPa
               </p>
             </td>
           </tr>
-
-          <!-- Footer -->
           <tr>
             <td align="center" style="padding-top:24px;">
               <p style="margin:0;font-size:12px;color:#334155;">
@@ -265,8 +250,7 @@ export async function sendWelcomeEmail({ to, name, orgName }: SendWelcomeEmailPa
     </tr>
   </table>
 </body>
-</html>
-  `.trim();
+</html>`.trim();
 
   const text = `Welcome aboard, ${firstName}!\n\nYou are now part of ${orgName} on GrowthRhythm OS. Your account is active and ready to go.`;
 

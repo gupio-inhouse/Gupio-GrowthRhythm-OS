@@ -203,16 +203,15 @@ export default function Integrations() {
               <div className="flex items-start gap-3">
                 <div className="p-2 bg-muted rounded-lg"><Mail className="h-6 w-6 text-orange-500" /></div>
                 <div>
-                  <CardTitle className="text-base">Email (SendGrid)</CardTitle>
-                  <CardDescription className="text-xs mt-0.5">Transactional email for invites and digests</CardDescription>
+                  <CardTitle className="text-base">Email (Nodemailer / SMTP)</CardTitle>
+                  <CardDescription className="text-xs mt-0.5">Transactional email for invites and digests via any SMTP provider</CardDescription>
                 </div>
               </div>
             </CardHeader>
             <CardContent>
               <p className="text-xs text-muted-foreground mb-3">
-                {process.env.NODE_ENV === 'production'
-                  ? 'Set SENDGRID_API_KEY in your environment to enable email delivery'
-                  : 'Dev mode: emails are logged to console. Set SENDGRID_API_KEY to send real emails.'}
+                Set <code className="bg-muted px-1 rounded">SMTP_HOST</code>, <code className="bg-muted px-1 rounded">SMTP_USER</code>, and <code className="bg-muted px-1 rounded">SMTP_PASS</code> in your <code className="bg-muted px-1 rounded">.env</code> to enable delivery.
+                Works with Gmail, Outlook, Zoho, Brevo, or Mailtrap.
               </p>
             </CardContent>
           </Card>
