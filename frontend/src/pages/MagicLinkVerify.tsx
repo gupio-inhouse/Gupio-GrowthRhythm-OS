@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Loader2, Zap, CheckCircle, XCircle } from 'lucide-react';
+import { Loader2, Zap, CheckCircle, XCircle, KeyRound } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { getRoleRedirect } from '@/lib/roleRedirect';
 import { Button } from '@/components/ui/button';
@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import api from '@/api/client';
 
-type Status = 'verifying' | 'setup' | 'success' | 'error';
+type Status = 'verifying' | 'setup' | 'reset' | 'success' | 'error';
 
 type AuthPayload = {
   token: string;
@@ -18,6 +18,7 @@ type AuthPayload = {
 
 type VerifyResponse =
   | ({ setupRequired: true } & Pick<AuthPayload, 'user' | 'org'>)
+  | { resetRequired: true; token: string }
   | ({ setupRequired?: false } & AuthPayload);
 
 export default function MagicLinkVerify() {
@@ -31,6 +32,7 @@ export default function MagicLinkVerify() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [pendingUserName, setPendingUserName] = useState('');
+  const [resetToken, setResetToken] = useState('');
 
   const token = searchParams.get('token');
 
@@ -49,7 +51,7 @@ export default function MagicLinkVerify() {
   useEffect(() => {
     if (!token) {
       setStatus('error');
-      setErrorMsg('No magic link token found. Please check your invite email and try again.');
+      setErrorMsg('No magic link token found. Please check your email and try again.');
       return;
     }
 
@@ -61,42 +63,37 @@ export default function MagicLinkVerify() {
         if (cancelled) return;
 
         const data = res.data as VerifyResponse;
-        if (data.setupRequired) {
+
+        if ('resetRequired' in data && data.resetRequired) {
+          setResetToken(data.token);
+          setStatus('reset');
+          return;
+        }
+
+        if ('setupRequired' in data && data.setupRequired) {
           setPendingUserName(data.user.name);
           setStatus('setup');
           return;
         }
 
-        finishLogin(data);
+        finishLogin(data as AuthPayload);
       } catch (err: unknown) {
         if (cancelled) return;
         const msg =
           (err as { response?: { data?: { error?: string } } }).response?.data?.error ??
-          'Something went wrong. Please request a new invite link.';
+          'Something went wrong. Please request a new link.';
         setErrorMsg(msg);
         setStatus('error');
       }
     })();
 
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [token]);
 
   const handleSetPassword = async () => {
-    if (!token) {
-      setStatus('error');
-      setErrorMsg('No magic link token found. Please request a new invite.');
-      return;
-    }
-    if (password.length < 8) {
-      setErrorMsg('Password must be at least 8 characters long.');
-      return;
-    }
-    if (password !== confirmPassword) {
-      setErrorMsg('Passwords do not match.');
-      return;
-    }
+    if (!token) { setErrorMsg('No token found.'); return; }
+    if (password.length < 8) { setErrorMsg('Password must be at least 8 characters.'); return; }
+    if (password !== confirmPassword) { setErrorMsg('Passwords do not match.'); return; }
 
     setSubmitting(true);
     setErrorMsg('');
@@ -106,9 +103,30 @@ export default function MagicLinkVerify() {
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { error?: string } } }).response?.data?.error ??
-        'Unable to complete account setup. Please request a new invite link.';
+        'Unable to complete setup. Please request a new invite link.';
       setErrorMsg(msg);
       setStatus('error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (!resetToken) { setErrorMsg('Reset token missing.'); return; }
+    if (password.length < 8) { setErrorMsg('Password must be at least 8 characters.'); return; }
+    if (password !== confirmPassword) { setErrorMsg('Passwords do not match.'); return; }
+
+    setSubmitting(true);
+    setErrorMsg('');
+    try {
+      await api.post('/auth/reset-password', { token: resetToken, password });
+      setStatus('success');
+      setTimeout(() => navigate('/login', { replace: true }), 1800);
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { error?: string } } }).response?.data?.error ??
+        'Unable to reset password. Please request a new link.';
+      setErrorMsg(msg);
     } finally {
       setSubmitting(false);
     }
@@ -134,7 +152,7 @@ export default function MagicLinkVerify() {
                 <Loader2 className="h-12 w-12 text-blue-400 animate-spin" />
               </div>
               <h1 className="text-xl font-semibold text-white mb-2">Verifying your link...</h1>
-              <p className="text-sm text-blue-200/70">Please wait while we check your invite.</p>
+              <p className="text-sm text-blue-200/70">Please wait.</p>
             </>
           )}
 
@@ -143,43 +161,48 @@ export default function MagicLinkVerify() {
               <div className="text-center">
                 <h1 className="text-xl font-semibold text-white mb-2">Set your password</h1>
                 <p className="text-sm text-blue-200/70">
-                  {pendingUserName ? `${pendingUserName}, ` : ''}finish setting up your account so you can log in normally next time.
+                  {pendingUserName ? `${pendingUserName}, ` : ''}finish setting up your account.
                 </p>
               </div>
-
               <div className="space-y-1.5">
                 <Label htmlFor="password" className="text-blue-100">New Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="At least 8 characters"
-                  className="bg-white/10 border-white/20 text-white placeholder:text-white/40"
-                />
+                <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+                  placeholder="At least 8 characters" className="bg-white/10 border-white/20 text-white placeholder:text-white/40" />
               </div>
-
               <div className="space-y-1.5">
                 <Label htmlFor="confirmPassword" className="text-blue-100">Confirm Password</Label>
-                <Input
-                  id="confirmPassword"
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Re-enter your password"
-                  className="bg-white/10 border-white/20 text-white placeholder:text-white/40"
-                />
+                <Input id="confirmPassword" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Re-enter your password" className="bg-white/10 border-white/20 text-white placeholder:text-white/40" />
               </div>
-
               {errorMsg && <p className="text-sm text-red-300">{errorMsg}</p>}
-
-              <Button
-                type="button"
-                className="w-full bg-blue-600 hover:bg-blue-500"
-                onClick={handleSetPassword}
-                disabled={submitting}
-              >
+              <Button type="button" className="w-full bg-blue-600 hover:bg-blue-500" onClick={handleSetPassword} disabled={submitting}>
                 {submitting ? 'Setting up...' : 'Complete Setup'}
+              </Button>
+            </div>
+          )}
+
+          {status === 'reset' && (
+            <div className="space-y-5 text-left">
+              <div className="text-center">
+                <div className="flex justify-center mb-3">
+                  <KeyRound className="h-10 w-10 text-blue-400" />
+                </div>
+                <h1 className="text-xl font-semibold text-white mb-2">Set a new password</h1>
+                <p className="text-sm text-blue-200/70">Enter and confirm your new password below.</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="newPassword" className="text-blue-100">New Password</Label>
+                <Input id="newPassword" type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+                  placeholder="At least 8 characters" className="bg-white/10 border-white/20 text-white placeholder:text-white/40" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="confirmNewPassword" className="text-blue-100">Confirm Password</Label>
+                <Input id="confirmNewPassword" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Re-enter your password" className="bg-white/10 border-white/20 text-white placeholder:text-white/40" />
+              </div>
+              {errorMsg && <p className="text-sm text-red-300">{errorMsg}</p>}
+              <Button type="button" className="w-full bg-blue-600 hover:bg-blue-500" onClick={handleResetPassword} disabled={submitting}>
+                {submitting ? 'Resetting...' : 'Reset Password'}
               </Button>
             </div>
           )}
@@ -189,8 +212,12 @@ export default function MagicLinkVerify() {
               <div className="flex justify-center mb-4">
                 <CheckCircle className="h-12 w-12 text-emerald-400" />
               </div>
-              <h1 className="text-xl font-semibold text-white mb-2">You're in!</h1>
-              <p className="text-sm text-blue-200/70">Redirecting you to your workspace...</p>
+              <h1 className="text-xl font-semibold text-white mb-2">
+                {resetToken ? 'Password reset!' : "You're in!"}
+              </h1>
+              <p className="text-sm text-blue-200/70">
+                {resetToken ? 'Redirecting to login...' : 'Redirecting to your workspace...'}
+              </p>
             </>
           )}
 
@@ -201,10 +228,8 @@ export default function MagicLinkVerify() {
               </div>
               <h1 className="text-xl font-semibold text-white mb-3">Link invalid or expired</h1>
               <p className="text-sm text-red-300/90 mb-6 leading-relaxed">{errorMsg}</p>
-              <button
-                onClick={() => navigate('/login', { replace: true })}
-                className="inline-flex items-center justify-center rounded-lg bg-blue-600 hover:bg-blue-500 px-6 py-2.5 text-sm font-medium text-white transition-colors"
-              >
+              <button onClick={() => navigate('/login', { replace: true })}
+                className="inline-flex items-center justify-center rounded-lg bg-blue-600 hover:bg-blue-500 px-6 py-2.5 text-sm font-medium text-white transition-colors">
                 Go to Login
               </button>
             </>

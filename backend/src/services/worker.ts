@@ -4,6 +4,13 @@ import prisma from '../lib/prisma';
 import { fanOutNotification } from './notification.service';
 import { generateWeeklyDigest } from './ai.service';
 import { generateMeetUrl } from './meet.service';
+import { sendTaskDueReminderEmail, sendTaskOverdueEmail, sendStandupReminderEmail, deliverEmail, setEmailQueue } from './email.service';
+import { emailQueue } from './queues';
+
+const APP_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+// Register the queue so sendEmail() routes through BullMQ
+setEmailQueue(emailQueue);
 
 const connection = redis;
 
@@ -171,9 +178,14 @@ export const reminderWorker = new Worker('standup-reminder', async (job: Job) =>
   const departments = await prisma.department.findMany({
     where: { isActive: true },
     include: {
-      users: { where: { status: 'ACTIVE' }, select: { id: true } },
+      users: { where: { status: 'ACTIVE' }, select: { id: true, name: true, email: true } },
     },
   });
+
+  // Fetch today's standup meet URL per dept
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today.getTime() + 86400000);
 
   let reminded = 0;
   for (const dept of departments) {
@@ -182,7 +194,6 @@ export const reminderWorker = new Worker('standup-reminder', async (job: Job) =>
     // Parse "HH:MM" standup time in IST (UTC+5:30)
     const [sh, sm] = dept.standupTime.split(':').map(Number);
     const standupUtcMinutes = sh * 60 + sm - 330; // subtract IST offset
-    const nowUtcMinutes = h * 60 + m;
     const windowStartMin = windowStart.getUTCHours() * 60 + windowStart.getUTCMinutes();
     const windowEndMin = windowEnd.getUTCHours() * 60 + windowEnd.getUTCMinutes();
 
@@ -196,10 +207,29 @@ export const reminderWorker = new Worker('standup-reminder', async (job: Job) =>
       'STANDUP_REMINDER',
       { departmentName: dept.name, time: dept.standupTime, minutesUntil: 15 }
     );
+
+    // Fetch today's standup for the meet URL
+    const standup = await prisma.standup.findFirst({
+      where: { departmentId: dept.id, scheduledAt: { gte: today, lt: tomorrow } },
+      select: { meetUrl: true },
+    });
+
+    // Send email to each member
+    for (const user of dept.users) {
+      sendStandupReminderEmail({
+        to: user.email,
+        name: user.name,
+        departmentName: dept.name,
+        standupTime: dept.standupTime,
+        meetUrl: standup?.meetUrl ?? null,
+        appUrl: APP_URL,
+      }).catch(console.error);
+    }
+
     reminded++;
   }
 
-  if (reminded > 0) console.log(`[t15-worker] Sent T-15 reminders to ${reminded} departments`);
+  if (reminded > 0) console.log(`[t15-worker] Sent T-15 reminders + emails to ${reminded} departments`);
 }, { connection });
 
 // AI worker — handles async AI requests
@@ -226,6 +256,85 @@ export const aiWorker = new Worker('ai', async (job: Job) => {
   }
 }, { connection });
 
+// ── Email delivery worker (with retry) ───────────────────────────────────────
+export const emailWorker = new Worker('email', async (job: Job) => {
+  if (job.name !== 'send') return;
+  const { to, subject, html, text } = job.data as { to: string; subject: string; html: string; text?: string };
+  await deliverEmail({ to, subject, html, text });
+  console.log(`[email-worker] Delivered to ${to}: "${subject}"`);
+}, {
+  connection,
+  concurrency: 5,
+});
+
+emailWorker.on('failed', (job, err) => {
+  console.error(`[email-worker] Job ${job?.id} failed (attempt ${job?.attemptsMade}): ${err.message}`);
+});
+
+// ── Task reminder worker: due tomorrow + overdue ──────────────────────────────
+export const taskReminderWorker = new Worker('task-reminder', async (job: Job) => {
+  if (job.name !== 'check-due-and-overdue') return;
+
+  const now = new Date();
+
+  // Window: tasks due between 23h and 25h from now (due tomorrow)
+  const in23h = new Date(now.getTime() + 23 * 3600000);
+  const in25h = new Date(now.getTime() + 25 * 3600000);
+
+  const dueSoon = await prisma.task.findMany({
+    where: {
+      status: { notIn: ['DONE', 'CANCELLED'] },
+      dueDate: { gte: in23h, lte: in25h },
+    },
+    include: {
+      assignee: { select: { name: true, email: true } },
+    },
+    take: 500,
+  });
+
+  let remindedCount = 0;
+  for (const task of dueSoon) {
+    if (!task.dueDate) continue;
+    sendTaskDueReminderEmail({
+      to: task.assignee.email,
+      assigneeName: task.assignee.name,
+      taskTitle: task.title,
+      priority: task.priority,
+      dueDate: task.dueDate,
+      appUrl: APP_URL,
+    }).catch(console.error);
+    remindedCount++;
+  }
+
+  // Overdue tasks (due date passed today, not yet done)
+  const overdue = await prisma.task.findMany({
+    where: {
+      status: { notIn: ['DONE', 'CANCELLED'] },
+      dueDate: { lt: now },
+    },
+    include: {
+      assignee: { select: { name: true, email: true } },
+    },
+    take: 500,
+  });
+
+  let overdueCount = 0;
+  for (const task of overdue) {
+    if (!task.dueDate) continue;
+    sendTaskOverdueEmail({
+      to: task.assignee.email,
+      assigneeName: task.assignee.name,
+      taskTitle: task.title,
+      priority: task.priority,
+      dueDate: task.dueDate,
+      appUrl: APP_URL,
+    }).catch(console.error);
+    overdueCount++;
+  }
+
+  console.log(`[task-reminder-worker] ${remindedCount} due-tomorrow reminders, ${overdueCount} overdue alerts sent`);
+}, { connection });
+
 // Graceful shutdown
 export function shutdownWorkers() {
   return Promise.all([
@@ -234,5 +343,7 @@ export function shutdownWorkers() {
     retentionWorker.close(),
     aiWorker.close(),
     reminderWorker.close(),
+    taskReminderWorker.close(),
+    emailWorker.close(),
   ]);
 }

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { MessageSquare, Building2, User, Filter } from 'lucide-react';
+import { MessageSquare, Building2, User, Filter, ThumbsUp } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -16,6 +16,8 @@ type Feedback = {
   description: string;
   category: FeedbackCategory;
   status: FeedbackStatus;
+  upvotes: number;
+  hasVoted: boolean;
   createdAt: string;
   user: { id: string; name: string; role: string };
   department: { id: string; name: string; slug: string } | null;
@@ -71,6 +73,11 @@ export default function AppFeedbackPage() {
   const updateStatus = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) =>
       api.patch(`/feedback/${id}/status`, { status }).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['app-feedback'] }),
+  });
+
+  const upvote = useMutation({
+    mutationFn: (id: string) => api.post(`/feedback/${id}/upvote`).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['app-feedback'] }),
   });
 
@@ -189,6 +196,18 @@ export default function AppFeedbackPage() {
                         </span>
                       )}
                       <span>{new Date(f.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                      <button
+                        onClick={() => upvote.mutate(f.id)}
+                        className={cn(
+                          'flex items-center gap-1 rounded-md px-2 py-0.5 border transition-colors',
+                          f.hasVoted
+                            ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
+                            : 'border-border hover:border-blue-500/30 hover:text-blue-400'
+                        )}
+                      >
+                        <ThumbsUp className="h-3 w-3" />
+                        {f.upvotes}
+                      </button>
                     </div>
                   </div>
 
