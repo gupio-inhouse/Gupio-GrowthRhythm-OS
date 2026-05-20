@@ -7,7 +7,7 @@ import { fanOutNotification, createNotification } from '../services/notification
 import { generateTaskSuggestions } from '../services/ai.service';
 import { sendTaskAssignedEmail } from '../services/email.service';
 
-const APP_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const APP_URL = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();
 
 const router = Router();
 router.use(authenticate);

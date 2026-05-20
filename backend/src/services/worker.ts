@@ -7,7 +7,7 @@ import { generateMeetUrl } from './meet.service';
 import { sendTaskDueReminderEmail, sendTaskOverdueEmail, sendStandupReminderEmail, deliverEmail, setEmailQueue } from './email.service';
 import { emailQueue } from './queues';
 
-const APP_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const APP_URL = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();
 
 // Register the queue so sendEmail() routes through BullMQ
 setEmailQueue(emailQueue);
