@@ -1,13 +1,14 @@
 import { useState, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { BookOpen, CheckCircle2, Clock, Video, FileText, HelpCircle, Send, Play, Trophy, XCircle, Sparkles, ChevronUp, ChevronDown } from 'lucide-react';
+import { BookOpen, CheckCircle2, Clock, Video, FileText, HelpCircle, Send, Play, Trophy, XCircle, Sparkles, ChevronUp, ChevronDown, Plus, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuthStore } from '@/store/authStore';
@@ -254,8 +255,19 @@ export default function Learning() {
   const { deptSlug } = useParams<{ deptSlug?: string }>();
   const qc = useQueryClient();
   const [assignOpen, setAssignOpen] = useState(false);
+  const [createPathOpen, setCreatePathOpen] = useState(false);
+  const [deletePathId, setDeletePathId] = useState<string | null>(null);
   const [quizTarget, setQuizTarget] = useState<{ assignmentId: string; item: LearningItemFull } | null>(null);
   const canAssign = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
+  const canManagePaths = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'].includes(user?.role || '');
+
+  const deletePathMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/learning/paths/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['learning-paths'] });
+      setDeletePathId(null);
+    },
+  });
 
   const { data: assignments = [] } = useQuery<Assignment[]>({
     queryKey: ['learning-assignments'],
@@ -294,6 +306,11 @@ export default function Learning() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {canManagePaths && (
+            <Button variant="outline" className="gap-2" onClick={() => setCreatePathOpen(true)}>
+              <Plus className="h-4 w-4" /> New Path
+            </Button>
+          )}
           {canAssign && (
             <Button variant="outline" className="gap-2" onClick={() => setAssignOpen(true)}>
               <Send className="h-4 w-4" /> Assign Item
@@ -408,7 +425,7 @@ export default function Learning() {
           </div>
           <div className="space-y-3">
             {paths.map((path) => (
-              <Card key={path.id} className="hover:shadow-sm transition-shadow cursor-pointer">
+              <Card key={path.id} className="hover:shadow-sm transition-shadow group">
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
@@ -419,8 +436,19 @@ export default function Learning() {
                         <span className="text-xs text-muted-foreground">{path._count.items} items</span>
                       </div>
                     </div>
-                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-100 ml-3 shrink-0">
-                      <BookOpen className="h-5 w-5 text-indigo-600" />
+                    <div className="flex items-center gap-1 ml-3 shrink-0">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-100">
+                        <BookOpen className="h-5 w-5 text-indigo-600" />
+                      </div>
+                      {canManagePaths && (
+                        <button
+                          onClick={() => setDeletePathId(path.id)}
+                          className="opacity-0 group-hover:opacity-100 p-1.5 rounded hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-opacity"
+                          title="Delete path"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </CardContent>
@@ -437,6 +465,38 @@ export default function Learning() {
 
       <AssignDialog open={assignOpen} onClose={() => setAssignOpen(false)} />
 
+      {createPathOpen && (
+        <CreatePathDialog
+          open={createPathOpen}
+          onClose={() => setCreatePathOpen(false)}
+          onCreated={() => {
+            qc.invalidateQueries({ queryKey: ['learning-paths'] });
+            setCreatePathOpen(false);
+          }}
+        />
+      )}
+
+      <Dialog open={!!deletePathId} onOpenChange={(v) => !v && setDeletePathId(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Learning Path</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This will permanently delete the learning path and all its items. This action cannot be undone.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeletePathId(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => deletePathId && deletePathMutation.mutate(deletePathId)}
+              disabled={deletePathMutation.isPending}
+            >
+              {deletePathMutation.isPending ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {quizTarget && (
         <QuizDialog
           assignmentId={quizTarget.assignmentId}
@@ -449,6 +509,76 @@ export default function Learning() {
         />
       )}
     </div>
+  );
+}
+
+// ── Create Path dialog ────────────────────────────────────────────────────────
+
+function CreatePathDialog({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [saving, setSaving] = useState(false);
+  const { data: departments = [] } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ['departments'],
+    queryFn: () => api.get('/departments').then((r) => r.data),
+    enabled: open,
+  });
+  const [departmentId, setDepartmentId] = useState('');
+
+  const handleCreate = async () => {
+    if (!title.trim()) return;
+    setSaving(true);
+    try {
+      await api.post('/learning/paths', {
+        title: title.trim(),
+        description: description.trim() || undefined,
+        departmentId: departmentId || undefined,
+      });
+      onCreated();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <BookOpen className="h-4 w-4 text-indigo-500" />
+            New Learning Path
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Title *</Label>
+            <Input placeholder="e.g. Sales Onboarding" value={title} onChange={(e) => setTitle(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Description</Label>
+            <Textarea placeholder="What will learners gain?" value={description} onChange={(e) => setDescription(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Department (optional)</Label>
+            <Select value={departmentId || 'none'} onValueChange={(v) => setDepartmentId(v === 'none' ? '' : v)}>
+              <SelectTrigger><SelectValue placeholder="All departments" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">All departments</SelectItem>
+                {departments.map((d) => (
+                  <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={handleCreate} disabled={!title.trim() || saving}>
+            {saving ? 'Creating...' : 'Create Path'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

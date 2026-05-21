@@ -4,7 +4,7 @@ import prisma from '../lib/prisma';
 import { authenticate, AuthRequest, requireRole } from '../middleware/auth';
 import { sendFeedbackReceivedEmail, sendFeedbackStatusEmail } from '../services/email.service';
 
-const APP_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const APP_URL = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();
 
 const router = Router();
 router.use(authenticate);
@@ -132,6 +132,16 @@ router.patch('/:id/status', requireRole('OWNER', 'COMPANY_ADMIN'), async (req: A
   }).catch(console.error);
 
   res.json(feedback);
+});
+
+// DELETE /feedback/:id — OWNER / COMPANY_ADMIN only
+router.delete('/:id', requireRole('OWNER', 'COMPANY_ADMIN'), async (req: AuthRequest, res: Response) => {
+  const feedback = await prisma.appFeedback.findFirst({
+    where: { id: req.params.id as string, orgId: req.user!.orgId },
+  });
+  if (!feedback) { res.status(404).json({ error: 'Feedback not found' }); return; }
+  await prisma.appFeedback.delete({ where: { id: req.params.id as string } });
+  res.json({ success: true });
 });
 
 // POST /feedback/:id/upvote — any authenticated user, toggles vote

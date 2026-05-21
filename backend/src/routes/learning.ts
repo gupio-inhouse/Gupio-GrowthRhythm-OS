@@ -313,4 +313,36 @@ router.get('/:departmentSlug/dashboard', async (req: AuthRequest, res: Response)
   });
 });
 
+// DELETE /learning/paths/:id
+router.delete('/paths/:id', requireRole('OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'), async (req: AuthRequest, res: Response) => {
+  const path = await prisma.learningPath.findFirst({
+    where: { id: req.params.id as string, orgId: req.user!.orgId },
+    select: { id: true, departmentId: true },
+  });
+  if (!path) { res.status(404).json({ error: 'Learning path not found' }); return; }
+
+  if (req.user!.role === 'DEPARTMENT_HEAD') {
+    const actor = await getActorScope(req.user!.userId);
+    if (actor?.departmentId !== path.departmentId) {
+      res.status(403).json({ error: 'You can only delete learning paths in your department' });
+      return;
+    }
+  }
+
+  await prisma.learningPath.delete({ where: { id: req.params.id as string } });
+  res.json({ success: true });
+});
+
+// DELETE /learning/items/:id
+router.delete('/items/:id', requireRole('OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'), async (req: AuthRequest, res: Response) => {
+  const item = await prisma.learningItem.findFirst({
+    where: { id: req.params.id as string, learningPath: { orgId: req.user!.orgId } },
+    select: { id: true },
+  });
+  if (!item) { res.status(404).json({ error: 'Learning item not found' }); return; }
+
+  await prisma.learningItem.delete({ where: { id: req.params.id as string } });
+  res.json({ success: true });
+});
+
 export default router;

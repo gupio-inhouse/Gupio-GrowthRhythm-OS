@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { MessageSquare, Building2, User, Filter, ThumbsUp } from 'lucide-react';
+import { MessageSquare, Building2, User, Filter, ThumbsUp, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import api from '@/api/client';
 
@@ -59,6 +61,7 @@ export default function AppFeedbackPage() {
   const qc = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [deleteFeedbackId, setDeleteFeedbackId] = useState<string | null>(null);
 
   const { data: feedbackList = [], isLoading } = useQuery<Feedback[]>({
     queryKey: ['app-feedback', statusFilter, categoryFilter],
@@ -79,6 +82,14 @@ export default function AppFeedbackPage() {
   const upvote = useMutation({
     mutationFn: (id: string) => api.post(`/feedback/${id}/upvote`).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['app-feedback'] }),
+  });
+
+  const deleteFeedback = useMutation({
+    mutationFn: (id: string) => api.delete(`/feedback/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['app-feedback'] });
+      setDeleteFeedbackId(null);
+    },
   });
 
   const counts = feedbackList.reduce(
@@ -168,7 +179,7 @@ export default function AppFeedbackPage() {
       ) : (
         <div className="space-y-3">
           {feedbackList.map((f) => (
-            <Card key={f.id} className="border border-border">
+            <Card key={f.id} className="border border-border group">
               <CardContent className="p-4">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
@@ -211,26 +222,56 @@ export default function AppFeedbackPage() {
                     </div>
                   </div>
 
-                  {/* Status selector */}
-                  <Select
-                    value={f.status}
-                    onValueChange={(val) => updateStatus.mutate({ id: f.id, status: val })}
-                  >
-                    <SelectTrigger className={cn('w-36 h-8 text-xs border', STATUS_COLORS[f.status])}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(Object.keys(STATUS_LABELS) as FeedbackStatus[]).map((s) => (
-                        <SelectItem key={s} value={s} className="text-xs">{STATUS_LABELS[s]}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {/* Status selector */}
+                    <Select
+                      value={f.status}
+                      onValueChange={(val) => updateStatus.mutate({ id: f.id, status: val })}
+                    >
+                      <SelectTrigger className={cn('w-36 h-8 text-xs border', STATUS_COLORS[f.status])}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(Object.keys(STATUS_LABELS) as FeedbackStatus[]).map((s) => (
+                          <SelectItem key={s} value={s} className="text-xs">{STATUS_LABELS[s]}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <button
+                      onClick={() => setDeleteFeedbackId(f.id)}
+                      className="opacity-0 group-hover:opacity-100 p-1.5 rounded hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-opacity"
+                      title="Delete feedback"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
           ))}
         </div>
       )}
+
+      <Dialog open={!!deleteFeedbackId} onOpenChange={(v) => !v && setDeleteFeedbackId(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Feedback</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This will permanently delete this feedback item. This action cannot be undone.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteFeedbackId(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteFeedbackId && deleteFeedback.mutate(deleteFeedbackId)}
+              disabled={deleteFeedback.isPending}
+            >
+              {deleteFeedback.isPending ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

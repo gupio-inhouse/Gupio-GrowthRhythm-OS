@@ -135,6 +135,24 @@ router.patch('/:id', requireRole('OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'), a
   res.json(dept);
 });
 
+// DELETE /departments/:id
+router.delete('/:id', requireRole('OWNER', 'COMPANY_ADMIN'), auditLog('department', 'DELETE'), async (req: AuthRequest, res: Response) => {
+  const dept = await prisma.department.findUnique({
+    where: { id: req.params.id as string, orgId: req.user!.orgId },
+    select: { id: true, _count: { select: { users: true, kras: true, tasks: true } } },
+  });
+  if (!dept) { res.status(404).json({ error: 'Department not found' }); return; }
+
+  if (dept._count.users > 0) {
+    res.status(400).json({ error: `Cannot delete: ${dept._count.users} team member(s) still assigned to this department.` });
+    return;
+  }
+
+  await prisma.department.delete({ where: { id: req.params.id as string } });
+  await invalidateCache(`depts:${req.user!.orgId}`);
+  res.json({ success: true });
+});
+
 // GET /departments/:slug/dashboard  (cached 30s)
 router.get('/:slug/dashboard', async (req: AuthRequest, res: Response) => {
   const slug = req.params.slug as string;

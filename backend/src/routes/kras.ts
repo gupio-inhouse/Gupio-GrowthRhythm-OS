@@ -185,4 +185,28 @@ router.patch('/:id', requireRole('OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'), a
   res.json(updatedKra);
 });
 
+router.delete('/:id', requireRole('OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'), async (req: AuthRequest, res: Response) => {
+  const kra = await prisma.kRA.findUnique({
+    where: { id: req.params.id as string, orgId: req.user!.orgId },
+    select: { id: true, departmentId: true, _count: { select: { tasks: true } } },
+  });
+  if (!kra) { res.status(404).json({ error: 'KRA not found' }); return; }
+
+  if (req.user!.role === 'DEPARTMENT_HEAD') {
+    const actorDeptId = await getActorDepartmentId(req.user!.userId);
+    if (actorDeptId !== kra.departmentId) {
+      res.status(403).json({ error: 'You can only delete KRAs in your department' });
+      return;
+    }
+  }
+
+  if (kra._count.tasks > 0) {
+    res.status(400).json({ error: 'Cannot delete a KRA that has tasks. Remove the tasks first.' });
+    return;
+  }
+
+  await prisma.kRA.delete({ where: { id: req.params.id as string } });
+  res.json({ success: true });
+});
+
 export default router;

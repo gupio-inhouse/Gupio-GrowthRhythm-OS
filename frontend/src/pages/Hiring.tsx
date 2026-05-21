@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Users2, Briefcase, ClipboardList, Plus, Sparkles, ChevronDown,
-  Mail, Phone, Link2, Check, Star, FileText,
+  Mail, Phone, Link2, Check, Star, FileText, Trash2,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -1128,11 +1128,27 @@ function OnboardingTab() {
 
 function JobsTab({ onAddCandidate }: { onAddCandidate: (jobId: string) => void }) {
   const { user } = useAuthStore();
+  const qc = useQueryClient();
   const [showNewJob, setShowNewJob] = useState(false);
   const [selectedJob, setSelectedJob] = useState<JobDescription | null>(null);
   const [filterStage, setFilterStage] = useState<string>('');
+  const [deleteJobId, setDeleteJobId] = useState<string | null>(null);
+  const [deleteJobError, setDeleteJobError] = useState('');
 
   const canManageJobs = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'].includes(user?.role ?? '');
+
+  const deleteJobMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/hiring/jobs/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['hiring-jobs'] });
+      setDeleteJobId(null);
+      setDeleteJobError('');
+    },
+    onError: (err: unknown) => {
+      const e = err as { response?: { data?: { error?: string } } };
+      setDeleteJobError(e.response?.data?.error ?? 'Failed to delete job');
+    },
+  });
 
   const { data: jobs = [] } = useQuery<JobDescription[]>({
     queryKey: ['hiring-jobs', filterStage],
@@ -1182,7 +1198,7 @@ function JobsTab({ onAddCandidate }: { onAddCandidate: (jobId: string) => void }
           {jobs.map((job) => (
             <Card
               key={job.id}
-              className="hover:shadow-md transition-shadow cursor-pointer"
+              className="hover:shadow-md transition-shadow cursor-pointer group"
               onClick={() => setSelectedJob(job)}
             >
               <CardContent className="p-4 space-y-3">
@@ -1193,7 +1209,18 @@ function JobsTab({ onAddCandidate }: { onAddCandidate: (jobId: string) => void }
                       <p className="text-xs text-muted-foreground">{job.department.name}</p>
                     )}
                   </div>
-                  <StageBadge stage={job.stage} />
+                  <div className="flex items-center gap-1">
+                    <StageBadge stage={job.stage} />
+                    {canManageJobs && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setDeleteJobError(''); setDeleteJobId(job.id); }}
+                        className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-opacity"
+                        title="Delete job"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
@@ -1239,6 +1266,28 @@ function JobsTab({ onAddCandidate }: { onAddCandidate: (jobId: string) => void }
           }}
         />
       )}
+
+      <Dialog open={!!deleteJobId} onOpenChange={(v) => { if (!v) { setDeleteJobId(null); setDeleteJobError(''); } }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Job Opening</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This will permanently delete the job opening. Jobs with candidates cannot be deleted — archive the candidates first.
+          </p>
+          {deleteJobError && <p className="text-sm text-destructive">{deleteJobError}</p>}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setDeleteJobId(null); setDeleteJobError(''); }}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteJobId && deleteJobMutation.mutate(deleteJobId)}
+              disabled={deleteJobMutation.isPending}
+            >
+              {deleteJobMutation.isPending ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1249,9 +1298,22 @@ function CandidatesTab({ addCandidateJobId, onAddCandidateClosed }: {
   addCandidateJobId: string | null;
   onAddCandidateClosed: () => void;
 }) {
+  const { user } = useAuthStore();
+  const qc = useQueryClient();
   const [selectedCandidate, setSelectedCandidate] = useState<string | null>(null);
   const [filterStage, setFilterStage] = useState('');
   const [filterJobId, setFilterJobId] = useState('');
+  const [deleteCandidateId, setDeleteCandidateId] = useState<string | null>(null);
+
+  const canManage = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'].includes(user?.role ?? '');
+
+  const deleteCandidateMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/hiring/candidates/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['hiring-candidates'] });
+      setDeleteCandidateId(null);
+    },
+  });
 
   const { data: candidates = [] } = useQuery<(CandidateSummary & { job: { id: string; title: string } })[]>({
     queryKey: ['hiring-candidates', filterStage, filterJobId],
@@ -1315,13 +1377,14 @@ function CandidatesTab({ addCandidateJobId, onAddCandidateClosed }: {
                 <th className="text-left px-4 py-3 font-medium text-xs text-muted-foreground">Stage</th>
                 <th className="text-left px-4 py-3 font-medium text-xs text-muted-foreground">Email</th>
                 <th className="text-left px-4 py-3 font-medium text-xs text-muted-foreground">Consent</th>
+                {canManage && <th className="px-4 py-3" />}
               </tr>
             </thead>
             <tbody className="divide-y">
               {candidates.map((c) => (
                 <tr
                   key={c.id}
-                  className="hover:bg-muted/30 cursor-pointer transition-colors"
+                  className="hover:bg-muted/30 cursor-pointer transition-colors group"
                   onClick={() => setSelectedCandidate(c.id)}
                 >
                   <td className="px-4 py-3 font-medium">{c.name}</td>
@@ -1339,6 +1402,17 @@ function CandidatesTab({ addCandidateJobId, onAddCandidateClosed }: {
                       <span className="text-red-500 text-xs">No</span>
                     )}
                   </td>
+                  {canManage && (
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setDeleteCandidateId(c.id); }}
+                        className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-opacity"
+                        title="Delete candidate"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -1356,6 +1430,27 @@ function CandidatesTab({ addCandidateJobId, onAddCandidateClosed }: {
           onClose={() => setSelectedCandidate(null)}
         />
       )}
+
+      <Dialog open={!!deleteCandidateId} onOpenChange={(v) => !v && setDeleteCandidateId(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Candidate</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This will permanently delete the candidate and all their scorecards. This action cannot be undone.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteCandidateId(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteCandidateId && deleteCandidateMutation.mutate(deleteCandidateId)}
+              disabled={deleteCandidateMutation.isPending}
+            >
+              {deleteCandidateMutation.isPending ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

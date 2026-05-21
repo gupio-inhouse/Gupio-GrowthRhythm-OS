@@ -271,19 +271,20 @@ export default function Dashboard() {
   const { slug } = useParams<{ slug?: string }>();
   const { user } = useAuthStore();
 
-  // If a department slug is in the URL, show department dashboard
-  if (slug) return <DepartmentDashboard slug={slug} />;
-
   const { data: cockpit } = useQuery({
     queryKey: ['cockpit'],
     queryFn: () => api.get('/owner/cockpit').then((r) => r.data),
-    enabled: ['OWNER', 'COMPANY_ADMIN'].includes(user?.role || ''),
+    enabled: !slug && ['OWNER', 'COMPANY_ADMIN'].includes(user?.role || ''),
   });
 
   const { data: tasks } = useQuery({
     queryKey: ['tasks', 'mine'],
     queryFn: () => api.get('/tasks').then((r) => r.data),
+    enabled: !slug,
   });
+
+  // If a department slug is in the URL, show department dashboard
+  if (slug) return <DepartmentDashboard slug={slug} />;
 
   const myTasks = tasks || [];
   const dueTodayTasks = myTasks.filter((t: { dueDate?: string; status: string }) => {

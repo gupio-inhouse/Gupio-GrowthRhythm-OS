@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { MagicLinkPurpose } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const FRONTEND_URL = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();
 const DEFAULT_EXPIRES_HOURS = 48;
 
 function hashToken(token: string): string {
