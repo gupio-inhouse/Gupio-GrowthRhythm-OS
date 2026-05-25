@@ -7,8 +7,19 @@ pipeline {
     }
 
     triggers {
-        // Poll the repository every minute for changes
-        pollSCM('* * * * *')
+        GenericTrigger(
+            genericVariables: [
+                [key: 'COMMITS_ADDED',    value: '$.commits[*].added[*]',    expressionType: 'JSONPath', defaultValue: ''],
+                [key: 'COMMITS_MODIFIED', value: '$.commits[*].modified[*]', expressionType: 'JSONPath', defaultValue: ''],
+                [key: 'COMMITS_REMOVED',  value: '$.commits[*].removed[*]',  expressionType: 'JSONPath', defaultValue: '']
+            ],
+            causeString: 'GitHub push — backend files changed',
+            printContributedVariables: false,
+            printPostContent: false,
+            silentResponse: true,
+            regexpFilterText: '$COMMITS_ADDED $COMMITS_MODIFIED $COMMITS_REMOVED',
+            regexpFilterExpression: '.*backend/.*'
+        )
     }
 
     environment {
