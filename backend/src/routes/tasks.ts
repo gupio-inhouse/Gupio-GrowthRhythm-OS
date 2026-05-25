@@ -82,11 +82,65 @@ const createSchema = z.object({
 });
 
 const updateSchema = createSchema.partial().extend({
-  status: z.enum(['TODO', 'IN_PROGRESS', 'BLOCKED', 'DONE', 'CANCELLED']).optional(),
+  status: z.enum(['TODO', 'IN_PROGRESS', 'BLOCKED', 'IN_REVIEW', 'DONE', 'CANCELLED']).optional(),
   blockerType: z.enum(['APPROVAL', 'CLIENT', 'DEPENDENCY', 'RESOURCE', 'UNCLEAR_REQUIREMENT', 'SYSTEM_ISSUE', 'OTHER']).optional(),
   blockerOwnerId: z.string().optional(),
   blockerExpectedResolution: z.string().datetime().optional(),
 });
+
+const taskAttachmentSchema = z.object({
+  name: z.string().min(1),
+  url: z.string().min(1),
+  type: z.enum(['SCREENSHOT', 'DOCUMENT', 'PULL_REQUEST']),
+  size: z.number().int().nonnegative().optional(),
+});
+
+const taskPullRequestSchema = z.object({
+  title: z.string().min(2),
+  url: z.string().url(),
+});
+
+async function getTaskForMutation(req: AuthRequest, taskId: string) {
+  const actor = await getActorScope(req.user!.userId);
+  if (!actor) {
+    return { error: { status: 401, body: { error: 'Unauthorized' } } };
+  }
+
+  const task = await prisma.task.findUnique({
+    where: { id: taskId, orgId: req.user!.orgId },
+    select: { id: true, assigneeUserId: true, departmentId: true },
+  });
+  if (!task) {
+    return { error: { status: 404, body: { error: 'Task not found' } } };
+  }
+
+  if (!(await canMutateTask(actor, task))) {
+    return { error: { status: 403, body: { error: 'Forbidden' } } };
+  }
+
+  return { actor, task };
+}
+
+async function getCompletionReviewer(taskId: string, orgId: string) {
+  const task = await prisma.task.findUnique({
+    where: { id: taskId, orgId },
+    select: {
+      assignedByUserId: true,
+      assigneeUserId: true,
+      assignee: { select: { managerId: true } },
+      department: { select: { headUserId: true } },
+    },
+  });
+  if (!task) return null;
+
+  const reviewerId = task.assignedByUserId
+    ?? task.assignee.managerId
+    ?? task.department?.headUserId
+    ?? null;
+
+  if (!reviewerId || reviewerId === task.assigneeUserId) return null;
+  return reviewerId;
+}
 
 // GET /tasks
 router.get('/', async (req: AuthRequest, res: Response) => {
@@ -120,6 +174,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     where,
     include: {
       assignee: { select: { id: true, name: true, email: true, avatarUrl: true } },
+      assignedBy: { select: { id: true, name: true } },
       kra: { select: { id: true, name: true } },
       department: { select: { id: true, name: true, slug: true } },
       dependency: { select: { id: true, title: true, status: true } },
@@ -143,6 +198,8 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     where: { id: req.params.id as string, orgId: req.user!.orgId },
     include: {
       assignee: { select: { id: true, name: true, email: true, avatarUrl: true } },
+      assignedBy: { select: { id: true, name: true } },
+      completionReviewedBy: { select: { id: true, name: true } },
       kra: true,
       department: true,
       dependency: { select: { id: true, title: true, status: true } },
@@ -227,7 +284,11 @@ router.post('/', auditLog('task', 'CREATE'), async (req: AuthRequest, res: Respo
   }
 
   const task = await prisma.task.create({
-    data: { ...parsed.data, orgId: req.user!.orgId },
+    data: {
+      ...parsed.data,
+      orgId: req.user!.orgId,
+      assignedByUserId: isTeamMember ? null : req.user!.userId,
+    },
     include: { assignee: { select: { id: true, name: true } } },
   });
 
@@ -273,7 +334,20 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
 
   const existingTask = await prisma.task.findUnique({
     where: { id: req.params.id as string, orgId: req.user!.orgId },
-    select: { id: true, assigneeUserId: true, departmentId: true, title: true, description: true, priority: true, dueDate: true },
+    select: {
+      id: true,
+      assigneeUserId: true,
+      assignedByUserId: true,
+      departmentId: true,
+      title: true,
+      description: true,
+      priority: true,
+      dueDate: true,
+      status: true,
+      completionSubmittedAt: true,
+      assignee: { select: { id: true, name: true, managerId: true } },
+      department: { select: { id: true, headUserId: true } },
+    },
   });
   if (!existingTask) {
     res.status(404).json({ error: 'Task not found' });
@@ -291,7 +365,13 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
       res.status(403).json({ error: 'Team members can only update status and blocker details on their own tasks' });
       return;
     }
+    if (parsed.data.status === 'IN_REVIEW') {
+      res.status(403).json({ error: 'Team members cannot move tasks directly into review' });
+      return;
+    }
   }
+
+  const requestedStatus = parsed.data.status;
 
   if (parsed.data.assigneeUserId || parsed.data.departmentId) {
     const nextDepartmentId = parsed.data.departmentId ?? existingTask.departmentId ?? undefined;
@@ -328,7 +408,40 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
   }
 
   const data: Record<string, unknown> = { ...parsed.data };
-  if (data.status === 'DONE') data.completedAt = new Date();
+  if (parsed.data.assigneeUserId && parsed.data.assigneeUserId !== existingTask.assigneeUserId) {
+    data.assignedByUserId = req.user!.userId;
+    data.completionSubmittedAt = null;
+    data.completionReviewedAt = null;
+    data.completionReviewedByUserId = null;
+    data.completedAt = null;
+  }
+
+  const reviewerId = requestedStatus === 'DONE'
+    ? await getCompletionReviewer(existingTask.id, req.user!.orgId)
+    : null;
+  const shouldSubmitForReview = actor.role === 'TEAM_MEMBER' && requestedStatus === 'DONE' && !!reviewerId;
+
+  if (shouldSubmitForReview) {
+    data.status = 'IN_REVIEW';
+    data.completedAt = null;
+    data.completionSubmittedAt = new Date();
+    data.completionReviewedAt = null;
+    data.completionReviewedByUserId = null;
+  } else if (requestedStatus === 'DONE') {
+    data.completedAt = new Date();
+    if (existingTask.status === 'IN_REVIEW') {
+      data.completionReviewedAt = new Date();
+      data.completionReviewedByUserId = req.user!.userId;
+    }
+  } else if (requestedStatus) {
+    data.completedAt = null;
+    if (requestedStatus !== 'IN_REVIEW') {
+      data.completionSubmittedAt = null;
+      data.completionReviewedAt = null;
+      data.completionReviewedByUserId = null;
+    }
+  }
+
   if (data.status === 'BLOCKED') data.blockerCount = { increment: 1 };
 
   const task = await prisma.task.update({
@@ -336,13 +449,14 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
     data,
     include: {
       assignee: { select: { id: true, name: true } },
+      assignedBy: { select: { id: true, name: true } },
       kra: { select: { id: true, target: true, current: true } },
       department: { select: { id: true, headUserId: true } },
     },
   });
 
   // KRA progress rollup
-  if (data.status === 'DONE' && task.kraId && task.kra) {
+  if (data.status === 'DONE' && existingTask.status !== 'DONE' && task.kraId && task.kra) {
     const kra = task.kra as { id: string; target: number; current: number };
     const newCurrent = Math.min(kra.current + 1, kra.target);
     await prisma.kRA.update({
@@ -383,6 +497,14 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
     }).catch(console.error);
   }
 
+  if (shouldSubmitForReview && reviewerId) {
+    createNotification(reviewerId, 'TASK_SUBMITTED_FOR_REVIEW', {
+      taskTitle: task.title,
+      assigneeName: task.assignee.name,
+      taskId: task.id,
+    }).catch(console.error);
+  }
+
   res.json(task);
 });
 
@@ -410,6 +532,83 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
   await prisma.task.delete({
     where: { id: req.params.id as string, orgId: req.user!.orgId },
   });
+  res.json({ success: true });
+});
+
+// POST /tasks/:id/attachments
+router.post('/:id/attachments', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: Response) => {
+  const result = await getTaskForMutation(req, req.params.id as string);
+  if (result.error) {
+    res.status(result.error.status).json(result.error.body);
+    return;
+  }
+
+  const parsed = taskAttachmentSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+
+  const attachment = await prisma.taskAttachment.create({
+    data: {
+      taskId: result.task.id,
+      name: parsed.data.name,
+      url: parsed.data.url,
+      type: parsed.data.type,
+      size: parsed.data.size,
+    },
+  });
+
+  res.status(201).json(attachment);
+});
+
+// POST /tasks/:id/pull-requests
+router.post('/:id/pull-requests', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: Response) => {
+  const result = await getTaskForMutation(req, req.params.id as string);
+  if (result.error) {
+    res.status(result.error.status).json(result.error.body);
+    return;
+  }
+
+  const parsed = taskPullRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+
+  const attachment = await prisma.taskAttachment.create({
+    data: {
+      taskId: result.task.id,
+      name: parsed.data.title,
+      url: parsed.data.url,
+      type: 'PULL_REQUEST',
+    },
+  });
+
+  res.status(201).json(attachment);
+});
+
+// DELETE /tasks/:id/attachments/:attachmentId
+router.delete('/:id/attachments/:attachmentId', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: Response) => {
+  const result = await getTaskForMutation(req, req.params.id as string);
+  if (result.error) {
+    res.status(result.error.status).json(result.error.body);
+    return;
+  }
+
+  const attachment = await prisma.taskAttachment.findFirst({
+    where: {
+      id: req.params.attachmentId as string,
+      taskId: result.task.id,
+    },
+    select: { id: true },
+  });
+  if (!attachment) {
+    res.status(404).json({ error: 'Attachment not found' });
+    return;
+  }
+
+  await prisma.taskAttachment.delete({ where: { id: attachment.id } });
   res.json({ success: true });
 });
 
@@ -464,7 +663,7 @@ router.post('/import-csv', auditLog('task', 'CREATE'), async (req: AuthRequest, 
         dueDate: row.dueDate ? new Date(row.dueDate).toISOString() : undefined,
       });
       if (!parsed.success) { results.errors.push(`Row "${row.title}": ${JSON.stringify(parsed.error.flatten().fieldErrors)}`); continue; }
-      await prisma.task.create({ data: { ...parsed.data, orgId: req.user!.orgId } });
+      await prisma.task.create({ data: { ...parsed.data, orgId: req.user!.orgId, assignedByUserId: req.user!.userId } });
       results.created++;
     } catch (e) {
       results.errors.push(`Row "${row.title}": ${(e as Error).message}`);

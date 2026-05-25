@@ -3,6 +3,7 @@ import prisma from '../lib/prisma';
 export type NotificationEvent =
   | 'TASK_ASSIGNED'
   | 'TASK_BLOCKED'
+  | 'TASK_SUBMITTED_FOR_REVIEW'
   | 'TASK_DUE_TODAY'
   | 'TASK_OVERDUE'
   | 'STANDUP_REMINDER'
@@ -13,6 +14,7 @@ export type NotificationEvent =
 const TEMPLATES: Record<NotificationEvent, (d: Record<string, unknown>) => { title: string; body: string }> = {
   TASK_ASSIGNED: (d) => ({ title: 'New task assigned', body: `You've been assigned: "${d.taskTitle}"${d.dueDate ? ` · due ${d.dueDate}` : ''}` }),
   TASK_BLOCKED: (d) => ({ title: 'Task blocked', body: `"${d.taskTitle}" is blocked: ${d.blockerType || 'Unknown reason'}` }),
+  TASK_SUBMITTED_FOR_REVIEW: (d) => ({ title: 'Task ready for review', body: `${d.assigneeName || 'A team member'} marked "${d.taskTitle}" complete and needs your review.` }),
   TASK_DUE_TODAY: (d) => ({ title: 'Task due today', body: `"${d.taskTitle}" is due today — mark it done before EOD.` }),
   TASK_OVERDUE: (d) => ({ title: 'Task overdue', body: `"${d.taskTitle}" was due ${d.dueDate} and is still open.` }),
   STANDUP_REMINDER: (d) => ({ title: 'Standup in 15 minutes', body: `${d.departmentName} daily standup starts at ${d.time}` }),
@@ -24,6 +26,7 @@ const TEMPLATES: Record<NotificationEvent, (d: Record<string, unknown>) => { tit
 const EVENT_PREF_KEY: Record<NotificationEvent, string> = {
   TASK_ASSIGNED: 'taskAssigned',
   TASK_BLOCKED: 'taskBlocked',
+  TASK_SUBMITTED_FOR_REVIEW: 'taskAssigned',
   TASK_DUE_TODAY: 'taskAssigned',
   TASK_OVERDUE: 'taskBlocked',
   STANDUP_REMINDER: 'standupReminder',
