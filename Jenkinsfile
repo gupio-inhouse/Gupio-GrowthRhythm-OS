@@ -81,7 +81,7 @@ pipeline {
                     
                     sh "mkdir -p ${counterDir}"
                     
-                    // Read current count or start at 0
+                    // Read current count or start atttttttt 0
                     def countStr = sh(script: "cat ${counterFile} 2>/dev/null || echo 0", returnStdout: true).trim()
                     def currentCount = (countStr.isInteger() ? countStr.toInteger() : 0) + 1
                     
@@ -132,7 +132,7 @@ pipeline {
                     string(credentialsId: 'growthrhythm-backend-ip', variable: 'EC2_HOST')
                 ]) {
 
-                    sshagent(credentials: ['growthrhythm-backend-ssh-key']) {
+                    sshagent(credentials: ['ec2-ssh-key']) {
                         sh """
                             ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} '
                                 set -e
