@@ -38,6 +38,7 @@ export function statusColor(status: string) {
     TODO: 'text-gray-600 bg-gray-100',
     IN_PROGRESS: 'text-blue-600 bg-blue-50',
     BLOCKED: 'text-red-600 bg-red-50',
+    IN_REVIEW: 'text-amber-700 bg-amber-50',
     DONE: 'text-green-600 bg-green-50',
     CANCELLED: 'text-gray-400 bg-gray-50',
   };

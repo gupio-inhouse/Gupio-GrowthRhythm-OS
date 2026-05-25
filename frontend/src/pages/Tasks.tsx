@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { Plus, CheckSquare, AlertTriangle, Clock, Search, LayoutGrid, List, Upload } from 'lucide-react';
+import { Plus, CheckSquare, AlertTriangle, Clock, Search, LayoutGrid, List, Upload, ImagePlus, FileText, GitPullRequest } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -27,14 +27,17 @@ type Task = {
   _count?: { comments: number; attachments: number };
 };
 
-const STATUSES = ['TODO', 'IN_PROGRESS', 'BLOCKED', 'DONE', 'CANCELLED'];
+type DeliveryAction = 'SCREENSHOT' | 'DOCUMENT' | 'PULL_REQUEST';
+
+const STATUSES = ['TODO', 'IN_PROGRESS', 'BLOCKED', 'IN_REVIEW', 'DONE', 'CANCELLED'];
 const STATUS_LABELS: Record<string, string> = {
-  TODO: 'To Do', IN_PROGRESS: 'In Progress', BLOCKED: 'Blocked', DONE: 'Done', CANCELLED: 'Cancelled',
+  TODO: 'To Do', IN_PROGRESS: 'In Progress', BLOCKED: 'Blocked', IN_REVIEW: 'Pending Review', DONE: 'Done', CANCELLED: 'Cancelled',
 };
 const STATUS_COLORS: Record<string, string> = {
   TODO: 'border-gray-200',
   IN_PROGRESS: 'border-blue-200',
   BLOCKED: 'border-red-200',
+  IN_REVIEW: 'border-amber-200',
   DONE: 'border-green-200',
   CANCELLED: 'border-gray-100',
 };
@@ -84,6 +87,7 @@ export default function Tasks() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState(() => searchParams.get('status') ?? '');
   const [view, setView] = useState<'list' | 'kanban'>('list');
+  const deliveryAction = (searchParams.get('delivery') as DeliveryAction | null) ?? null;
 
   // Sync filter when URL param changes (e.g. navigating from dashboard)
   useEffect(() => {
@@ -133,15 +137,18 @@ export default function Tasks() {
     setBlockerCtx(null);
   };
 
-  const openTask = (taskId: string) => {
+  const openTask = (taskId: string, delivery?: DeliveryAction) => {
     const next = new URLSearchParams(searchParams);
     next.set('taskId', taskId);
+    if (delivery) next.set('delivery', delivery);
+    else next.delete('delivery');
     setSearchParams(next);
   };
 
   const closeTask = () => {
     const next = new URLSearchParams(searchParams);
     next.delete('taskId');
+    next.delete('delivery');
     setSearchParams(next);
   };
 
@@ -197,6 +204,7 @@ export default function Tasks() {
     TODO: tasks.filter((t) => t.status === 'TODO').length,
     IN_PROGRESS: tasks.filter((t) => t.status === 'IN_PROGRESS').length,
     BLOCKED: tasks.filter((t) => t.status === 'BLOCKED').length,
+    IN_REVIEW: tasks.filter((t) => t.status === 'IN_REVIEW').length,
     DONE: tasks.filter((t) => t.status === 'DONE').length,
   };
 
@@ -239,11 +247,12 @@ export default function Tasks() {
       </div>
 
       {/* Stats row */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4">
         {[
           { label: 'To Do', key: 'TODO', color: 'bg-gray-100 text-gray-700', icon: CheckSquare },
           { label: 'In Progress', key: 'IN_PROGRESS', color: 'bg-blue-50 text-blue-700', icon: Clock },
           { label: 'Blocked', key: 'BLOCKED', color: 'bg-red-50 text-red-700', icon: AlertTriangle },
+          { label: 'Review', key: 'IN_REVIEW', color: 'bg-amber-50 text-amber-700', icon: Clock },
           { label: 'Done', key: 'DONE', color: 'bg-green-50 text-green-700', icon: CheckSquare },
         ].map(({ label, key, color, icon: Icon }) => (
           <button
@@ -273,7 +282,7 @@ export default function Tasks() {
           />
         </div>
         <div className="flex gap-1.5 overflow-x-auto pb-0.5 sm:pb-0 flex-nowrap">
-          {(['', 'TODO', 'IN_PROGRESS', 'BLOCKED', 'DONE'] as const).map((s) => (
+          {(['', 'TODO', 'IN_PROGRESS', 'BLOCKED', 'IN_REVIEW', 'DONE'] as const).map((s) => (
             <button
               key={s}
               onClick={() => setStatusFilter(s)}
@@ -294,9 +303,9 @@ export default function Tasks() {
           {[...Array(5)].map((_, i) => <div key={i} className="h-16 rounded-lg bg-muted animate-pulse" />)}
         </div>
       ) : view === 'list' ? (
-        <ListView tasks={filtered} onStatusChange={handleStatusChange} onTaskClick={openTask} />
+        <ListView tasks={filtered} onStatusChange={handleStatusChange} onTaskClick={openTask} onDeliveryClick={openTask} />
       ) : (
-        <KanbanView tasks={filtered} onStatusChange={handleStatusChange} onTaskClick={openTask} />
+        <KanbanView tasks={filtered} onStatusChange={handleStatusChange} onTaskClick={openTask} onDeliveryClick={openTask} />
       )}
 
       {/* Dialogs / Drawers */}
@@ -311,6 +320,7 @@ export default function Tasks() {
 
       <TaskDetailDrawer
         taskId={selectedTaskId}
+        initialDeliveryAction={deliveryAction}
         onClose={closeTask}
       />
 
@@ -339,11 +349,12 @@ export default function Tasks() {
 // ── List view ────────────────────────────────────────────────────────────────
 
 function ListView({
-  tasks, onStatusChange, onTaskClick,
+  tasks, onStatusChange, onTaskClick, onDeliveryClick,
 }: {
   tasks: Task[];
   onStatusChange: (task: Task, status: string) => void;
-  onTaskClick: (id: string) => void;
+  onTaskClick: (id: string, delivery?: DeliveryAction) => void;
+  onDeliveryClick: (id: string, delivery: DeliveryAction) => void;
 }) {
   if (tasks.length === 0) {
     return (
@@ -357,17 +368,30 @@ function ListView({
   return (
     <div className="space-y-2">
       {tasks.map((task) => (
-        <TaskRow key={task.id} task={task} onStatusChange={onStatusChange} onClick={() => onTaskClick(task.id)} />
+        <TaskRow
+          key={task.id}
+          task={task}
+          onStatusChange={onStatusChange}
+          onClick={() => onTaskClick(task.id)}
+          onDeliveryClick={(delivery) => onDeliveryClick(task.id, delivery)}
+        />
       ))}
     </div>
   );
 }
 
-function TaskRow({ task, onStatusChange, onClick }: {
+function TaskRow({ task, onStatusChange, onClick, onDeliveryClick }: {
   task: Task;
   onStatusChange: (task: Task, status: string) => void;
   onClick: () => void;
+  onDeliveryClick: (delivery: DeliveryAction) => void;
 }) {
+  const deliveryButtons: Array<{ key: DeliveryAction; label: string; icon: typeof ImagePlus }> = [
+    { key: 'SCREENSHOT', label: 'Screenshot', icon: ImagePlus },
+    { key: 'DOCUMENT', label: 'Document', icon: FileText },
+    { key: 'PULL_REQUEST', label: 'Raise PR', icon: GitPullRequest },
+  ];
+
   return (
     <Card className="hover:shadow-sm transition-shadow">
       <CardContent className="p-3 sm:p-4">
@@ -381,6 +405,7 @@ function TaskRow({ task, onStatusChange, onClick }: {
                     'bg-gray-400': task.status === 'TODO',
                     'bg-blue-500': task.status === 'IN_PROGRESS',
                     'bg-red-500': task.status === 'BLOCKED',
+                    'bg-amber-500': task.status === 'IN_REVIEW',
                     'bg-green-500': task.status === 'DONE',
                     'bg-gray-300': task.status === 'CANCELLED',
                   })} />
@@ -411,6 +436,22 @@ function TaskRow({ task, onStatusChange, onClick }: {
               {/* Mobile: due badge */}
               {task.dueDate && <DueBadge dueDate={task.dueDate} status={task.status} className="sm:hidden" />}
             </div>
+            <div className="flex items-center gap-1 flex-wrap mt-2">
+              {deliveryButtons.map(({ key, label, icon: Icon }) => (
+                <button
+                  key={key}
+                  type="button"
+                  className="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeliveryClick(key);
+                  }}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Priority */}
@@ -422,6 +463,9 @@ function TaskRow({ task, onStatusChange, onClick }: {
           {/* Comments count */}
           {!!task._count?.comments && (
             <span className="text-xs text-muted-foreground shrink-0 hidden sm:block">💬 {task._count.comments}</span>
+          )}
+          {!!task._count?.attachments && (
+            <span className="text-xs text-muted-foreground shrink-0 hidden sm:block">📎 {task._count.attachments}</span>
           )}
 
           {/* Assignee */}
@@ -440,13 +484,14 @@ function TaskRow({ task, onStatusChange, onClick }: {
 // ── Kanban view ──────────────────────────────────────────────────────────────
 
 function KanbanView({
-  tasks, onStatusChange, onTaskClick,
+  tasks, onStatusChange, onTaskClick, onDeliveryClick,
 }: {
   tasks: Task[];
   onStatusChange: (task: Task, status: string) => void;
-  onTaskClick: (id: string) => void;
+  onTaskClick: (id: string, delivery?: DeliveryAction) => void;
+  onDeliveryClick: (id: string, delivery: DeliveryAction) => void;
 }) {
-  const columns = ['TODO', 'IN_PROGRESS', 'BLOCKED', 'DONE'];
+  const columns = ['TODO', 'IN_PROGRESS', 'BLOCKED', 'IN_REVIEW', 'DONE'];
 
   return (
     <div className="flex gap-4 overflow-x-auto pb-4">
@@ -462,7 +507,13 @@ function KanbanView({
             </div>
             <div className="p-2 space-y-2 min-h-32">
               {colTasks.map((task) => (
-                <KanbanCard key={task.id} task={task} onStatusChange={onStatusChange} onClick={() => onTaskClick(task.id)} />
+                <KanbanCard
+                  key={task.id}
+                  task={task}
+                  onStatusChange={onStatusChange}
+                  onClick={() => onTaskClick(task.id)}
+                  onDeliveryClick={(delivery) => onDeliveryClick(task.id, delivery)}
+                />
               ))}
               {colTasks.length === 0 && (
                 <p className="text-xs text-muted-foreground text-center py-6">No tasks</p>
@@ -475,14 +526,20 @@ function KanbanView({
   );
 }
 
-function KanbanCard({ task, onStatusChange, onClick }: {
+function KanbanCard({ task, onStatusChange, onClick, onDeliveryClick }: {
   task: Task;
   onStatusChange: (task: Task, status: string) => void;
   onClick: () => void;
+  onDeliveryClick: (delivery: DeliveryAction) => void;
 }) {
   const nextStatus: Record<string, string> = {
-    TODO: 'IN_PROGRESS', IN_PROGRESS: 'DONE', BLOCKED: 'IN_PROGRESS', DONE: 'TODO',
+    TODO: 'IN_PROGRESS', IN_PROGRESS: 'DONE', BLOCKED: 'IN_PROGRESS', IN_REVIEW: 'DONE', DONE: 'TODO',
   };
+  const deliveryButtons: Array<{ key: DeliveryAction; label: string; icon: typeof ImagePlus }> = [
+    { key: 'SCREENSHOT', label: 'Screenshot', icon: ImagePlus },
+    { key: 'DOCUMENT', label: 'Document', icon: FileText },
+    { key: 'PULL_REQUEST', label: 'PR', icon: GitPullRequest },
+  ];
 
   return (
     <div
@@ -498,6 +555,9 @@ function KanbanCard({ task, onStatusChange, onClick }: {
       <div className="flex items-center justify-between">
         <Badge className={cn('text-xs border', priorityColor(task.priority))}>{task.priority}</Badge>
         <div className="flex items-center gap-2">
+          {!!task._count?.attachments && (
+            <span className="text-[11px] text-muted-foreground">📎 {task._count.attachments}</span>
+          )}
           {task.dueDate && <DueBadge dueDate={task.dueDate} status={task.status} />}
           {task.assignee && (
             <Avatar className="h-6 w-6">
@@ -506,6 +566,22 @@ function KanbanCard({ task, onStatusChange, onClick }: {
             </Avatar>
           )}
         </div>
+      </div>
+      <div className="flex items-center gap-1 flex-wrap">
+        {deliveryButtons.map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            type="button"
+            className="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDeliveryClick(key);
+            }}
+          >
+            <Icon className="h-3.5 w-3.5" />
+            {label}
+          </button>
+        ))}
       </div>
       {nextStatus[task.status] && (
         <button
