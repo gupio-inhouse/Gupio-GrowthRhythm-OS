@@ -59,8 +59,6 @@ const goalSchema = z.object({
   title: z.string().min(2, 'Title must be at least 2 characters'),
   description: z.string().optional(),
   type: z.enum(['COMPANY', 'DEPARTMENT', 'TEAM']),
-  target: z.string().optional(),
-  unit: z.string().optional(),
   period: z.string().optional(),
 });
 
@@ -70,8 +68,6 @@ const kraSchema = z.object({
   departmentId: z.string().min(1, 'Department is required'),
   goalId: z.string().optional(),
   ownerUserId: z.string().min(1, 'Owner is required'),
-  target: z.string().min(1, 'Target is required'),
-  unit: z.string().optional(),
   period: z.string().min(2, 'Period is required'),
 });
 
@@ -82,8 +78,6 @@ const EMPTY_GOAL_FORM: GoalForm = {
   title: '',
   description: '',
   type: 'COMPANY',
-  target: '',
-  unit: '',
   period: '',
 };
 
@@ -93,8 +87,6 @@ const EMPTY_KRA_FORM: KRAForm = {
   departmentId: '',
   goalId: '',
   ownerUserId: '',
-  target: '',
-  unit: '',
   period: '',
 };
 
@@ -107,7 +99,6 @@ function KRAList({ kras, canManage, onEdit, onDelete }: {
   return (
     <div className="space-y-3">
       {kras.map((kra) => {
-        const pct = kra.target > 0 ? Math.min(100, Math.round((kra.current / kra.target) * 100)) : 0;
         return (
           <Card key={kra.id} className="group">
             <CardContent className="p-4">
@@ -121,14 +112,6 @@ function KRAList({ kras, canManage, onEdit, onDelete }: {
                     {kra.department.name} · {kra.period}
                     {kra.goal && <span className="ml-1 text-muted-foreground/60">· {kra.goal.title}</span>}
                   </p>
-                  <div className="flex items-center gap-4 mt-2">
-                    <div className="flex-1">
-                      <Progress value={pct} className="h-1.5" />
-                    </div>
-                    <span className="text-sm font-medium shrink-0 w-20 text-right">
-                      {kra.current.toLocaleString()} / {kra.target.toLocaleString()} {kra.unit}
-                    </span>
-                  </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <Avatar className="h-7 w-7">
@@ -228,14 +211,11 @@ export default function Goals() {
       }
       if (!user?.id) throw new Error('You must be logged in to create a goal');
 
-      const target = parsed.data.target?.trim();
       const body = {
         title: parsed.data.title.trim(),
         description: parsed.data.description?.trim() || undefined,
         type: parsed.data.type,
         ownerUserId: user.id,
-        target: target ? Number(target) : undefined,
-        unit: parsed.data.unit?.trim() || undefined,
         period: parsed.data.period?.trim() || undefined,
       };
 
@@ -279,8 +259,6 @@ export default function Goals() {
         departmentId: parsed.data.departmentId,
         goalId: parsed.data.goalId || undefined,
         ownerUserId: parsed.data.ownerUserId,
-        target: Number(parsed.data.target),
-        unit: parsed.data.unit?.trim() || undefined,
         period: parsed.data.period.trim(),
       };
 
@@ -320,8 +298,6 @@ export default function Goals() {
         title: goal.title,
         description: '',
         type: goal.type as GoalForm['type'],
-        target: goal.target != null ? String(goal.target) : '',
-        unit: goal.unit || '',
         period: goal.period || '',
       });
     } else {
@@ -341,8 +317,6 @@ export default function Goals() {
         departmentId: kra.department.id,
         goalId: '',
         ownerUserId: kra.owner.id || '',
-        target: String(kra.target),
-        unit: kra.unit || '',
         period: kra.period,
       });
     } else {
@@ -642,31 +616,6 @@ export default function Goals() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="goal-target">Target</Label>
-                <Input
-                  id="goal-target"
-                  type="number"
-                  min="0"
-                  step="any"
-                  value={goalForm.target}
-                  onChange={(e) => setGoalForm((prev) => ({ ...prev, target: e.target.value }))}
-                  placeholder="100"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="goal-unit">Unit</Label>
-                <Input
-                  id="goal-unit"
-                  value={goalForm.unit}
-                  onChange={(e) => setGoalForm((prev) => ({ ...prev, unit: e.target.value }))}
-                  placeholder="% / deals / INR"
-                />
-              </div>
-            </div>
-
             {goalError && <p className="text-sm text-destructive">{goalError}</p>}
 
             <DialogFooter>
@@ -772,39 +721,14 @@ export default function Goals() {
               </Select>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="kra-target">Target</Label>
-                <Input
-                  id="kra-target"
-                  type="number"
-                  min="0"
-                  step="any"
-                  value={kraForm.target}
-                  onChange={(e) => setKraForm((prev) => ({ ...prev, target: e.target.value }))}
-                  placeholder="25"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="kra-unit">Unit</Label>
-                <Input
-                  id="kra-unit"
-                  value={kraForm.unit}
-                  onChange={(e) => setKraForm((prev) => ({ ...prev, unit: e.target.value }))}
-                  placeholder="%"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="kra-period">Period</Label>
-                <Input
-                  id="kra-period"
-                  value={kraForm.period}
-                  onChange={(e) => setKraForm((prev) => ({ ...prev, period: e.target.value }))}
-                  placeholder="Q3 FY2026"
-                />
-              </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="kra-period">Period</Label>
+              <Input
+                id="kra-period"
+                value={kraForm.period}
+                onChange={(e) => setKraForm((prev) => ({ ...prev, period: e.target.value }))}
+                placeholder="Q3 FY2026"
+              />
             </div>
 
             {kraError && <p className="text-sm text-destructive">{kraError}</p>}

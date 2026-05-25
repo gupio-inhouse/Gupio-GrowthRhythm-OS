@@ -433,17 +433,14 @@ function DepartmentDashboard({ slug }: { slug: string }) {
             ) : (
               <div className="space-y-4">
                 {dash.kras.map((kra) => {
-                  const pct = kra.target > 0 ? Math.round((kra.current / kra.target) * 100) : 0;
                   return (
-                    <Link key={kra.id} to="/goals" className="block space-y-1.5 p-2 -mx-2 rounded-lg hover:bg-muted/50 transition-colors">
+                    <Link key={kra.id} to="/goals" className="block p-2 -mx-2 rounded-lg hover:bg-muted/50 transition-colors">
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-medium truncate flex-1 mr-4">{kra.name}</span>
                         <div className="flex items-center gap-2 shrink-0">
                           <Badge className={cn('text-xs border', kraStatusColor(kra.status))}>{kra.status.replace('_', ' ')}</Badge>
-                          <span className="text-xs text-muted-foreground">{kra.current}/{kra.target}{kra.unit ? ` ${kra.unit}` : ''}</span>
                         </div>
                       </div>
-                      <Progress value={pct} className="h-2" />
                     </Link>
                   );
                 })}
@@ -925,9 +922,8 @@ export default function Dashboard() {
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {cockpit.kras.map((kra: { id: string; name: string; status: string; current: number; target: number; department?: { name: string } }) => {
-                const pct = kra.target > 0 ? Math.round((kra.current / kra.target) * 100) : 0;
                 return (
-                  <Link key={kra.id} to="/goals" className="block space-y-1.5 p-2 -mx-2 rounded-lg hover:bg-muted/50 transition-colors">
+                  <Link key={kra.id} to="/goals" className="block p-2 -mx-2 rounded-lg hover:bg-muted/50 transition-colors">
                     <div className="flex items-center justify-between">
                       <div className="flex-1 min-w-0 mr-3">
                         <p className="text-sm font-medium truncate">{kra.name}</p>
@@ -935,10 +931,8 @@ export default function Dashboard() {
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <Badge className={cn('text-xs border', kraStatusColor(kra.status))}>{kra.status.replace('_', ' ')}</Badge>
-                        <span className="text-xs text-muted-foreground">{pct}%</span>
                       </div>
                     </div>
-                    <Progress value={pct} className="h-1.5" />
                   </Link>
                 );
               })}
