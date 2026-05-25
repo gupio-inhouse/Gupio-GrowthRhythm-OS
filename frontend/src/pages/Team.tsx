@@ -5,7 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
   UserPlus, Search, Users, Shield, Crown, Briefcase, User as UserIcon,
-  Mail, Phone, Building2, CheckCircle2, Plus, UserX, UserCheck, Pencil, Trash2,
+  Mail, Phone, Building2, CheckCircle2, Plus, UserX, UserCheck, Pencil, Trash2, FileText,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -21,7 +21,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { cn, getInitials } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/api/client';
@@ -600,6 +600,13 @@ export default function Team() {
                     )}
                     {/* Actions */}
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Link
+                        to={`/team/${member.id}/report`}
+                        className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                        title="View individual report"
+                      >
+                        <FileText className="h-3.5 w-3.5" />
+                      </Link>
                       {canEditUser && member.id !== me?.id && (
                         <button
                           onClick={() => openEditMember(member)}
@@ -653,6 +660,23 @@ export default function Team() {
                       )}
                     </div>
                   </div>
+                </div>
+                <div className="md:hidden mt-3 pt-3 border-t flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {member.department && (
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground bg-muted px-2 py-1 rounded-md">
+                        <Building2 className="h-3 w-3" />
+                        {member.department.name}
+                      </span>
+                    )}
+                    <RoleBadge role={member.role} />
+                  </div>
+                  <Button asChild variant="outline" size="sm" className="gap-2 shrink-0">
+                    <Link to={`/team/${member.id}/report`}>
+                      <FileText className="h-3.5 w-3.5" />
+                      Report
+                    </Link>
+                  </Button>
                 </div>
               </CardContent>
             </Card>

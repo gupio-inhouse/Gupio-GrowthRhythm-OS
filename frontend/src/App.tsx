@@ -11,6 +11,7 @@ import Learning from '@/pages/Learning';
 import Departments from '@/pages/Departments';
 import OwnerCockpit from '@/pages/OwnerCockpit';
 import Team from '@/pages/Team';
+import IndividualReport from '@/pages/IndividualReport';
 import Settings from '@/pages/Settings';
 import SuperAdmin from '@/pages/SuperAdmin';
 import MagicLinkVerify from '@/pages/MagicLinkVerify';
@@ -64,6 +65,7 @@ export default function App() {
             <Route path="learning" element={<Learning />} />
             <Route path="learning/:deptSlug" element={<Learning />} />
             <Route path="departments" element={<Departments />} />
+            <Route path="team/:userId/report" element={<IndividualReport />} />
             <Route path="team" element={<Team />} />
             <Route path="integrations" element={<Integrations />} />
             <Route path="app-feedback" element={<AppFeedback />} />

@@ -29,6 +29,37 @@ function canAccessUser(viewer: { id: string; role: string; departmentId: string 
   return !!viewer.departmentId && viewer.departmentId === target.departmentId;
 }
 
+function startOfToday() {
+  const value = new Date();
+  value.setHours(0, 0, 0, 0);
+  return value;
+}
+
+function endOfToday() {
+  const value = new Date();
+  value.setHours(23, 59, 59, 999);
+  return value;
+}
+
+function startOfWeek() {
+  return new Date(Date.now() - 7 * 86400000);
+}
+
+function formatCsvValue(value: unknown) {
+  const stringValue = value == null ? '' : String(value);
+  return `"${stringValue.replace(/"/g, '""')}"`;
+}
+
+function createCsv(rows: Array<Record<string, unknown>>) {
+  if (rows.length === 0) return '';
+  const headers = Object.keys(rows[0]);
+  const lines = [
+    headers.join(','),
+    ...rows.map((row) => headers.map((header) => formatCsvValue(row[header])).join(',')),
+  ];
+  return lines.join('\n');
+}
+
 // GET /users
 router.get('/', async (req: AuthRequest, res: Response) => {
   const viewer = await getViewerScope(req.user!.userId);
@@ -111,6 +142,221 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
       ? decryptField(user.phone)
       : null,
   });
+});
+
+// GET /users/:id/report
+router.get('/:id/report', async (req: AuthRequest, res: Response) => {
+  const viewer = await getViewerScope(req.user!.userId);
+  if (!viewer) {
+    res.status(403).json({ error: 'Forbidden' });
+    return;
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: req.params.id as string, orgId: req.user!.orgId },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      status: true,
+      createdAt: true,
+      lastLoginAt: true,
+      departmentId: true,
+      department: { select: { id: true, name: true, slug: true } },
+      manager: { select: { id: true, name: true, email: true } },
+      directReports: { select: { id: true } },
+    },
+  });
+
+  if (!user) {
+    res.status(404).json({ error: 'User not found' });
+    return;
+  }
+
+  if (!canAccessUser(viewer, user)) {
+    res.status(403).json({ error: 'Forbidden' });
+    return;
+  }
+
+  const todayStart = startOfToday();
+  const todayEnd = endOfToday();
+  const weekStart = startOfWeek();
+
+  const tasks = await prisma.task.findMany({
+    where: { orgId: req.user!.orgId, assigneeUserId: user.id },
+    select: {
+      id: true,
+      title: true,
+      status: true,
+      priority: true,
+      dueDate: true,
+      createdAt: true,
+      completedAt: true,
+      blockerType: true,
+      blockerCount: true,
+      expectedOutcome: true,
+      description: true,
+      kra: { select: { id: true, name: true, status: true } },
+      department: { select: { id: true, name: true, slug: true } },
+      dependency: { select: { id: true, title: true, status: true } },
+      _count: { select: { comments: true, attachments: true } },
+    },
+    orderBy: [{ status: 'asc' }, { dueDate: 'asc' }, { createdAt: 'desc' }],
+  });
+
+  const totalTasks = tasks.length;
+  const completedTasks = tasks.filter((task) => task.status === 'DONE').length;
+  const inProgressTasks = tasks.filter((task) => task.status === 'IN_PROGRESS').length;
+  const blockedTasks = tasks.filter((task) => task.status === 'BLOCKED').length;
+  const todoTasks = tasks.filter((task) => task.status === 'TODO').length;
+  const cancelledTasks = tasks.filter((task) => task.status === 'CANCELLED').length;
+  const overdueTasks = tasks.filter((task) =>
+    !!task.dueDate &&
+    task.status !== 'DONE' &&
+    task.status !== 'CANCELLED' &&
+    task.dueDate < todayStart
+  ).length;
+  const dueTodayTasks = tasks.filter((task) =>
+    !!task.dueDate &&
+    task.status !== 'DONE' &&
+    task.status !== 'CANCELLED' &&
+    task.dueDate >= todayStart &&
+    task.dueDate <= todayEnd
+  ).length;
+  const completedThisWeek = tasks.filter((task) => !!task.completedAt && task.completedAt >= weekStart).length;
+  const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+  const priorityCounts = tasks.reduce<Record<string, number>>((acc, task) => {
+    acc[task.priority] = (acc[task.priority] || 0) + 1;
+    return acc;
+  }, {});
+
+  const tasksByKra = Object.values(tasks.reduce<Record<string, {
+    kraId: string;
+    kraName: string;
+    kraStatus: string;
+    total: number;
+    done: number;
+  }>>((acc, task) => {
+    if (!task.kra) return acc;
+    const existing = acc[task.kra.id] || {
+      kraId: task.kra.id,
+      kraName: task.kra.name,
+      kraStatus: task.kra.status,
+      total: 0,
+      done: 0,
+    };
+    existing.total += 1;
+    if (task.status === 'DONE') existing.done += 1;
+    acc[task.kra.id] = existing;
+    return acc;
+  }, {})).sort((a, b) => b.total - a.total);
+
+  const recentTasks = tasks
+    .slice()
+    .sort((a, b) => {
+      const aDate = a.dueDate?.getTime() ?? a.createdAt.getTime();
+      const bDate = b.dueDate?.getTime() ?? b.createdAt.getTime();
+      return aDate - bDate;
+    })
+    .slice(0, 12);
+
+  res.json({
+    user,
+    summary: {
+      totalTasks,
+      completedTasks,
+      inProgressTasks,
+      blockedTasks,
+      todoTasks,
+      cancelledTasks,
+      overdueTasks,
+      dueTodayTasks,
+      completedThisWeek,
+      completionRate,
+    },
+    priorityCounts: {
+      LOW: priorityCounts.LOW || 0,
+      MEDIUM: priorityCounts.MEDIUM || 0,
+      HIGH: priorityCounts.HIGH || 0,
+      CRITICAL: priorityCounts.CRITICAL || 0,
+    },
+    tasksByKra,
+    recentTasks,
+  });
+});
+
+// GET /users/:id/report/export-csv
+router.get('/:id/report/export-csv', async (req: AuthRequest, res: Response) => {
+  const viewer = await getViewerScope(req.user!.userId);
+  if (!viewer) {
+    res.status(403).json({ error: 'Forbidden' });
+    return;
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: req.params.id as string, orgId: req.user!.orgId },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      departmentId: true,
+      department: { select: { name: true } },
+    },
+  });
+
+  if (!user) {
+    res.status(404).json({ error: 'User not found' });
+    return;
+  }
+
+  if (!canAccessUser(viewer, user)) {
+    res.status(403).json({ error: 'Forbidden' });
+    return;
+  }
+
+  const todayStart = startOfToday();
+  const tasks = await prisma.task.findMany({
+    where: { orgId: req.user!.orgId, assigneeUserId: user.id },
+    select: {
+      title: true,
+      status: true,
+      priority: true,
+      dueDate: true,
+      completedAt: true,
+      createdAt: true,
+      blockerType: true,
+      blockerCount: true,
+      kra: { select: { name: true } },
+      department: { select: { name: true } },
+      dependency: { select: { title: true } },
+    },
+    orderBy: [{ createdAt: 'desc' }],
+  });
+
+  const csv = createCsv(tasks.map((task) => ({
+    employeeName: user.name,
+    employeeEmail: user.email,
+    employeeRole: user.role,
+    department: task.department?.name || user.department?.name || '',
+    taskTitle: task.title,
+    status: task.status,
+    priority: task.priority,
+    kra: task.kra?.name || '',
+    dependency: task.dependency?.title || '',
+    blockerType: task.blockerType || '',
+    blockerCount: task.blockerCount,
+    dueDate: task.dueDate?.toISOString() || '',
+    completedAt: task.completedAt?.toISOString() || '',
+    createdAt: task.createdAt.toISOString(),
+    isOverdue: !!task.dueDate && task.status !== 'DONE' && task.status !== 'CANCELLED' && task.dueDate < todayStart ? 'YES' : 'NO',
+  })));
+
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${user.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-report.csv"`);
+  res.send(csv);
 });
 
 // POST /users/invite — invite a team member
