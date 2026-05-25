@@ -12,7 +12,7 @@ type Status = 'verifying' | 'setup' | 'reset' | 'success' | 'error';
 
 type AuthPayload = {
   token: string;
-  user: { id: string; name: string; email: string; role: string; departmentId?: string; departmentSlug?: string | null };
+  user: { id: string; name: string; email: string; role: string; departmentId?: string; departmentName?: string | null; departmentSlug?: string | null };
   org: { id: string; name: string; plan: string; industry?: string };
 };
 
@@ -39,6 +39,7 @@ export default function MagicLinkVerify() {
   const finishLogin = (payload: AuthPayload) => {
     setAuth(payload.token, {
       ...payload.user,
+      departmentName: payload.user.departmentName ?? undefined,
       departmentSlug: payload.user.departmentSlug ?? undefined,
     }, payload.org);
     setStatus('success');

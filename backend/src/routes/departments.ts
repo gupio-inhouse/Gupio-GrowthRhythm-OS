@@ -187,9 +187,9 @@ router.get('/:slug/dashboard', async (req: AuthRequest, res: Response) => {
   };
 
   const [overdueCount, blockedCount, dueTodayCount, kras, recentStandup, topBlockers, deptUsers, learningAssignments] = await Promise.all([
-    prisma.task.count({ where: { departmentId: dept.id, status: { not: 'DONE' }, dueDate: { lt: now } } }),
+    prisma.task.count({ where: { departmentId: dept.id, status: { notIn: ['DONE', 'CANCELLED'] }, dueDate: { lt: now } } }),
     prisma.task.count({ where: { departmentId: dept.id, status: 'BLOCKED' } }),
-    prisma.task.count({ where: { departmentId: dept.id, dueDate: { gte: todayStart, lt: todayEnd }, status: { not: 'DONE' } } }),
+    prisma.task.count({ where: { departmentId: dept.id, dueDate: { gte: todayStart, lt: todayEnd }, status: { notIn: ['DONE', 'CANCELLED'] } } }),
     prisma.kRA.findMany({ where: { departmentId: dept.id, status: { not: 'MISSED' } }, take: 8, orderBy: { updatedAt: 'desc' } }),
     prisma.standup.findFirst({ where: { departmentId: dept.id }, orderBy: { scheduledAt: 'desc' }, include: { _count: { select: { cards: true } } } }),
     prisma.task.groupBy({ by: ['blockerType'], where: { departmentId: dept.id, status: 'BLOCKED', blockerType: { not: null } }, _count: true, orderBy: { _count: { blockerType: 'desc' } }, take: 5 }),

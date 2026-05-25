@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { AlertTriangle, CheckSquare, Users, Building2, TrendingUp, Zap, Clock, Target, ExternalLink } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,7 +21,18 @@ type Department = {
   _count: { tasks: number; kras: number; users: number };
 };
 
+function LinkedCard({ to, children, className = '' }: { to: string; children: React.ReactNode; className?: string }) {
+  return (
+    <Link to={to} className="block">
+      <Card className={cn('hover:shadow-md hover:border-primary/40 transition-all cursor-pointer', className)}>
+        {children}
+      </Card>
+    </Link>
+  );
+}
+
 export default function OwnerCockpit() {
+  const navigate = useNavigate();
   const { data, isLoading } = useQuery({
     queryKey: ['cockpit'],
     queryFn: () => api.get('/owner/cockpit').then((r) => r.data),
@@ -119,12 +130,12 @@ export default function OwnerCockpit() {
       {/* KPI Strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: 'Active Users', value: data?.activeUsers || 0, sub: `of ${data?.totalUsers || 0}`, icon: Users, color: 'text-blue-500', bg: 'bg-blue-50' },
-          { label: 'Departments', value: data?.departments?.length || 0, sub: 'active', icon: Building2, color: 'text-purple-500', bg: 'bg-purple-50' },
-          { label: 'Task Health', value: `${taskHealth}%`, sub: `${data?.tasks?.done || 0} done of ${data?.tasks?.total || 0}`, icon: CheckSquare, color: 'text-green-500', bg: 'bg-green-50' },
-          { label: 'Blockers', value: data?.tasks?.blocked || 0, sub: 'need resolution', icon: AlertTriangle, color: 'text-red-500', bg: 'bg-red-50' },
-        ].map(({ label, value, sub, icon: Icon, color, bg }) => (
-          <Card key={label}>
+          { label: 'Active Users', value: data?.activeUsers || 0, sub: `of ${data?.totalUsers || 0}`, icon: Users, color: 'text-blue-500', bg: 'bg-blue-50', to: '/team' },
+          { label: 'Departments', value: data?.departments?.length || 0, sub: 'active', icon: Building2, color: 'text-purple-500', bg: 'bg-purple-50', to: '/departments' },
+          { label: 'Task Health', value: `${taskHealth}%`, sub: `${data?.tasks?.done || 0} done of ${data?.tasks?.total || 0}`, icon: CheckSquare, color: 'text-green-500', bg: 'bg-green-50', to: '/tasks' },
+          { label: 'Blockers', value: data?.tasks?.blocked || 0, sub: 'need resolution', icon: AlertTriangle, color: 'text-red-500', bg: 'bg-red-50', to: '/tasks?status=BLOCKED' },
+        ].map(({ label, value, sub, icon: Icon, color, bg, to }) => (
+          <LinkedCard key={label} to={to}>
             <CardContent className="p-5">
               <div className="flex items-start justify-between">
                 <div>
@@ -137,7 +148,7 @@ export default function OwnerCockpit() {
                 </div>
               </div>
             </CardContent>
-          </Card>
+          </LinkedCard>
         ))}
       </div>
 
@@ -145,24 +156,24 @@ export default function OwnerCockpit() {
       {weekly && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
-            { label: 'Completed this week', value: weekly.completedThisWeek, color: 'text-green-600' },
-            { label: 'New blockers', value: weekly.newBlockers, color: 'text-red-600' },
-            { label: 'Standups held', value: weekly.standupCount, color: 'text-blue-600' },
-            { label: 'Learning completed', value: weekly.learnCompletions, color: 'text-purple-600' },
-          ].map(({ label, value, color }) => (
-            <Card key={label} className="bg-muted/40">
+            { label: 'Completed this week', value: weekly.completedThisWeek, color: 'text-green-600', to: '/tasks?status=DONE' },
+            { label: 'New blockers', value: weekly.newBlockers, color: 'text-red-600', to: '/tasks?status=BLOCKED' },
+            { label: 'Standups held', value: weekly.standupCount, color: 'text-blue-600', to: '/standup' },
+            { label: 'Learning completed', value: weekly.learnCompletions, color: 'text-purple-600', to: '/learning' },
+          ].map(({ label, value, color, to }) => (
+            <LinkedCard key={label} to={to} className="bg-muted/40">
               <CardContent className="p-4 text-center">
                 <p className={cn('text-2xl font-bold', color)}>{value}</p>
                 <p className="text-xs text-muted-foreground mt-1">{label}</p>
               </CardContent>
-            </Card>
+            </LinkedCard>
           ))}
         </div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Department bar chart */}
-        <Card>
+        <LinkedCard to="/departments">
           <CardHeader>
             <CardTitle className="text-base">Department Tasks</CardTitle>
           </CardHeader>
@@ -177,10 +188,10 @@ export default function OwnerCockpit() {
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
-        </Card>
+        </LinkedCard>
 
         {/* Blocker breakdown */}
-        <Card>
+        <LinkedCard to="/tasks?status=BLOCKED">
           <CardHeader>
             <CardTitle className="text-base">Blocker Types</CardTitle>
           </CardHeader>
@@ -213,7 +224,7 @@ export default function OwnerCockpit() {
               </div>
             )}
           </CardContent>
-        </Card>
+        </LinkedCard>
       </div>
 
       {/* KRA Health Breakdown (M8.1) */}
@@ -230,7 +241,7 @@ export default function OwnerCockpit() {
               {kras.map((kra) => {
                 const pct = kra.target > 0 ? Math.round((kra.current / kra.target) * 100) : 0;
                 return (
-                  <div key={kra.id} className="space-y-1.5">
+                  <Link key={kra.id} to="/goals" className="block space-y-1.5 rounded-lg p-2 -mx-2 hover:bg-muted/50 transition-colors">
                     <div className="flex items-center justify-between">
                       <div className="flex-1 min-w-0 mr-3">
                         <p className="text-sm font-medium truncate">{kra.name}</p>
@@ -249,7 +260,7 @@ export default function OwnerCockpit() {
                       value={pct}
                       className={cn('h-1.5', pct >= 80 ? '[&>div]:bg-green-500' : pct >= 50 ? '[&>div]:bg-yellow-500' : '[&>div]:bg-red-500')}
                     />
-                  </div>
+                  </Link>
                 );
               })}
             </div>
@@ -269,7 +280,11 @@ export default function OwnerCockpit() {
           <div className="space-y-4">
             {(data?.departments || []).map((dept: Department) => {
               return (
-                <div key={dept.id} className="flex items-center gap-4">
+                <Link
+                  key={dept.id}
+                  to={dept.slug ? `/dashboard/${dept.slug}` : '/departments'}
+                  className="flex items-center gap-4 rounded-lg -mx-2 px-2 py-2 hover:bg-muted/50 transition-colors"
+                >
                   <div className="w-36 shrink-0">
                     <p className="text-sm font-medium truncate">{dept.name}</p>
                     <p className="text-xs text-muted-foreground">{dept._count.users} people · {dept._count.tasks} tasks</p>
@@ -278,15 +293,14 @@ export default function OwnerCockpit() {
                     {dept._count.kras} KRAs tracking execution across {dept._count.tasks} active task records
                   </div>
                   {dept.slug && (
-                    <Link
-                      to={`/dashboard/${dept.slug}`}
+                    <span
                       className="shrink-0 text-muted-foreground hover:text-primary transition-colors"
                       title={`View ${dept.name} dashboard`}
                     >
                       <ExternalLink className="h-4 w-4" />
-                    </Link>
+                    </span>
                   )}
-                </div>
+                </Link>
               );
             })}
           </div>
@@ -310,9 +324,21 @@ export default function OwnerCockpit() {
               {(data.standupAttendance ?? data.todayStandups).map((s: {
                 id?: string; departmentName: string; status: string; scheduledAt?: string;
                 totalMembers?: number; submitted?: number; attendanceRate?: number;
-                overrunMinutes?: number; attendees?: string[];
+                overrunMinutes?: number; attendees?: Array<{ id: string; name: string }>;
               }) => (
-                <div key={s.id ?? s.departmentName} className="rounded-lg border p-3 space-y-2">
+                <div
+                  key={s.id ?? s.departmentName}
+                  className="block rounded-lg border p-3 space-y-2 hover:bg-muted/40 transition-colors cursor-pointer"
+                  onClick={() => navigate('/standup')}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      navigate('/standup');
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                >
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-medium">{s.departmentName ?? (s as unknown as { department?: { name: string } }).department?.name}</p>
                     <Badge className={cn('text-xs', {
@@ -336,7 +362,19 @@ export default function OwnerCockpit() {
                         <p className="text-xs text-orange-600">+{Math.round(s.overrunMinutes ?? 0)}m overrun</p>
                       )}
                       {s.attendees && s.attendees.length > 0 && (
-                        <p className="text-xs text-muted-foreground truncate">{s.attendees.join(', ')}</p>
+                        <div className="flex flex-wrap gap-x-2 gap-y-1">
+                          {s.attendees.map((attendee) => (
+                            <Link
+                              key={attendee.id}
+                              to={`/team/${attendee.id}/report`}
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => e.stopPropagation()}
+                              className="text-xs text-primary hover:underline"
+                            >
+                              {attendee.name}
+                            </Link>
+                          ))}
+                        </div>
                       )}
                     </div>
                   )}
@@ -358,12 +396,33 @@ export default function OwnerCockpit() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {blockers.repeatedBlockers.map((task: { id: string; title: string; blockerCount: number; assignee?: { name: string }; department?: { name: string } }) => (
-                <div key={task.id} className="flex items-center gap-3 p-3 rounded-lg bg-red-50 border border-red-100">
+              {blockers.repeatedBlockers.map((task: { id: string; title: string; blockerCount: number; assignee?: { id: string; name: string }; department?: { name: string } }) => (
+                <div
+                  key={task.id}
+                  className="flex items-center gap-3 p-3 rounded-lg bg-red-50 border border-red-100 hover:bg-red-100/70 transition-colors cursor-pointer"
+                  onClick={() => navigate(`/tasks?status=BLOCKED&taskId=${task.id}`)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      navigate(`/tasks?status=BLOCKED&taskId=${task.id}`);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                >
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{task.title}</p>
                     <div className="flex items-center gap-2 mt-0.5">
-                      {task.assignee && <span className="text-xs text-muted-foreground">{task.assignee.name}</span>}
+                      {task.assignee && (
+                        <Link
+                          to={`/team/${task.assignee.id}/report`}
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          className="text-xs text-primary hover:underline"
+                        >
+                          {task.assignee.name}
+                        </Link>
+                      )}
                       {task.department && <span className="text-xs text-muted-foreground">· {task.department.name}</span>}
                     </div>
                   </div>

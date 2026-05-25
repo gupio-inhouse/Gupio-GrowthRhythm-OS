@@ -8,6 +8,7 @@ interface User {
   role: string;
   phone?: string;
   departmentId?: string;
+  departmentName?: string;
   departmentSlug?: string;
   avatarUrl?: string;
   mfaEnabled?: boolean;

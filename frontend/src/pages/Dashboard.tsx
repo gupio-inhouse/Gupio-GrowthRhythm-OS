@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { CheckSquare, AlertTriangle, Zap, TrendingUp, Users, Clock, Target, BookOpen, Calendar, X, ChevronRight, Building2, CheckCircle2, Lock, ArrowDown } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -37,13 +37,26 @@ function StatCard({ title, value, icon: Icon, color, bg, subtitle, href }: {
   return <Card>{inner}</Card>;
 }
 
+function departmentNameFromSlug(slug?: string) {
+  if (!slug) return '';
+  const parts = slug.split('-').filter(Boolean);
+  const cleanedParts =
+    parts.length > 1 && /[0-9]/.test(parts[parts.length - 1])
+      ? parts.slice(0, -1)
+      : parts;
+  return cleanedParts
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
 type Task = { id: string; title: string; status: string; priority: string; dueDate?: string; blockerType?: string; kra?: { name: string }; assignee?: { id: string; name: string } };
 
-function TaskList({ tasks, isOverdue, isDueToday, showAssignee }: {
+function TaskList({ tasks, isOverdue, isDueToday, showAssignee, onTaskClick }: {
   tasks: Task[];
   isOverdue: (t: Task) => boolean;
   isDueToday: (t: Task) => boolean;
   showAssignee: boolean;
+  onTaskClick: (taskId: string) => void;
 }) {
   const sorted = [...tasks]
     .sort((a, b) => {
@@ -58,7 +71,19 @@ function TaskList({ tasks, isOverdue, isDueToday, showAssignee }: {
   return (
     <div className="space-y-2">
       {sorted.map((task) => (
-        <div key={task.id} className="flex items-center gap-3 p-3 rounded-lg border hover:bg-muted/50 transition-colors">
+        <div
+          key={task.id}
+          className="flex items-center gap-3 p-3 rounded-lg border hover:bg-muted/50 transition-colors cursor-pointer"
+          onClick={() => onTaskClick(task.id)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onTaskClick(task.id);
+            }
+          }}
+          role="button"
+          tabIndex={0}
+        >
           <div className={cn('h-2 w-2 rounded-full shrink-0', {
             'bg-red-500': task.status === 'BLOCKED',
             'bg-blue-500': task.status === 'IN_PROGRESS',
@@ -67,7 +92,14 @@ function TaskList({ tasks, isOverdue, isDueToday, showAssignee }: {
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium truncate">{task.title}</p>
             {showAssignee && task.assignee && (
-              <p className="text-xs text-muted-foreground truncate">{task.assignee.name}</p>
+              <Link
+                to={`/team/${task.assignee.id}/report`}
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => e.stopPropagation()}
+                className="text-xs text-primary hover:underline truncate inline-block"
+              >
+                {task.assignee.name}
+              </Link>
             )}
             {task.kra && !showAssignee && (
               <p className="text-xs text-muted-foreground truncate">KRA: {task.kra.name}</p>
@@ -431,7 +463,7 @@ function DepartmentDashboard({ slug }: { slug: string }) {
           <CardContent>
             <div className="space-y-1">
               {(dept?.users || []).slice(0, 8).map((member) => (
-                <Link key={member.id} to="/team" className="flex items-center gap-2 p-1.5 -mx-1.5 rounded-lg hover:bg-muted/50 transition-colors">
+                <Link key={member.id} to={`/team/${member.id}/report`} className="flex items-center gap-2 p-1.5 -mx-1.5 rounded-lg hover:bg-muted/50 transition-colors">
                   <div className={cn('h-2 w-2 rounded-full shrink-0', member.status === 'ACTIVE' ? 'bg-green-500' : 'bg-gray-300')} />
                   <span className="text-sm flex-1 truncate">{member.name}</span>
                   <span className="text-xs text-muted-foreground capitalize shrink-0">{member.role.toLowerCase().replace(/_/g, ' ')}</span>
@@ -572,7 +604,11 @@ function DepartmentDashboard({ slug }: { slug: string }) {
 
 export default function Dashboard() {
   const { slug } = useParams<{ slug?: string }>();
+  const navigate = useNavigate();
   const { user } = useAuthStore();
+  const isManagerOrHead = ['DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
+  const departmentLabel = user?.departmentName || departmentNameFromSlug(user?.departmentSlug);
+  const designationLabel = user?.role?.toLowerCase().replace(/_/g, ' ') || '';
 
   const isCeo = ['OWNER', 'COMPANY_ADMIN'].includes(user?.role || '');
 
@@ -619,20 +655,20 @@ export default function Dashboard() {
     hasStandup: false,
   };
 
+  const now = new Date();
   const todayDate = new Date(); todayDate.setHours(0, 0, 0, 0);
+  const endOfToday = new Date(); endOfToday.setHours(23, 59, 59, 999);
 
   const isOverdue = (t: Task) => {
-    if (!t.dueDate || t.status === 'DONE') return false;
-    const d = new Date(t.dueDate); d.setHours(0,0,0,0);
-    return d < todayDate;
+    if (!t.dueDate || t.status === 'DONE' || t.status === 'CANCELLED') return false;
+    const d = new Date(t.dueDate);
+    return d < now;
   };
   const isDueToday = (t: Task) => {
-    if (!t.dueDate || t.status === 'DONE') return false;
-    const d = new Date(t.dueDate); d.setHours(0,0,0,0);
-    return d.getTime() === todayDate.getTime();
+    if (!t.dueDate || t.status === 'DONE' || t.status === 'CANCELLED') return false;
+    const d = new Date(t.dueDate);
+    return d >= todayDate && d <= endOfToday;
   };
-
-  const isManagerOrHead = ['DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
 
   // All tasks the API returns are already scoped by role:
   //   TEAM_MEMBER   → own tasks only
@@ -659,6 +695,11 @@ export default function Dashboard() {
         <p className="text-muted-foreground mt-1">
           {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
         </p>
+        {isManagerOrHead && departmentLabel && (
+          <p className="text-sm font-medium text-primary mt-2">
+            {designationLabel} · {departmentLabel} Department
+          </p>
+        )}
       </div>
 
       {/* Setup guide — only rendered after queries settle so it never flashes */}
@@ -680,17 +721,36 @@ export default function Dashboard() {
           </div>
           <div className="divide-y divide-red-100">
             {overdueTasks.slice(0, 5).map((task) => {
-              const d = new Date(task.dueDate!); d.setHours(0, 0, 0, 0);
-              const daysOverdue = Math.round((todayDate.getTime() - d.getTime()) / 86400000);
+              const dueDay = new Date(task.dueDate!); dueDay.setHours(0, 0, 0, 0);
+              const daysOverdue = Math.round((todayDate.getTime() - dueDay.getTime()) / 86400000);
               return (
-                <div key={task.id} className="flex items-center gap-3 px-4 py-2.5">
+                <div
+                  key={task.id}
+                  className="flex items-center gap-3 px-4 py-2.5 hover:bg-red-100/60 transition-colors cursor-pointer"
+                  onClick={() => navigate(`/tasks?status=overdue&taskId=${task.id}`)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      navigate(`/tasks?status=overdue&taskId=${task.id}`);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                >
                   <div className="h-2 w-2 rounded-full bg-red-500 shrink-0" />
                   <p className="text-sm font-medium text-red-900 flex-1 truncate">{task.title}</p>
                   {task.assignee && (
-                    <span className="text-xs text-red-500 shrink-0 font-medium">{task.assignee.name}</span>
+                    <Link
+                      to={`/team/${task.assignee.id}/report`}
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => e.stopPropagation()}
+                      className="text-xs text-primary shrink-0 font-medium hover:underline"
+                    >
+                      {task.assignee.name}
+                    </Link>
                   )}
                   <span className="text-xs bg-red-100 text-red-700 border border-red-200 px-1.5 py-0.5 rounded font-semibold shrink-0">
-                    {daysOverdue === 1 ? '1 day' : `${daysOverdue} days`} overdue
+                    {daysOverdue <= 0 ? 'Overdue' : daysOverdue === 1 ? '1 day overdue' : `${daysOverdue} days overdue`}
                   </span>
                 </div>
               );
@@ -754,7 +814,7 @@ export default function Dashboard() {
                   <Link to="/tasks" className="text-xs text-primary hover:underline mt-1 inline-block">Go to Tasks →</Link>
                 </div>
               ) : (
-                <TaskList tasks={myOpenTasks} isOverdue={isOverdue} isDueToday={isDueToday} showAssignee={false} />
+                <TaskList tasks={myOpenTasks} isOverdue={isOverdue} isDueToday={isDueToday} showAssignee={false} onTaskClick={(taskId) => navigate(`/tasks?taskId=${taskId}`)} />
               )}
             </CardContent>
           </Card>
@@ -773,7 +833,7 @@ export default function Dashboard() {
                 {teamOpenTasks.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-4">No open tasks for your team</p>
                 ) : (
-                  <TaskList tasks={teamOpenTasks} isOverdue={isOverdue} isDueToday={isDueToday} showAssignee={true} />
+                  <TaskList tasks={teamOpenTasks} isOverdue={isOverdue} isDueToday={isDueToday} showAssignee={true} onTaskClick={(taskId) => navigate(`/tasks?taskId=${taskId}`)} />
                 )}
               </CardContent>
             </Card>
@@ -828,7 +888,12 @@ export default function Dashboard() {
                       <div className="flex items-start justify-between gap-2">
                         <p className="text-sm font-medium text-red-900 truncate flex-1">{task.title}</p>
                         {isManagerOrHead && task.assignee && (
-                          <span className="text-xs text-red-400 shrink-0">{task.assignee.name.split(' ')[0]}</span>
+                          <Link
+                            to={`/team/${task.assignee.id}/report`}
+                            className="text-xs text-primary shrink-0 hover:underline"
+                          >
+                            {task.assignee.name.split(' ')[0]}
+                          </Link>
                         )}
                       </div>
                       {task.blockerType && (

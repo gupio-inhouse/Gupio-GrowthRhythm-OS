@@ -31,7 +31,7 @@ router.get('/cockpit', async (req: AuthRequest, res: Response) => {
     }),
     prisma.task.count({ where: { orgId } }),
     prisma.task.count({ where: { orgId, status: 'DONE' } }),
-    prisma.task.count({ where: { orgId, status: { not: 'DONE' }, dueDate: { lt: new Date() } } }),
+    prisma.task.count({ where: { orgId, status: { notIn: ['DONE', 'CANCELLED'] }, dueDate: { lt: new Date() } } }),
     prisma.task.count({ where: { orgId, status: 'BLOCKED' } }),
     prisma.standup.findMany({
       where: {
@@ -68,7 +68,7 @@ router.get('/cockpit', async (req: AuthRequest, res: Response) => {
       ? Math.round((s.cards.length / s._count.cards) * 100)
       : 0,
     overrunMinutes: (s as unknown as { overrunMinutes?: number }).overrunMinutes ?? 0,
-    attendees: s.cards.map((c) => c.user.name),
+    attendees: s.cards.map((c) => ({ id: c.user.id, name: c.user.name })),
   }));
 
   res.json({

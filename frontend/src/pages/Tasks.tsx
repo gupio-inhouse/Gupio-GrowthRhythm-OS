@@ -40,15 +40,24 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 function DueBadge({ dueDate, status, className }: { dueDate: string; status: string; className?: string }) {
+  const now = new Date();
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  const due = new Date(dueDate); due.setHours(0, 0, 0, 0);
-  const diffDays = Math.round((due.getTime() - today.getTime()) / 86400000);
+  const due = new Date(dueDate);
+  const dueDay = new Date(dueDate); dueDay.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((dueDay.getTime() - today.getTime()) / 86400000);
   const done = status === 'DONE' || status === 'CANCELLED';
 
   if (done) {
     return <span className={cn('text-xs text-muted-foreground', className)}>{formatDate(dueDate)}</span>;
   }
-  if (diffDays < 0) {
+  if (due < now) {
+    if (diffDays === 0) {
+      return (
+        <span className={cn('text-xs font-semibold px-1.5 py-0.5 rounded bg-red-100 text-red-600 border border-red-200', className)}>
+          Overdue
+        </span>
+      );
+    }
     const days = Math.abs(diffDays);
     return (
       <span className={cn('text-xs font-semibold px-1.5 py-0.5 rounded bg-red-100 text-red-600 border border-red-200', className)}>
@@ -71,7 +80,7 @@ function DueBadge({ dueDate, status, className }: { dueDate: string; status: str
 export default function Tasks() {
   const qc = useQueryClient();
   const { user } = useAuthStore();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState(() => searchParams.get('status') ?? '');
   const [view, setView] = useState<'list' | 'kanban'>('list');
@@ -80,9 +89,10 @@ export default function Tasks() {
   useEffect(() => {
     const s = searchParams.get('status') ?? '';
     setStatusFilter(s);
+    setSelectedTaskId(searchParams.get('taskId'));
   }, [searchParams]);
   const [newTaskOpen, setNewTaskOpen] = useState(false);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() => searchParams.get('taskId'));
   const [csvImportOpen, setCsvImportOpen] = useState(false);
   const canCreateTasks = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'].includes(user?.role || '');
 
@@ -123,18 +133,32 @@ export default function Tasks() {
     setBlockerCtx(null);
   };
 
+  const openTask = (taskId: string) => {
+    const next = new URLSearchParams(searchParams);
+    next.set('taskId', taskId);
+    setSearchParams(next);
+  };
+
+  const closeTask = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete('taskId');
+    setSearchParams(next);
+  };
+
   const canSearchByUser = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
 
+  const now = new Date();
   const todayMidnight = new Date(); todayMidnight.setHours(0, 0, 0, 0);
+  const endOfToday = new Date(); endOfToday.setHours(23, 59, 59, 999);
   const isTaskOverdue = (t: Task) => {
     if (!t.dueDate || t.status === 'DONE' || t.status === 'CANCELLED') return false;
-    const d = new Date(t.dueDate); d.setHours(0, 0, 0, 0);
-    return d < todayMidnight;
+    const d = new Date(t.dueDate);
+    return d < now;
   };
   const isTaskDueToday = (t: Task) => {
     if (!t.dueDate || t.status === 'DONE' || t.status === 'CANCELLED') return false;
-    const d = new Date(t.dueDate); d.setHours(0, 0, 0, 0);
-    return d.getTime() === todayMidnight.getTime();
+    const d = new Date(t.dueDate);
+    return d >= todayMidnight && d <= endOfToday;
   };
 
   const filtered = tasks
@@ -270,9 +294,9 @@ export default function Tasks() {
           {[...Array(5)].map((_, i) => <div key={i} className="h-16 rounded-lg bg-muted animate-pulse" />)}
         </div>
       ) : view === 'list' ? (
-        <ListView tasks={filtered} onStatusChange={handleStatusChange} onTaskClick={(id) => setSelectedTaskId(id)} />
+        <ListView tasks={filtered} onStatusChange={handleStatusChange} onTaskClick={openTask} />
       ) : (
-        <KanbanView tasks={filtered} onStatusChange={handleStatusChange} onTaskClick={(id) => setSelectedTaskId(id)} />
+        <KanbanView tasks={filtered} onStatusChange={handleStatusChange} onTaskClick={openTask} />
       )}
 
       {/* Dialogs / Drawers */}
@@ -287,7 +311,7 @@ export default function Tasks() {
 
       <TaskDetailDrawer
         taskId={selectedTaskId}
-        onClose={() => setSelectedTaskId(null)}
+        onClose={closeTask}
       />
 
       <BlockerDialog

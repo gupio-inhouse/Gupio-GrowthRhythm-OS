@@ -30,9 +30,30 @@ interface SidebarProps {
   onMobileClose?: () => void;
 }
 
+function departmentNameFromSlug(slug?: string) {
+  if (!slug) return '';
+  const parts = slug.split('-').filter(Boolean);
+  const cleanedParts =
+    parts.length > 1 && /[0-9]/.test(parts[parts.length - 1])
+      ? parts.slice(0, -1)
+      : parts;
+  return cleanedParts
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
 export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const { pathname } = useLocation();
   const { user, org, logout } = useAuthStore();
+  const isDeptScopedRole = ['DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
+  const departmentLabel = user?.departmentName || departmentNameFromSlug(user?.departmentSlug);
+  const workspaceLabel = isDeptScopedRole
+    ? departmentLabel || org?.name || 'OS'
+    : org?.name || 'OS';
+  const roleLabel = user?.role?.toLowerCase().replace(/_/g, ' ') || '';
+  const footerLabel = isDeptScopedRole && departmentLabel
+    ? `${roleLabel} · ${departmentLabel}`
+    : roleLabel;
 
   const visibleItems = navItems.filter((item) => item.roles.includes(user?.role || ''));
 
@@ -51,7 +72,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-bold leading-none text-sidebar-foreground">GrowthRhythm</p>
-          <p className="text-xs text-sidebar-foreground/60 mt-0.5 truncate">{org?.name || 'OS'}</p>
+          <p className="text-xs text-sidebar-foreground/60 mt-0.5 truncate">{workspaceLabel}</p>
         </div>
         <button
           className="sm:hidden text-sidebar-foreground/60 hover:text-sidebar-foreground transition-colors"
@@ -102,7 +123,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium truncate">{user?.name}</p>
             <p className="text-xs text-sidebar-foreground/60 truncate capitalize">
-              {user?.role?.toLowerCase().replace('_', ' ')}
+              {footerLabel}
             </p>
           </div>
           <button
