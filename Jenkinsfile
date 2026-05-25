@@ -7,7 +7,7 @@ pipeline {
     }
 
     triggers {
-        // Fallback: Poll the repository every minute for changeeeeeeeeeeeeeesssssss
+        // Poll the repository every minute for changes
         pollSCM('* * * * *')
     }
 
@@ -57,7 +57,7 @@ pipeline {
                       git remote add origin "$REPO_URL"
                     fi
 
-                    git fetch --depth 1 origin "refs/heads/$BRANCH"
+                    git fetch --depth 2 origin "refs/heads/$BRANCH"
                     git checkout -B "$BRANCH" FETCH_HEAD
                     git reset --hard FETCH_HEAD
                     git clean -fd
@@ -72,25 +72,53 @@ pipeline {
             }
         }
 
+        stage('Detect Changes') {
+            steps {
+                script {
+                    def changedFiles = sh(
+                        script: '''
+                            if git rev-parse HEAD~1 > /dev/null 2>&1; then
+                                git diff --name-only HEAD~1 HEAD
+                            else
+                                git show --name-only --format="" HEAD
+                            fi
+                        ''',
+                        returnStdout: true
+                    ).trim()
+
+                    echo "📂 Changed files:\n${changedFiles}"
+
+                    if (changedFiles.split('\n').any { it.startsWith('backend/') }) {
+                        env.BACKEND_CHANGED = 'true'
+                        echo "✅ Backend changes detected — pipeline will run."
+                    } else {
+                        env.BACKEND_CHANGED = 'false'
+                        echo "⏭️ No backend changes detected — skipping build & deploy."
+                    }
+                }
+            }
+        }
+
         stage('Generate Image Tag') {
+            when { expression { env.BACKEND_CHANGED == 'true' } }
             steps {
                 script {
                     def today = new Date().format('yyyy-MM-dd')
                     def counterDir = "${HOME}/.jenkins/task-manager-counter"
                     def counterFile = "${counterDir}/${today}.txt"
-                    
+
                     sh "mkdir -p ${counterDir}"
-                    
-                    // Read current count or start atttttttt 0
+
+                    // Read current count or start at 0
                     def countStr = sh(script: "cat ${counterFile} 2>/dev/null || echo 0", returnStdout: true).trim()
                     def currentCount = (countStr.isInteger() ? countStr.toInteger() : 0) + 1
-                    
+
                     // Save the new count
                     sh "echo ${currentCount} > ${counterFile}"
-                    
+
                     // Set the tag with 'v' prefix
                     env.IMAGE_TAG = "${today}.v${currentCount}"
-                    
+
                     echo "======================================"
                     echo "🚀 Generated IMAGE_TAG: ${env.IMAGE_TAG}"
                     echo "======================================"
@@ -99,6 +127,7 @@ pipeline {
         }
 
         stage('Build & Push to ECR') {
+            when { expression { env.BACKEND_CHANGED == 'true' } }
             steps {
                 withCredentials([[
                     $class: 'AmazonWebServicesCredentialsBinding',
@@ -127,6 +156,7 @@ pipeline {
         }
 
         stage('Deploy to EC2') {
+            when { expression { env.BACKEND_CHANGED == 'true' } }
             steps {
                 withCredentials([
                     string(credentialsId: 'growthrhythm-backend-ip', variable: 'EC2_HOST')

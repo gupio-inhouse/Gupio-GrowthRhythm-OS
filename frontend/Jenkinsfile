@@ -1,0 +1,201 @@
+pipeline {
+    agent any
+
+    options {
+        skipDefaultCheckout(true)
+        timestamps()
+    }
+
+    triggers {
+        // Poll the repository every minutess for changes
+        pollSCM('* * * * *')
+    }
+
+    environment {
+        PATH               = "/opt/homebrew/opt/openjdk@21/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+        // AWS & S3 Configuration
+        AWS_REGION         = "ap-south-1"
+        S3_BUCKET          = "gupio-task-manager"
+        CLOUDFRONT_DIST_ID = "E33CPU4Q6V79J6"
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                script {
+                    def rawBranch = env.BRANCH_NAME ?: env.GIT_BRANCH
+                    if (!rawBranch && scm && scm.branches && !scm.branches.isEmpty()) {
+                        rawBranch = scm.branches[0].name
+                    }
+                    if (!rawBranch) {
+                        error("No branch specified! Please ensure the branch is configured in Jenkins.")
+                    }
+                    env.TARGET_BRANCH = rawBranch.replace('origin/', '').replace('*/', '')
+                }
+                echo "🚚 Performing shallow branch checkout for branch: ${env.TARGET_BRANCH}..."
+
+                retry(3) {
+                    sh '''
+                    set -eux
+
+                    BRANCH="$TARGET_BRANCH"
+                    REPO_URL="git@github.com:gupio-inhouse/Gupio-GrowthRhythm-OS.git"
+
+                    export GIT_SSH_COMMAND="ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=6 -o TCPKeepAlive=yes"
+
+                    if [ ! -d .git ]; then
+                      git init .
+                    fi
+
+                    if git remote get-url origin > /dev/null 2>&1; then
+                      git remote set-url origin "$REPO_URL"
+                    else
+                      git remote add origin "$REPO_URL"
+                    fi
+
+                    git fetch --depth 2 origin "refs/heads/$BRANCH"
+                    git checkout -B "$BRANCH" FETCH_HEAD
+                    git reset --hard FETCH_HEAD
+                    git clean -fd
+                    '''
+                }
+
+                sh '''
+                echo "📌 Branch: $(git rev-parse --abbrev-ref HEAD)"
+                echo "📌 Commit: $(git rev-parse HEAD)"
+                git log -1 --oneline
+                '''
+            }
+        }
+
+        stage('Detect Changes') {
+            steps {
+                script {
+                    def changedFiles = sh(
+                        script: '''
+                            if git rev-parse HEAD~1 > /dev/null 2>&1; then
+                                git diff --name-only HEAD~1 HEAD
+                            else
+                                git show --name-only --format="" HEAD
+                            fi
+                        ''',
+                        returnStdout: true
+                    ).trim()
+
+                    echo "📂 Changed files:\n${changedFiles}"
+
+                    if (changedFiles.split('\n').any { it.startsWith('frontend/') }) {
+                        env.FRONTEND_CHANGED = 'true'
+                        echo "✅ Frontend changes detected — pipeline will run."
+                    } else {
+                        env.FRONTEND_CHANGED = 'false'
+                        echo "⏭️ No frontend changes detected — skipping build & deploy."
+                    }
+                }
+            }
+        }
+
+        stage('Install Dependencies') {
+            when { expression { env.FRONTEND_CHANGED == 'true' } }
+            steps {
+                sh '''
+                set -eux
+                echo "📦 Installing frontend dependencies..."
+                cd frontend
+                npm ci --cache .npm-cache
+                '''
+            }
+        }
+
+        stage('Build Frontend') {
+            when { expression { env.FRONTEND_CHANGED == 'true' } }
+            steps {
+                sh '''
+                set -eux
+                echo "🏗️ Building frontend..."
+                cd frontend
+                npm run build
+                echo "✅ Build complete. Contents of dist/:"
+                ls -lh dist/
+                '''
+            }
+        }
+
+        stage('Deploy to S3') {
+            when { expression { env.FRONTEND_CHANGED == 'true' } }
+            steps {
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding',
+                    credentialsId: 'aws-creds',
+                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                ]]) {
+                    sh '''
+                    set -eux
+
+                    echo "🗑️ Removing old files from S3 bucket: $S3_BUCKET..."
+                    aws s3 rm s3://$S3_BUCKET --recursive --region $AWS_REGION
+
+                    echo "🚀 Uploading new build to S3..."
+                    aws s3 sync frontend/dist/ s3://$S3_BUCKET \
+                        --region $AWS_REGION \
+                        --delete \
+                        --cache-control "public, max-age=31536000, immutable" \
+                        --exclude "index.html"
+
+                    echo "📄 Uploading index.html with no-cache headers..."
+                    aws s3 cp frontend/dist/index.html s3://$S3_BUCKET/index.html \
+                        --region $AWS_REGION \
+                        --cache-control "no-cache, no-store, must-revalidate" \
+                        --content-type "text/html"
+
+                    echo "✅ S3 upload complete!"
+                    '''
+                }
+            }
+        }
+
+        stage('Invalidate CloudFront') {
+            when { expression { env.FRONTEND_CHANGED == 'true' } }
+            steps {
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding',
+                    credentialsId: 'aws-creds',
+                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                ]]) {
+                    sh '''
+                    set -eux
+
+                    echo "🌐 Creating CloudFront invalidation for distribution: $CLOUDFRONT_DIST_ID..."
+                    INVALIDATION_ID=$(aws cloudfront create-invalidation \
+                        --distribution-id $CLOUDFRONT_DIST_ID \
+                        --paths "/*" \
+                        --query "Invalidation.Id" \
+                        --output text)
+
+                    echo "======================================"
+                    echo "✅ CloudFront invalidation created!"
+                    echo "   Invalidation ID: $INVALIDATION_ID"
+                    echo "   Distribution:    $CLOUDFRONT_DIST_ID"
+                    echo "======================================"
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo '✅ Frontend deployed successfully!'
+        }
+        failure {
+            echo '❌ Frontend deployment failed! Check logs.'
+        }
+        always {
+            echo '📦 Frontend pipeline finished.'
+        }
+    }
+}
