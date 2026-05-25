@@ -5,7 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
   UserPlus, Search, Users, Shield, Crown, Briefcase, User as UserIcon,
-  Mail, Phone, Building2, CheckCircle2, Plus, UserX, UserCheck, Pencil, Trash2, FileText,
+  Mail, Phone, Building2, CheckCircle2, Plus, UserX, UserCheck, Pencil, Trash2, FileText, UserCog,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -128,6 +128,8 @@ export default function Team() {
   const [teamError, setTeamError] = useState('');
   const [editingTeamId, setEditingTeamId] = useState<string | null>(null);
   const [confirmDeleteTeamId, setConfirmDeleteTeamId] = useState<string | null>(null);
+  const [assignManagerTeamId, setAssignManagerTeamId] = useState<string | null>(null);
+  const [assignManagerValue, setAssignManagerValue] = useState('');
   const [editMemberOpen, setEditMemberOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
   const [editMemberForm, setEditMemberForm] = useState({ name: '', role: '', departmentId: '', phone: '' });
@@ -143,6 +145,7 @@ export default function Team() {
 
   const canInvite = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(me?.role || '');
   const canCreateTeam = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(me?.role || '');
+  const canAssignManager = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'].includes(me?.role || '');
   const canBulkImport = ['OWNER', 'COMPANY_ADMIN'].includes(me?.role || '');
   const canInviteOnlyTeamMembers = me?.role === 'MANAGER';
   const canDeactivate = ['OWNER', 'COMPANY_ADMIN'].includes(me?.role || '');
@@ -197,6 +200,16 @@ export default function Team() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['teams'] });
       setConfirmDeleteTeamId(null);
+    },
+  });
+
+  const assignManager = useMutation({
+    mutationFn: ({ teamId, managerUserId }: { teamId: string; managerUserId: string | null }) =>
+      api.patch(`/teams/${teamId}`, { managerUserId }).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['teams'] });
+      setAssignManagerTeamId(null);
+      setAssignManagerValue('');
     },
   });
 
@@ -293,6 +306,8 @@ export default function Team() {
   const candidateManagers = members.filter((member) => {
     if (member.status !== 'ACTIVE') return false;
     if (!['MANAGER', 'DEPARTMENT_HEAD', 'COMPANY_ADMIN', 'OWNER'].includes(member.role)) return false;
+    // OWNER/COMPANY_ADMIN are org-wide — they can manage any team regardless of department
+    if (['OWNER', 'COMPANY_ADMIN'].includes(member.role)) return true;
     if (teamForm.departmentId && member.department?.id !== teamForm.departmentId) return false;
     return true;
   });
@@ -412,6 +427,18 @@ export default function Team() {
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                   <Badge variant="secondary">{team.memberCount} members</Badge>
+                  {canAssignManager && (
+                    <button
+                      onClick={() => {
+                        setAssignManagerTeamId(team.id);
+                        setAssignManagerValue(team.manager?.id || 'none');
+                      }}
+                      className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-primary transition-colors opacity-0 group-hover:opacity-100"
+                      title="Assign manager"
+                    >
+                      <UserCog className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                   {canCreateTeam && (
                     <button
                       onClick={() => openEditTeam(team)}
@@ -1010,6 +1037,67 @@ export default function Team() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Assign Manager dialog */}
+      <Dialog
+        open={!!assignManagerTeamId}
+        onOpenChange={(open) => { if (!open) { setAssignManagerTeamId(null); setAssignManagerValue(''); } }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Assign Manager</DialogTitle>
+            <DialogDescription>
+              Pick a manager for this team. They will lead and be accountable for it.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <Select
+              value={assignManagerValue || 'none'}
+              onValueChange={(v) => setAssignManagerValue(v === 'none' ? '' : v)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select a manager" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No manager</SelectItem>
+                {members
+                  .filter((m) =>
+                    m.status === 'ACTIVE' &&
+                    ['MANAGER', 'DEPARTMENT_HEAD', 'COMPANY_ADMIN', 'OWNER'].includes(m.role)
+                  )
+                  .map((m) => (
+                    <SelectItem key={m.id} value={m.id}>
+                      <div className="flex items-center gap-2">
+                        <span>{m.name}</span>
+                        <span className="text-xs text-muted-foreground capitalize">
+                          · {m.role.toLowerCase().replace(/_/g, ' ')}
+                          {m.department ? ` · ${m.department.name}` : ''}
+                        </span>
+                      </div>
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setAssignManagerTeamId(null); setAssignManagerValue(''); }}>
+              Cancel
+            </Button>
+            <Button
+              disabled={assignManager.isPending}
+              onClick={() => {
+                if (!assignManagerTeamId) return;
+                assignManager.mutate({
+                  teamId: assignManagerTeamId,
+                  managerUserId: assignManagerValue || null,
+                });
+              }}
+            >
+              {assignManager.isPending ? 'Saving...' : 'Assign'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
