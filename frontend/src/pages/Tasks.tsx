@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { Plus, CheckSquare, AlertTriangle, Clock, Search, LayoutGrid, List, Upload, ImagePlus, FileText, GitPullRequest } from 'lucide-react';
+import { Plus, CheckSquare, AlertTriangle, Clock, Search, LayoutGrid, List, Upload, ImagePlus, FileText, GitPullRequest, CalendarDays, Check, X as XIcon } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -99,6 +99,7 @@ export default function Tasks() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() => searchParams.get('taskId'));
   const [csvImportOpen, setCsvImportOpen] = useState(false);
   const canCreateTasks = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'].includes(user?.role || '');
+  const canExtend = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
 
   // Blocker dialog state (for inline list status change)
   const [blockerCtx, setBlockerCtx] = useState<{ taskId: string; taskTitle: string } | null>(null);
@@ -120,6 +121,10 @@ export default function Tasks() {
     } else {
       updateMutation.mutate({ id: task.id, patch: { status: newStatus } });
     }
+  };
+
+  const handleExtendDeadline = (taskId: string, newDate: string) => {
+    updateMutation.mutate({ id: taskId, patch: { dueDate: new Date(newDate).toISOString() } });
   };
 
   const handleBlockerConfirm = (data: { blockerType: string; blockerDescription: string; blockerExpectedResolution?: string }) => {
@@ -303,9 +308,9 @@ export default function Tasks() {
           {[...Array(5)].map((_, i) => <div key={i} className="h-16 rounded-lg bg-muted animate-pulse" />)}
         </div>
       ) : view === 'list' ? (
-        <ListView tasks={filtered} onStatusChange={handleStatusChange} onTaskClick={openTask} onDeliveryClick={openTask} />
+        <ListView tasks={filtered} onStatusChange={handleStatusChange} onTaskClick={openTask} onDeliveryClick={openTask} canExtend={canExtend} onExtendDeadline={handleExtendDeadline} />
       ) : (
-        <KanbanView tasks={filtered} onStatusChange={handleStatusChange} onTaskClick={openTask} onDeliveryClick={openTask} />
+        <KanbanView tasks={filtered} onStatusChange={handleStatusChange} onTaskClick={openTask} onDeliveryClick={openTask} canExtend={canExtend} onExtendDeadline={handleExtendDeadline} />
       )}
 
       {/* Dialogs / Drawers */}
@@ -349,12 +354,14 @@ export default function Tasks() {
 // ── List view ────────────────────────────────────────────────────────────────
 
 function ListView({
-  tasks, onStatusChange, onTaskClick, onDeliveryClick,
+  tasks, onStatusChange, onTaskClick, onDeliveryClick, canExtend, onExtendDeadline,
 }: {
   tasks: Task[];
   onStatusChange: (task: Task, status: string) => void;
   onTaskClick: (id: string, delivery?: DeliveryAction) => void;
   onDeliveryClick: (id: string, delivery: DeliveryAction) => void;
+  canExtend?: boolean;
+  onExtendDeadline?: (taskId: string, newDate: string) => void;
 }) {
   if (tasks.length === 0) {
     return (
@@ -374,18 +381,37 @@ function ListView({
           onStatusChange={onStatusChange}
           onClick={() => onTaskClick(task.id)}
           onDeliveryClick={(delivery) => onDeliveryClick(task.id, delivery)}
+          canExtend={canExtend}
+          onExtendDeadline={onExtendDeadline}
         />
       ))}
     </div>
   );
 }
 
-function TaskRow({ task, onStatusChange, onClick, onDeliveryClick }: {
+function TaskRow({ task, onStatusChange, onClick, onDeliveryClick, canExtend, onExtendDeadline }: {
   task: Task;
   onStatusChange: (task: Task, status: string) => void;
   onClick: () => void;
   onDeliveryClick: (delivery: DeliveryAction) => void;
+  canExtend?: boolean;
+  onExtendDeadline?: (taskId: string, newDate: string) => void;
 }) {
+  const [extendOpen, setExtendOpen] = useState(false);
+  const [newDate, setNewDate] = useState(task.dueDate ? task.dueDate.split('T')[0] : '');
+
+  const minDate = new Date();
+  minDate.setDate(minDate.getDate() + 1);
+  const minDateStr = minDate.toISOString().split('T')[0];
+
+  function submitExtend(e: React.FormEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!newDate) return;
+    onExtendDeadline?.(task.id, newDate);
+    setExtendOpen(false);
+  }
+
   const deliveryButtons: Array<{ key: DeliveryAction; label: string; icon: typeof ImagePlus }> = [
     { key: 'SCREENSHOT', label: 'Screenshot', icon: ImagePlus },
     { key: 'DOCUMENT', label: 'Document', icon: FileText },
@@ -457,8 +483,43 @@ function TaskRow({ task, onStatusChange, onClick, onDeliveryClick }: {
           {/* Priority */}
           <Badge className={cn('text-xs border shrink-0 hidden sm:flex', priorityColor(task.priority))}>{task.priority}</Badge>
 
-          {/* Due date (desktop) */}
-          {task.dueDate && <DueBadge dueDate={task.dueDate} status={task.status} className="hidden sm:flex shrink-0" />}
+          {/* Due date (desktop) + extend */}
+          <div className="hidden sm:flex items-center gap-1 shrink-0">
+            {task.dueDate && <DueBadge dueDate={task.dueDate} status={task.status} />}
+            {canExtend && task.status !== 'DONE' && task.status !== 'CANCELLED' && (
+              extendOpen ? (
+                <form
+                  className="flex items-center gap-1"
+                  onClick={(e) => e.stopPropagation()}
+                  onSubmit={submitExtend}
+                >
+                  <input
+                    autoFocus
+                    type="date"
+                    min={minDateStr}
+                    value={newDate}
+                    onChange={(e) => setNewDate(e.target.value)}
+                    className="rounded border bg-background px-2 py-0.5 text-xs"
+                  />
+                  <button type="submit" className="text-green-600 hover:text-green-700">
+                    <Check className="h-3.5 w-3.5" />
+                  </button>
+                  <button type="button" onClick={() => setExtendOpen(false)} className="text-muted-foreground hover:text-foreground">
+                    <XIcon className="h-3.5 w-3.5" />
+                  </button>
+                </form>
+              ) : (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setExtendOpen(true); }}
+                  title="Extend deadline"
+                  className="text-muted-foreground hover:text-primary transition-colors"
+                >
+                  <CalendarDays className="h-3.5 w-3.5" />
+                </button>
+              )
+            )}
+          </div>
 
           {/* Comments count */}
           {!!task._count?.comments && (
@@ -484,12 +545,14 @@ function TaskRow({ task, onStatusChange, onClick, onDeliveryClick }: {
 // ── Kanban view ──────────────────────────────────────────────────────────────
 
 function KanbanView({
-  tasks, onStatusChange, onTaskClick, onDeliveryClick,
+  tasks, onStatusChange, onTaskClick, onDeliveryClick, canExtend, onExtendDeadline,
 }: {
   tasks: Task[];
   onStatusChange: (task: Task, status: string) => void;
   onTaskClick: (id: string, delivery?: DeliveryAction) => void;
   onDeliveryClick: (id: string, delivery: DeliveryAction) => void;
+  canExtend?: boolean;
+  onExtendDeadline?: (taskId: string, newDate: string) => void;
 }) {
   const columns = ['TODO', 'IN_PROGRESS', 'BLOCKED', 'IN_REVIEW', 'DONE'];
 
@@ -513,6 +576,8 @@ function KanbanView({
                   onStatusChange={onStatusChange}
                   onClick={() => onTaskClick(task.id)}
                   onDeliveryClick={(delivery) => onDeliveryClick(task.id, delivery)}
+                  canExtend={canExtend}
+                  onExtendDeadline={onExtendDeadline}
                 />
               ))}
               {colTasks.length === 0 && (
@@ -526,12 +591,24 @@ function KanbanView({
   );
 }
 
-function KanbanCard({ task, onStatusChange, onClick, onDeliveryClick }: {
+function KanbanCard({ task, onStatusChange, onClick, onDeliveryClick, canExtend, onExtendDeadline }: {
   task: Task;
   onStatusChange: (task: Task, status: string) => void;
   onClick: () => void;
   onDeliveryClick: (delivery: DeliveryAction) => void;
+  canExtend?: boolean;
+  onExtendDeadline?: (taskId: string, newDate: string) => void;
 }) {
+  const [extendOpen, setExtendOpen] = useState(false);
+  const [newDate, setNewDate] = useState(task.dueDate ? task.dueDate.split('T')[0] : '');
+  const minDate = new Date(); minDate.setDate(minDate.getDate() + 1);
+  const minDateStr = minDate.toISOString().split('T')[0];
+  function submitExtend(e: React.FormEvent) {
+    e.preventDefault(); e.stopPropagation();
+    if (!newDate) return;
+    onExtendDeadline?.(task.id, newDate);
+    setExtendOpen(false);
+  }
   const nextStatus: Record<string, string> = {
     TODO: 'IN_PROGRESS', IN_PROGRESS: 'DONE', BLOCKED: 'IN_PROGRESS', IN_REVIEW: 'DONE', DONE: 'TODO',
   };
@@ -558,7 +635,31 @@ function KanbanCard({ task, onStatusChange, onClick, onDeliveryClick }: {
           {!!task._count?.attachments && (
             <span className="text-[11px] text-muted-foreground">📎 {task._count.attachments}</span>
           )}
-          {task.dueDate && <DueBadge dueDate={task.dueDate} status={task.status} />}
+          <div className="flex items-center gap-1">
+            {task.dueDate && <DueBadge dueDate={task.dueDate} status={task.status} />}
+            {canExtend && task.status !== 'DONE' && task.status !== 'CANCELLED' && (
+              extendOpen ? (
+                <form className="flex items-center gap-1" onClick={(e) => e.stopPropagation()} onSubmit={submitExtend}>
+                  <input
+                    autoFocus type="date" min={minDateStr} value={newDate}
+                    onChange={(e) => setNewDate(e.target.value)}
+                    className="rounded border bg-background px-1.5 py-0.5 text-xs w-28"
+                  />
+                  <button type="submit" className="text-green-600 hover:text-green-700"><Check className="h-3 w-3" /></button>
+                  <button type="button" onClick={() => setExtendOpen(false)} className="text-muted-foreground"><XIcon className="h-3 w-3" /></button>
+                </form>
+              ) : (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setExtendOpen(true); }}
+                  title="Extend deadline"
+                  className="text-muted-foreground hover:text-primary transition-colors"
+                >
+                  <CalendarDays className="h-3.5 w-3.5" />
+                </button>
+              )
+            )}
+          </div>
           {task.assignee && (
             <Avatar className="h-6 w-6">
               <AvatarImage src={task.assignee.avatarUrl} />
