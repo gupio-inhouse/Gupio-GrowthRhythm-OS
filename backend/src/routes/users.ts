@@ -467,11 +467,22 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
   const { name, phone, avatarUrl, departmentId, managerId, role, status, notificationPrefs } = req.body;
 
   const isOwnerOrAdmin = ['OWNER', 'COMPANY_ADMIN'].includes(req.user!.role);
+  const isDeptHead = req.user!.role === 'DEPARTMENT_HEAD';
   const isSelf = req.user!.userId === req.params.id;
 
-  if (!isOwnerOrAdmin && !isSelf) {
+  if (!isOwnerOrAdmin && !isDeptHead && !isSelf) {
     res.status(403).json({ error: 'Forbidden' });
     return;
+  }
+
+  // DEPARTMENT_HEAD can only assign manager for users in their own department
+  if (isDeptHead && managerId !== undefined) {
+    const me = await prisma.user.findUnique({ where: { id: req.user!.userId }, select: { departmentId: true } });
+    const target = await prisma.user.findUnique({ where: { id: req.params.id as string }, select: { departmentId: true } });
+    if (!me?.departmentId || me.departmentId !== target?.departmentId) {
+      res.status(403).json({ error: 'You can only assign managers for users in your own department' });
+      return;
+    }
   }
 
   const data: Record<string, unknown> = {};
@@ -480,7 +491,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
   if (avatarUrl) data.avatarUrl = avatarUrl;
   if (notificationPrefs !== undefined) data.notificationPrefs = notificationPrefs;
   if (isOwnerOrAdmin && departmentId !== undefined) data.departmentId = departmentId;
-  if (isOwnerOrAdmin && managerId !== undefined) data.managerId = managerId;
+  if ((isOwnerOrAdmin || isDeptHead) && managerId !== undefined) data.managerId = managerId;
   if (isOwnerOrAdmin && role) data.role = role;
   if (isOwnerOrAdmin && status) data.status = status;
 
