@@ -23,6 +23,7 @@ import integrationsRouter from './routes/integrations';
 import uploadRouter from './routes/upload';
 import mfaRouter from './routes/mfa';
 import feedbackRouter from './routes/feedback';
+import auditLogsRouter from './routes/auditlogs';
 import { setOrgContext } from './middleware/rls';
 
 export function createApp() {
@@ -64,6 +65,7 @@ export function createApp() {
   app.use('/uploads', express.static('uploads'));
   app.use('/api/mfa', mfaRouter);
   app.use('/api/feedback', feedbackRouter);
+  app.use('/api/audit-logs', auditLogsRouter);
 
   app.get('/health', (_req, res) => res.json({ status: 'ok', ts: new Date() }));
 

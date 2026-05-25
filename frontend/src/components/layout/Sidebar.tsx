@@ -1,7 +1,7 @@
 import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, CheckSquare, Users, Target, Zap, BookOpen,
-  Building2, Settings, LogOut, BarChart3, Shield, Plug, MessageSquare, X,
+  Building2, Settings, LogOut, BarChart3, Shield, Plug, MessageSquare, X, ClipboardList,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
@@ -19,6 +19,7 @@ const navItems = [
   { label: 'Departments', href: '/departments', icon: Building2, roles: ['OWNER', 'COMPANY_ADMIN'] },
   { label: 'Team', href: '/team', icon: Users, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'] },
   { label: 'Integrations', href: '/integrations', icon: Plug, roles: ['OWNER', 'COMPANY_ADMIN'] },
+  { label: 'Audit Log', href: '/audit-log', icon: ClipboardList, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'] },
   { label: 'App Feedback', href: '/app-feedback', icon: MessageSquare, roles: ['OWNER', 'COMPANY_ADMIN'] },
   { label: 'Settings', href: '/settings', icon: Settings, roles: ['OWNER', 'COMPANY_ADMIN'] },
   { label: 'Super Admin', href: '/superadmin', icon: Shield, roles: ['SUPER_ADMIN'] },

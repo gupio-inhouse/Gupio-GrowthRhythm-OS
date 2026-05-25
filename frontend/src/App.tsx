@@ -16,6 +16,7 @@ import SuperAdmin from '@/pages/SuperAdmin';
 import MagicLinkVerify from '@/pages/MagicLinkVerify';
 import Integrations from '@/pages/Integrations';
 import AppFeedback from '@/pages/AppFeedback';
+import AuditLog from '@/pages/AuditLog';
 import { useAuthStore } from '@/store/authStore';
 import { getRoleRedirect } from '@/lib/roleRedirect';
 
@@ -66,6 +67,7 @@ export default function App() {
             <Route path="team" element={<Team />} />
             <Route path="integrations" element={<Integrations />} />
             <Route path="app-feedback" element={<AppFeedback />} />
+            <Route path="audit-log" element={<AuditLog />} />
             <Route path="settings" element={<Settings />} />
             <Route path="superadmin" element={<SuperAdmin />} />
           </Route>
