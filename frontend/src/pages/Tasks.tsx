@@ -47,7 +47,7 @@ export default function Tasks() {
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [csvImportOpen, setCsvImportOpen] = useState(false);
-  const canCreateTasks = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
+  const canCreateTasks = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'].includes(user?.role || '');
 
   // Blocker dialog state (for inline list status change)
   const [blockerCtx, setBlockerCtx] = useState<{ taskId: string; taskTitle: string } | null>(null);
@@ -86,8 +86,15 @@ export default function Tasks() {
     setBlockerCtx(null);
   };
 
+  const canSearchByUser = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
+
   const filtered = tasks.filter((t) => {
-    if (search && !t.title.toLowerCase().includes(search.toLowerCase())) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      const matchesTitle = t.title.toLowerCase().includes(q);
+      const matchesAssignee = canSearchByUser && t.assignee?.name.toLowerCase().includes(q);
+      if (!matchesTitle && !matchesAssignee) return false;
+    }
     if (statusFilter && t.status !== statusFilter) return false;
     return true;
   });
@@ -100,14 +107,14 @@ export default function Tasks() {
   };
 
   return (
-    <div className="p-8 space-y-6">
+    <div className="p-4 sm:p-8 space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Tasks</h1>
           <p className="text-muted-foreground text-sm mt-0.5">{tasks.length} total tasks</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center flex-wrap gap-2">
           <div className="flex border rounded-md overflow-hidden">
             <button
               onClick={() => setView('list')}
@@ -122,21 +129,23 @@ export default function Tasks() {
               <LayoutGrid className="h-4 w-4" />
             </button>
           </div>
+          {canCreateTasks && ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '') && (
+            <Button variant="outline" size="sm" className="gap-2" onClick={() => setCsvImportOpen(true)}>
+              <Upload className="h-4 w-4" />
+              <span className="hidden sm:inline">Import CSV</span>
+            </Button>
+          )}
           {canCreateTasks && (
-            <>
-              <Button variant="outline" className="gap-2" onClick={() => setCsvImportOpen(true)}>
-                <Upload className="h-4 w-4" /> Import CSV
-              </Button>
-              <Button className="gap-2" onClick={() => setNewTaskOpen(true)}>
-                <Plus className="h-4 w-4" /> New Task
-              </Button>
-            </>
+            <Button size="sm" className="gap-2" onClick={() => setNewTaskOpen(true)}>
+              <Plus className="h-4 w-4" />
+              {user?.role === 'TEAM_MEMBER' ? 'Add My Task' : 'New Task'}
+            </Button>
           )}
         </div>
       </div>
 
       {/* Stats row */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
         {[
           { label: 'To Do', key: 'TODO', color: 'bg-gray-100 text-gray-700', icon: CheckSquare },
           { label: 'In Progress', key: 'IN_PROGRESS', color: 'bg-blue-50 text-blue-700', icon: Clock },
@@ -146,36 +155,36 @@ export default function Tasks() {
           <button
             key={key}
             onClick={() => setStatusFilter(statusFilter === key ? '' : key)}
-            className={cn('rounded-xl border p-4 text-left transition-all hover:shadow-sm', color,
+            className={cn('rounded-xl border p-3 sm:p-4 text-left transition-all hover:shadow-sm', color,
               statusFilter === key && 'ring-2 ring-primary')}
           >
             <div className="flex items-center gap-2">
               <Icon className="h-4 w-4" />
-              <span className="text-sm font-medium">{label}</span>
+              <span className="text-xs sm:text-sm font-medium">{label}</span>
             </div>
-            <p className="text-2xl font-bold mt-2">{statusCounts[key as keyof typeof statusCounts]}</p>
+            <p className="text-xl sm:text-2xl font-bold mt-1.5 sm:mt-2">{statusCounts[key as keyof typeof statusCounts]}</p>
           </button>
         ))}
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-xs">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
+        <div className="relative w-full sm:w-64">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search tasks..."
+            placeholder={canSearchByUser ? 'Search by task or person…' : 'Search tasks…'}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
           />
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-1.5 overflow-x-auto pb-0.5 sm:pb-0 flex-nowrap">
           {(['', 'TODO', 'IN_PROGRESS', 'BLOCKED', 'DONE'] as const).map((s) => (
             <button
               key={s}
               onClick={() => setStatusFilter(s)}
               className={cn(
-                'px-3 py-1.5 rounded-md text-xs font-medium border transition-colors',
+                'px-3 py-1.5 rounded-md text-xs font-medium border transition-colors whitespace-nowrap shrink-0',
                 statusFilter === s ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:bg-muted'
               )}
             >
@@ -202,6 +211,7 @@ export default function Tasks() {
           open={newTaskOpen}
           onClose={() => setNewTaskOpen(false)}
           onCreated={() => qc.invalidateQueries({ queryKey: ['tasks'] })}
+          taskToEdit={null}
         />
       )}
 
@@ -266,21 +276,21 @@ function TaskRow({ task, onStatusChange, onClick }: {
 }) {
   return (
     <Card className="hover:shadow-sm transition-shadow">
-      <CardContent className="p-4">
-        <div className="flex items-center gap-4">
+      <CardContent className="p-3 sm:p-4">
+        <div className="flex items-start sm:items-center gap-2 sm:gap-4">
           {/* Status dot / select */}
-          <div onClick={(e) => e.stopPropagation()}>
+          <div onClick={(e) => e.stopPropagation()} className="shrink-0 mt-0.5 sm:mt-0">
             <Select value={task.status} onValueChange={(v) => onStatusChange(task, v)}>
-              <SelectTrigger className="w-[130px] h-7 text-xs border-0 p-0 focus:ring-0 shadow-none">
+              <SelectTrigger className="w-[110px] sm:w-[130px] h-7 text-xs border-0 p-0 focus:ring-0 shadow-none">
                 <div className={cn('flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium', statusColor(task.status))}>
-                  <div className={cn('h-1.5 w-1.5 rounded-full', {
+                  <div className={cn('h-1.5 w-1.5 rounded-full shrink-0', {
                     'bg-gray-400': task.status === 'TODO',
                     'bg-blue-500': task.status === 'IN_PROGRESS',
                     'bg-red-500': task.status === 'BLOCKED',
                     'bg-green-500': task.status === 'DONE',
                     'bg-gray-300': task.status === 'CANCELLED',
                   })} />
-                  {STATUS_LABELS[task.status] ?? task.status}
+                  <span className="truncate">{STATUS_LABELS[task.status] ?? task.status}</span>
                 </div>
               </SelectTrigger>
               <SelectContent>
@@ -293,26 +303,33 @@ function TaskRow({ task, onStatusChange, onClick }: {
 
           {/* Title + meta */}
           <div className="flex-1 min-w-0 cursor-pointer" onClick={onClick}>
-            <p className={cn('font-medium truncate', task.status === 'DONE' && 'line-through text-muted-foreground')}>
+            <p className={cn('font-medium truncate text-sm sm:text-base', task.status === 'DONE' && 'line-through text-muted-foreground')}>
               {task.title}
             </p>
-            <div className="flex items-center gap-3 mt-0.5">
-              {task.kra && <span className="text-xs text-muted-foreground">KRA: {task.kra.name}</span>}
+            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+              {task.kra && <span className="text-xs text-muted-foreground truncate max-w-[120px] sm:max-w-none">KRA: {task.kra.name}</span>}
               {task.department && <span className="text-xs text-muted-foreground">{task.department.name}</span>}
               {task.blockerType && (
                 <span className="text-xs text-red-500 font-medium">
                   ⚠ {task.blockerType.toLowerCase().replace(/_/g, ' ')}
                 </span>
               )}
+              {/* Mobile: show due date inline */}
+              {task.dueDate && (
+                <span className={cn('text-xs sm:hidden',
+                  new Date(task.dueDate) < new Date() && task.status !== 'DONE' ? 'text-red-500 font-medium' : 'text-muted-foreground')}>
+                  {formatDate(task.dueDate)}
+                </span>
+              )}
             </div>
           </div>
 
           {/* Priority */}
-          <Badge className={cn('text-xs border shrink-0', priorityColor(task.priority))}>{task.priority}</Badge>
+          <Badge className={cn('text-xs border shrink-0 hidden sm:flex', priorityColor(task.priority))}>{task.priority}</Badge>
 
-          {/* Due date */}
+          {/* Due date (desktop) */}
           {task.dueDate && (
-            <span className={cn('text-xs shrink-0',
+            <span className={cn('text-xs shrink-0 hidden sm:block',
               new Date(task.dueDate) < new Date() && task.status !== 'DONE' ? 'text-red-500 font-medium' : 'text-muted-foreground')}>
               {formatDate(task.dueDate)}
             </span>
@@ -320,7 +337,7 @@ function TaskRow({ task, onStatusChange, onClick }: {
 
           {/* Comments count */}
           {!!task._count?.comments && (
-            <span className="text-xs text-muted-foreground shrink-0">💬 {task._count.comments}</span>
+            <span className="text-xs text-muted-foreground shrink-0 hidden sm:block">💬 {task._count.comments}</span>
           )}
 
           {/* Assignee */}

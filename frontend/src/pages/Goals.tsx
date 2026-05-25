@@ -46,6 +46,7 @@ type KRA = {
   period: string;
   owner: { id?: string; name: string; avatarUrl?: string };
   department: { id: string; name: string };
+  goal?: { id: string; title: string; type: string };
   _count: { tasks: number };
 };
 
@@ -96,6 +97,72 @@ const EMPTY_KRA_FORM: KRAForm = {
   unit: '',
   period: '',
 };
+
+function KRAList({ kras, canManage, onEdit, onDelete }: {
+  kras: KRA[];
+  canManage: boolean;
+  onEdit: (kra: KRA) => void;
+  onDelete: (id: string) => void;
+}) {
+  return (
+    <div className="space-y-3">
+      {kras.map((kra) => {
+        const pct = kra.target > 0 ? Math.min(100, Math.round((kra.current / kra.target) * 100)) : 0;
+        return (
+          <Card key={kra.id} className="group">
+            <CardContent className="p-4">
+              <div className="flex items-start gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <p className="font-medium">{kra.name}</p>
+                    <Badge className={`text-xs ${kraStatusColor(kra.status)}`}>{kra.status.toLowerCase().replace('_', ' ')}</Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {kra.department.name} · {kra.period}
+                    {kra.goal && <span className="ml-1 text-muted-foreground/60">· {kra.goal.title}</span>}
+                  </p>
+                  <div className="flex items-center gap-4 mt-2">
+                    <div className="flex-1">
+                      <Progress value={pct} className="h-1.5" />
+                    </div>
+                    <span className="text-sm font-medium shrink-0 w-20 text-right">
+                      {kra.current.toLocaleString()} / {kra.target.toLocaleString()} {kra.unit}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Avatar className="h-7 w-7">
+                    <AvatarImage src={kra.owner.avatarUrl} />
+                    <AvatarFallback className="text-xs bg-blue-50 text-blue-700">{getInitials(kra.owner.name)}</AvatarFallback>
+                  </Avatar>
+                  <span className="text-xs text-muted-foreground">{kra._count.tasks} tasks</span>
+                  {canManage && (
+                    <>
+                      <button
+                        onClick={() => onEdit(kra)}
+                        className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-opacity"
+                        title="Edit KRA"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => onDelete(kra.id)}
+                        className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-opacity"
+                        title="Delete KRA"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
 
 export default function Goals() {
   const qc = useQueryClient();
@@ -305,20 +372,24 @@ export default function Goals() {
   };
 
   return (
-    <div className="p-8 space-y-8">
-      <div className="flex items-center justify-between">
+    <div className="p-4 sm:p-8 space-y-6 sm:space-y-8">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Target className="h-6 w-6 text-blue-500" />
             Goals & KRAs
           </h1>
-          <p className="text-muted-foreground text-sm mt-0.5">{goals.length} goals · {kras.length} KRAs</p>
+          <p className="text-muted-foreground text-sm mt-0.5">
+            {goals.filter((g) => g.type === 'COMPANY').length} company goals
+            {goals.filter((g) => g.type !== 'COMPANY').length > 0 && ` · ${goals.filter((g) => g.type !== 'COMPANY').length} dept goals`}
+            {' · '}{kras.length} KRAs
+          </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" className="gap-2" onClick={() => openKraDialog()}>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => openKraDialog()}>
             <Plus className="h-4 w-4" /> Add KRA
           </Button>
-          <Button className="gap-2" onClick={() => openGoalDialog()}>
+          <Button size="sm" className="gap-2" onClick={() => openGoalDialog()}>
             <Plus className="h-4 w-4" /> Add Goal
           </Button>
         </div>
@@ -341,14 +412,14 @@ export default function Goals() {
         </Card>
       )}
 
-      {goals.length > 0 && (
+      {goals.filter((g) => g.type === 'COMPANY').length > 0 && (
         <div>
           <h2 className="text-base font-semibold mb-3 flex items-center gap-2">
             <TrendingUp className="h-4 w-4 text-blue-500" />
             Company Goals
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {goals.map((goal) => {
+            {goals.filter((g) => g.type === 'COMPANY').map((goal) => {
               const pct = goal.target && goal.current != null ? Math.min(100, Math.round((goal.current / goal.target) * 100)) : 0;
               return (
                 <Card key={goal.id} className="group">
@@ -407,6 +478,74 @@ export default function Goals() {
           </div>
         </div>
       )}
+      {/* Department / Team goals — shown only for dept heads, not for CEO */}
+      {goals.filter((g) => g.type !== 'COMPANY').length > 0 && (
+        <div>
+          <h2 className="text-base font-semibold mb-3 flex items-center gap-2">
+            <Target className="h-4 w-4 text-purple-500" />
+            Department Goals
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {goals.filter((g) => g.type !== 'COMPANY').map((goal) => {
+              const pct = goal.target && goal.current != null ? Math.min(100, Math.round((goal.current / goal.target) * 100)) : 0;
+              return (
+                <Card key={goal.id} className="group">
+                  <CardContent className="p-5">
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex-1">
+                        <p className="font-medium">{goal.title}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{goal.period || 'Ongoing'}</p>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Badge variant={goal.status === 'ACTIVE' ? 'info' : goal.status === 'COMPLETED' ? 'success' : 'secondary'}>
+                          {goal.status.toLowerCase()}
+                        </Badge>
+                        {canManage && (
+                          <>
+                            <button
+                              onClick={() => openGoalDialog(goal)}
+                              className="opacity-0 group-hover:opacity-100 ml-1 p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-opacity"
+                              title="Edit goal"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setDeleteGoalId(goal.id)}
+                              className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-opacity"
+                              title="Delete goal"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    {goal.target != null && (
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>{goal.current?.toLocaleString()} {goal.unit}</span>
+                          <span>{goal.target.toLocaleString()} {goal.unit}</span>
+                        </div>
+                        <Progress value={pct} className="h-2" />
+                        <p className="text-xs text-right text-muted-foreground">{pct}% achieved</p>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 mt-3">
+                      <Avatar className="h-6 w-6">
+                        <AvatarImage src={goal.owner.avatarUrl} />
+                        <AvatarFallback className="text-xs">{getInitials(goal.owner.name)}</AvatarFallback>
+                      </Avatar>
+                      <span className="text-xs text-muted-foreground">{goal.owner.name}</span>
+                      <span className="text-xs text-muted-foreground ml-auto">{goal._count.kras} KRAs</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {goals.length === 0 && (
         <Card className="border-dashed bg-muted/20">
           <CardContent className="p-8 text-center text-muted-foreground">
@@ -417,69 +556,29 @@ export default function Goals() {
         </Card>
       )}
 
-      <div>
-        <h2 className="text-base font-semibold mb-3">Key Result Areas</h2>
-        <div className="space-y-3">
-          {kras.map((kra) => {
-            const pct = kra.target > 0 ? Math.min(100, Math.round((kra.current / kra.target) * 100)) : 0;
-            return (
-              <Card key={kra.id} className="group">
-                <CardContent className="p-4">
-                  <div className="flex items-start gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3">
-                        <p className="font-medium">{kra.name}</p>
-                        <Badge className={`text-xs ${kraStatusColor(kra.status)}`}>{kra.status.toLowerCase().replace('_', ' ')}</Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">{kra.department.name} · {kra.period}</p>
-                      <div className="flex items-center gap-4 mt-2">
-                        <div className="flex-1">
-                          <Progress value={pct} className="h-1.5" />
-                        </div>
-                        <span className="text-sm font-medium shrink-0 w-20 text-right">
-                          {kra.current.toLocaleString()} / {kra.target.toLocaleString()} {kra.unit}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <Avatar className="h-7 w-7">
-                        <AvatarImage src={kra.owner.avatarUrl} />
-                        <AvatarFallback className="text-xs bg-blue-50 text-blue-700">{getInitials(kra.owner.name)}</AvatarFallback>
-                      </Avatar>
-                      <span className="text-xs text-muted-foreground">{kra._count.tasks} tasks</span>
-                      {canManage && (
-                        <>
-                          <button
-                            onClick={() => openKraDialog(kra)}
-                            className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-opacity"
-                            title="Edit KRA"
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            onClick={() => setDeleteKraId(kra.id)}
-                            className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-opacity"
-                            title="Delete KRA"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-          {kras.length === 0 && (
-            <div className="text-center py-16 text-muted-foreground">
-              <Target className="h-12 w-12 mx-auto mb-4 opacity-20" />
-              <p>No KRAs created yet</p>
-              <p className="text-sm mt-2">KRAs turn goals into measurable result areas for a department or function.</p>
-            </div>
-          )}
+      {/* Company KRAs — linked to COMPANY goals */}
+      {kras.filter((k) => k.goal?.type === 'COMPANY').length > 0 && (
+        <div>
+          <h2 className="text-base font-semibold mb-3">Company KRAs</h2>
+          <KRAList kras={kras.filter((k) => k.goal?.type === 'COMPANY')} canManage={canManage} onEdit={openKraDialog} onDelete={setDeleteKraId} />
         </div>
-      </div>
+      )}
+
+      {/* Department KRAs — linked to DEPARTMENT/TEAM goals or unlinked; not shown to CEO (backend filters) */}
+      {kras.filter((k) => k.goal?.type !== 'COMPANY').length > 0 && (
+        <div>
+          <h2 className="text-base font-semibold mb-3">Department KRAs</h2>
+          <KRAList kras={kras.filter((k) => k.goal?.type !== 'COMPANY')} canManage={canManage} onEdit={openKraDialog} onDelete={setDeleteKraId} />
+        </div>
+      )}
+
+      {kras.length === 0 && (
+        <div className="text-center py-16 text-muted-foreground">
+          <Target className="h-12 w-12 mx-auto mb-4 opacity-20" />
+          <p>No KRAs created yet</p>
+          <p className="text-sm mt-2">KRAs turn goals into measurable result areas for a department or function.</p>
+        </div>
+      )}
 
       <Dialog open={goalOpen} onOpenChange={closeGoalDialog}>
         <DialogContent className="sm:max-w-lg">

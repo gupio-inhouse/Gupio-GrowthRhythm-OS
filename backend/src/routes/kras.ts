@@ -33,7 +33,10 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     ...(departmentId ? { departmentId: departmentId as string } : {}),
   };
 
-  if (['DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'].includes(req.user!.role)) {
+  if (['OWNER', 'COMPANY_ADMIN'].includes(req.user!.role)) {
+    // CEO/admins only see KRAs linked to company-level goals
+    where.goal = { type: 'COMPANY' };
+  } else if (['DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'].includes(req.user!.role)) {
     const actorDepartmentId = await getActorDepartmentId(req.user!.userId);
     if (!actorDepartmentId) {
       res.json([]);
@@ -47,7 +50,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     include: {
       owner: { select: { id: true, name: true, avatarUrl: true } },
       department: { select: { id: true, name: true, slug: true } },
-      goal: { select: { id: true, title: true } },
+      goal: { select: { id: true, title: true, type: true } },
       _count: { select: { tasks: true } },
     },
     orderBy: { createdAt: 'desc' },

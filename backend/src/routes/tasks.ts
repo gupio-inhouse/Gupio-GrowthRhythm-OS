@@ -168,9 +168,16 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 
 // POST /tasks
 router.post('/', auditLog('task', 'CREATE'), async (req: AuthRequest, res: Response) => {
-  if (!canManageDepartmentScoped(req.user!.role)) {
+  const isTeamMember = req.user!.role === 'TEAM_MEMBER';
+
+  if (!canManageDepartmentScoped(req.user!.role) && !isTeamMember) {
     res.status(403).json({ error: 'Forbidden' });
     return;
+  }
+
+  // Team members can only create tasks assigned to themselves
+  if (isTeamMember) {
+    req.body.assigneeUserId = req.user!.userId;
   }
 
   const parsed = createSchema.safeParse(req.body);
@@ -203,14 +210,14 @@ router.post('/', auditLog('task', 'CREATE'), async (req: AuthRequest, res: Respo
     return;
   }
 
-  if (actor.role === 'DEPARTMENT_HEAD') {
+  if (!isTeamMember && actor.role === 'DEPARTMENT_HEAD') {
     if (!actor.departmentId || parsed.data.departmentId !== actor.departmentId || assignee.departmentId !== actor.departmentId) {
       res.status(403).json({ error: 'Department heads can only assign tasks within their department' });
       return;
     }
   }
 
-  if (actor.role === 'MANAGER') {
+  if (!isTeamMember && actor.role === 'MANAGER') {
     const inOwnDept = !!actor.departmentId && parsed.data.departmentId === actor.departmentId && assignee.departmentId === actor.departmentId;
     const assignableUser = assignee.id === actor.id || assignee.managerId === actor.id;
     if (!inOwnDept || !assignableUser) {
@@ -400,9 +407,8 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     return;
   }
 
-  await prisma.task.update({
+  await prisma.task.delete({
     where: { id: req.params.id as string, orgId: req.user!.orgId },
-    data: { status: 'CANCELLED' },
   });
   res.json({ success: true });
 });

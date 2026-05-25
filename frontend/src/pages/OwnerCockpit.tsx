@@ -39,7 +39,7 @@ export default function OwnerCockpit() {
 
   if (isLoading) {
     return (
-      <div className="p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="p-4 sm:p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {[...Array(8)].map((_, i) => <div key={i} className="h-32 rounded-xl bg-muted animate-pulse" />)}
       </div>
     );
@@ -67,8 +67,8 @@ export default function OwnerCockpit() {
   }
 
   return (
-    <div className="p-8 space-y-8">
-      <div className="flex items-start justify-between gap-4">
+    <div className="p-4 sm:p-8 space-y-6 sm:space-y-8">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Zap className="h-6 w-6 text-blue-500" />
@@ -76,7 +76,7 @@ export default function OwnerCockpit() {
           </h1>
           <p className="text-muted-foreground text-sm mt-0.5">Company-wide execution overview</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button asChild variant="outline">
             <Link to="/team?create=team">Add Team</Link>
           </Button>

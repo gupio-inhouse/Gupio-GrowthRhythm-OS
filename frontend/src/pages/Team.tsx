@@ -272,15 +272,15 @@ export default function Team() {
   };
 
   return (
-    <div className="p-8 space-y-6">
+    <div className="p-4 sm:p-8 space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Team</h1>
           <p className="text-muted-foreground text-sm mt-0.5">{teams.length} teams · {members.length} members across your organization</p>
         </div>
         {(canInvite || canCreateTeam || canBulkImport) && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center flex-wrap gap-2">
             {canCreateTeam && (
               <Button variant="outline" onClick={() => handleTeamOpen(true)} className="gap-2">
                 <Plus className="h-4 w-4" />

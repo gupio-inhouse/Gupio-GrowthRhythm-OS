@@ -60,14 +60,14 @@ function DepartmentDashboard({ slug }: { slug: string }) {
 
   if (!dash) {
     return (
-      <div className="p-8 grid grid-cols-3 gap-4">
+      <div className="p-4 sm:p-8 grid grid-cols-1 sm:grid-cols-3 gap-4">
         {[...Array(6)].map((_, i) => <div key={i} className="h-28 rounded-xl bg-muted animate-pulse" />)}
       </div>
     );
   }
 
   return (
-    <div className="p-8 space-y-8">
+    <div className="p-4 sm:p-8 space-y-6 sm:space-y-8">
       <div>
         <h1 className="text-2xl font-bold">{dept?.name || slug} Dashboard</h1>
         <p className="text-muted-foreground text-sm mt-0.5">Department execution overview</p>
@@ -296,7 +296,7 @@ export default function Dashboard() {
   const blockedTasks = myTasks.filter((t: { status: string }) => t.status === 'BLOCKED');
 
   return (
-    <div className="p-8 space-y-8">
+    <div className="p-4 sm:p-8 space-y-6 sm:space-y-8">
       <div>
         <h1 className="text-2xl font-bold">
           Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'},{' '}

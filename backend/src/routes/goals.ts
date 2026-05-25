@@ -30,7 +30,10 @@ const createSchema = z.object({
 router.get('/', async (req: AuthRequest, res: Response) => {
   const where: Record<string, unknown> = { orgId: req.user!.orgId };
 
-  if (req.user!.role === 'DEPARTMENT_HEAD') {
+  if (['OWNER', 'COMPANY_ADMIN'].includes(req.user!.role)) {
+    // CEO/admins only see company-level goals — not dept/team goals owned by dept heads
+    where.type = 'COMPANY';
+  } else if (req.user!.role === 'DEPARTMENT_HEAD') {
     const departmentId = await getActorDepartmentId(req.user!.userId);
     if (!departmentId) {
       res.json([]);

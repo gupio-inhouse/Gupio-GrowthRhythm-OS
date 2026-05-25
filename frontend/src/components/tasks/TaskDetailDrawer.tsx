@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Send, Calendar, User, Flag, Building2, Target, AlertTriangle } from 'lucide-react';
+import { Send, Calendar, User, Flag, Building2, Target, AlertTriangle, Pencil, Trash2 } from 'lucide-react';
 import { Sheet, SheetHeader, SheetTitle, SheetContent } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -9,8 +9,10 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { BlockerDialog } from './BlockerDialog';
+import { NewTaskDialog, type TaskToEdit } from './NewTaskDialog';
 import { cn, statusColor, priorityColor, formatDate, formatRelative, getInitials } from '@/lib/utils';
 import api from '@/api/client';
+import { useAuthStore } from '@/store/authStore';
 
 type Comment = {
   id: string;
@@ -43,11 +45,24 @@ interface Props {
   onClose: () => void;
 }
 
+function formatDateTime(dateStr: string) {
+  const d = new Date(dateStr);
+  const h = d.getHours(), m = d.getMinutes();
+  const datePart = formatDate(dateStr);
+  if (h === 0 && m === 0) return datePart;
+  return `${datePart} ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
 export function TaskDetailDrawer({ taskId, onClose }: Props) {
   const qc = useQueryClient();
+  const { user } = useAuthStore();
   const [comment, setComment] = useState('');
   const [blockerOpen, setBlockerOpen] = useState(false);
   const [pendingStatus, setPendingStatus] = useState<string | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const canEdit = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
 
   const { data: task, isLoading } = useQuery<TaskDetail>({
     queryKey: ['task', taskId],
@@ -68,6 +83,14 @@ export function TaskDetailDrawer({ taskId, onClose }: Props) {
     onSuccess: () => {
       setComment('');
       qc.invalidateQueries({ queryKey: ['task', taskId] });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => api.delete(`/tasks/${taskId}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['tasks'] });
+      onClose();
     },
   });
 
@@ -98,6 +121,20 @@ export function TaskDetailDrawer({ taskId, onClose }: Props) {
     commentMutation.mutate(comment.trim());
   };
 
+  const taskToEdit: TaskToEdit | null = task
+    ? {
+        id: task.id,
+        title: task.title,
+        description: task.description,
+        expectedOutcome: task.expectedOutcome,
+        priority: task.priority,
+        dueDate: task.dueDate,
+        assignee: task.assignee,
+        kra: task.kra,
+        department: task.department,
+      }
+    : null;
+
   return (
     <>
       <Sheet open={!!taskId} onClose={onClose}>
@@ -109,20 +146,62 @@ export function TaskDetailDrawer({ taskId, onClose }: Props) {
           <>
             <SheetHeader>
               <div className="flex items-start gap-3">
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
                   <SheetTitle>{task.title}</SheetTitle>
-                  <div className="flex items-center gap-2 mt-2">
+                  <div className="flex items-center gap-2 mt-2 flex-wrap">
                     <Badge className={cn('text-xs border', statusColor(task.status))}>{task.status.replace('_', ' ')}</Badge>
                     <Badge className={cn('text-xs border', priorityColor(task.priority))}>{task.priority}</Badge>
                   </div>
                 </div>
+                {canEdit && (
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5"
+                      onClick={() => setEditOpen(true)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                      Edit
+                    </Button>
+                    {confirmDelete ? (
+                      <div className="flex items-center gap-1">
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => deleteMutation.mutate()}
+                          disabled={deleteMutation.isPending}
+                        >
+                          {deleteMutation.isPending ? 'Deleting…' : 'Confirm'}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setConfirmDelete(false)}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/30"
+                        onClick={() => setConfirmDelete(true)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Delete
+                      </Button>
+                    )}
+                  </div>
+                )}
               </div>
             </SheetHeader>
 
             <SheetContent>
               <div className="space-y-6">
                 {/* Status change */}
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-wrap">
                   <span className="text-sm font-medium text-muted-foreground w-28">Status</span>
                   <Select value={task.status} onValueChange={handleStatusChange}>
                     <SelectTrigger className="w-44">
@@ -139,7 +218,7 @@ export function TaskDetailDrawer({ taskId, onClose }: Props) {
                 {/* Meta grid */}
                 <div className="grid grid-cols-1 gap-3">
                   {task.assignee && (
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 flex-wrap">
                       <User className="h-4 w-4 text-muted-foreground shrink-0" />
                       <span className="text-sm text-muted-foreground w-24">Assignee</span>
                       <div className="flex items-center gap-2">
@@ -153,17 +232,17 @@ export function TaskDetailDrawer({ taskId, onClose }: Props) {
                   )}
 
                   {task.dueDate && (
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 flex-wrap">
                       <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
                       <span className="text-sm text-muted-foreground w-24">Due date</span>
                       <span className={cn('text-sm', new Date(task.dueDate) < new Date() && task.status !== 'DONE' ? 'text-red-500 font-medium' : '')}>
-                        {formatDate(task.dueDate)}
+                        {formatDateTime(task.dueDate)}
                       </span>
                     </div>
                   )}
 
                   {task.department && (
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 flex-wrap">
                       <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
                       <span className="text-sm text-muted-foreground w-24">Department</span>
                       <span className="text-sm">{task.department.name}</span>
@@ -171,7 +250,7 @@ export function TaskDetailDrawer({ taskId, onClose }: Props) {
                   )}
 
                   {task.kra && (
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 flex-wrap">
                       <Target className="h-4 w-4 text-muted-foreground shrink-0" />
                       <span className="text-sm text-muted-foreground w-24">KRA</span>
                       <span className="text-sm">{task.kra.name}</span>
@@ -179,7 +258,7 @@ export function TaskDetailDrawer({ taskId, onClose }: Props) {
                   )}
 
                   {task.blockerType && (
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 flex-wrap">
                       <AlertTriangle className="h-4 w-4 text-red-500 shrink-0" />
                       <span className="text-sm text-muted-foreground w-24">Blocker</span>
                       <span className="text-sm text-red-600 font-medium capitalize">
@@ -190,7 +269,7 @@ export function TaskDetailDrawer({ taskId, onClose }: Props) {
                   )}
 
                   {task.priority && (
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 flex-wrap">
                       <Flag className="h-4 w-4 text-muted-foreground shrink-0" />
                       <span className="text-sm text-muted-foreground w-24">Priority</span>
                       <span className="text-sm">{task.priority}</span>
@@ -230,12 +309,12 @@ export function TaskDetailDrawer({ taskId, onClose }: Props) {
                           <AvatarImage src={c.user.avatarUrl} />
                           <AvatarFallback className="text-xs">{getInitials(c.user.name)}</AvatarFallback>
                         </Avatar>
-                        <div className="flex-1">
-                          <div className="flex items-baseline gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-baseline gap-2 flex-wrap">
                             <span className="text-sm font-medium">{c.user.name}</span>
                             <span className="text-xs text-muted-foreground">{formatRelative(c.createdAt)}</span>
                           </div>
-                          <p className="text-sm mt-0.5 whitespace-pre-wrap">{c.content}</p>
+                          <p className="text-sm mt-0.5 whitespace-pre-wrap break-words">{c.content}</p>
                         </div>
                       </div>
                     ))}
@@ -274,6 +353,18 @@ export function TaskDetailDrawer({ taskId, onClose }: Props) {
         onCancel={() => { setBlockerOpen(false); setPendingStatus(null); }}
         isLoading={updateMutation.isPending}
       />
+
+      {canEdit && taskToEdit && (
+        <NewTaskDialog
+          open={editOpen}
+          onClose={() => setEditOpen(false)}
+          onCreated={() => {
+            qc.invalidateQueries({ queryKey: ['tasks'] });
+            qc.invalidateQueries({ queryKey: ['task', taskId] });
+          }}
+          taskToEdit={taskToEdit}
+        />
+      )}
     </>
   );
 }
