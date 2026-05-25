@@ -17,8 +17,6 @@ import teamsRouter from './routes/teams';
 import ownerRouter from './routes/owner';
 import notificationsRouter from './routes/notifications';
 import superAdminRouter from './routes/superadmin';
-import reviewsRouter from './routes/reviews';
-import hiringRouter from './routes/hiring';
 import magicRouter from './routes/magic';
 import eventsRouter from './routes/events';
 import integrationsRouter from './routes/integrations';
@@ -59,8 +57,6 @@ export function createApp() {
   app.use('/api/owner', ownerRouter);
   app.use('/api/notifications', notificationsRouter);
   app.use('/api/superadmin', superAdminRouter);
-  app.use('/api/reviews', reviewsRouter);
-  app.use('/api/hiring', hiringRouter);
   app.use('/api/magic', magicRouter);
   app.use('/api/events', eventsRouter);
   app.use('/api/integrations', integrationsRouter);

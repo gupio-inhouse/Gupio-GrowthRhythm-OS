@@ -8,8 +8,7 @@ export type NotificationEvent =
   | 'STANDUP_REMINDER'
   | 'KRA_STATUS_CHANGED'
   | 'WEEKLY_DIGEST'
-  | 'BLOCKER_ESCALATED'
-  | 'REVIEW_DUE';
+  | 'BLOCKER_ESCALATED';
 
 const TEMPLATES: Record<NotificationEvent, (d: Record<string, unknown>) => { title: string; body: string }> = {
   TASK_ASSIGNED: (d) => ({ title: 'New task assigned', body: `You've been assigned: "${d.taskTitle}"${d.dueDate ? ` · due ${d.dueDate}` : ''}` }),
@@ -20,7 +19,6 @@ const TEMPLATES: Record<NotificationEvent, (d: Record<string, unknown>) => { tit
   KRA_STATUS_CHANGED: (d) => ({ title: 'KRA status update', body: `"${d.kraName}" is now ${d.status}` }),
   WEEKLY_DIGEST: (d) => ({ title: 'Your weekly summary', body: `Week ended: ${d.done} tasks done · ${d.blocked} blocked · ${d.standups} standups` }),
   BLOCKER_ESCALATED: (d) => ({ title: 'Blocker escalated', body: `"${d.taskTitle}" blocked for 3+ days. Needs immediate attention.` }),
-  REVIEW_DUE: (d) => ({ title: 'Review scheduled', body: `${d.reviewType} review for ${d.departmentName} is due ${d.dueDate}` }),
 };
 
 const EVENT_PREF_KEY: Record<NotificationEvent, string> = {
@@ -32,7 +30,6 @@ const EVENT_PREF_KEY: Record<NotificationEvent, string> = {
   KRA_STATUS_CHANGED: 'kraUpdate',
   WEEKLY_DIGEST: 'weeklyDigest',
   BLOCKER_ESCALATED: 'taskBlocked',
-  REVIEW_DUE: 'reviewDue',
 };
 
 async function getUserOrgId(userId: string): Promise<string | null> {

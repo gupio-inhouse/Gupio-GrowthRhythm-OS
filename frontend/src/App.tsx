@@ -13,9 +13,7 @@ import OwnerCockpit from '@/pages/OwnerCockpit';
 import Team from '@/pages/Team';
 import Settings from '@/pages/Settings';
 import SuperAdmin from '@/pages/SuperAdmin';
-import Reviews from '@/pages/Reviews';
 import MagicLinkVerify from '@/pages/MagicLinkVerify';
-import Hiring from '@/pages/Hiring';
 import Integrations from '@/pages/Integrations';
 import AppFeedback from '@/pages/AppFeedback';
 import { useAuthStore } from '@/store/authStore';
@@ -66,10 +64,7 @@ export default function App() {
             <Route path="learning/:deptSlug" element={<Learning />} />
             <Route path="departments" element={<Departments />} />
             <Route path="team" element={<Team />} />
-            <Route path="calendar" element={<div className="p-8"><h1 className="text-2xl font-bold">Calendar</h1><p className="text-muted-foreground mt-2">Coming soon — connect Google Calendar in Integrations</p></div>} />
             <Route path="integrations" element={<Integrations />} />
-            <Route path="reviews" element={<Reviews />} />
-            <Route path="hiring" element={<Hiring />} />
             <Route path="app-feedback" element={<AppFeedback />} />
             <Route path="settings" element={<Settings />} />
             <Route path="superadmin" element={<SuperAdmin />} />
