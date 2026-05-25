@@ -35,6 +35,7 @@ type TeamMember = {
   status: string;
   avatarUrl?: string;
   lastLoginAt?: string;
+  managerId?: string;
   department?: { id: string; name: string; slug: string };
 };
 
@@ -132,7 +133,7 @@ export default function Team() {
   const [assignManagerValue, setAssignManagerValue] = useState('');
   const [editMemberOpen, setEditMemberOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
-  const [editMemberForm, setEditMemberForm] = useState({ name: '', role: '', departmentId: '', phone: '' });
+  const [editMemberForm, setEditMemberForm] = useState({ name: '', role: '', departmentId: '', phone: '', managerId: '' });
   const [editMemberError, setEditMemberError] = useState('');
   const [confirmDeleteMemberId, setConfirmDeleteMemberId] = useState<string | null>(null);
   const [teamForm, setTeamForm] = useState<TeamForm>({
@@ -149,7 +150,7 @@ export default function Team() {
   const canBulkImport = ['OWNER', 'COMPANY_ADMIN'].includes(me?.role || '');
   const canInviteOnlyTeamMembers = me?.role === 'MANAGER';
   const canDeactivate = ['OWNER', 'COMPANY_ADMIN'].includes(me?.role || '');
-  const canEditUser = ['OWNER', 'COMPANY_ADMIN'].includes(me?.role || '');
+  const canEditUser = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'].includes(me?.role || '');
   const canDeleteUser = ['OWNER', 'COMPANY_ADMIN'].includes(me?.role || '');
 
   const toggleStatus = useMutation({
@@ -166,6 +167,7 @@ export default function Team() {
       setEditMemberOpen(false);
       setEditingMember(null);
       setEditMemberError('');
+      setEditMemberForm({ name: '', role: '', departmentId: '', phone: '', managerId: '' });
     },
     onError: (e: unknown) => setEditMemberError(e instanceof Error ? e.message : 'Failed to update member'),
   });
@@ -341,6 +343,7 @@ export default function Team() {
       role: member.role,
       departmentId: member.department?.id || '',
       phone: member.phone || '',
+      managerId: member.managerId || '',
     });
     setEditMemberError('');
     setEditMemberOpen(true);
@@ -863,6 +866,7 @@ export default function Team() {
                   role: editMemberForm.role,
                   departmentId: editMemberForm.departmentId || null,
                   phone: editMemberForm.phone || '',
+                  managerId: editMemberForm.managerId || null,
                 },
               });
             }}
@@ -901,6 +905,32 @@ export default function Team() {
                   {departments.map((d) => (
                     <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Reporting Manager</Label>
+              <Select
+                value={editMemberForm.managerId || 'none'}
+                onValueChange={(v) => setEditMemberForm((p) => ({ ...p, managerId: v === 'none' ? '' : v }))}
+              >
+                <SelectTrigger><SelectValue placeholder="No manager assigned" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No manager</SelectItem>
+                  {members
+                    .filter((m) =>
+                      m.status === 'ACTIVE' &&
+                      m.id !== editingMember?.id &&
+                      ['MANAGER', 'DEPARTMENT_HEAD', 'COMPANY_ADMIN', 'OWNER'].includes(m.role)
+                    )
+                    .map((m) => (
+                      <SelectItem key={m.id} value={m.id}>
+                        {m.name}
+                        <span className="text-xs text-muted-foreground ml-1 capitalize">
+                          · {m.role.toLowerCase().replace(/_/g, ' ')}
+                        </span>
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>
