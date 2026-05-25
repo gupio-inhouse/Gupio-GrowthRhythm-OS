@@ -6,8 +6,8 @@ export function getRoleRedirect(role: string, departmentSlug?: string | null): s
     case 'COMPANY_ADMIN':
       return '/dashboard';
     case 'DEPARTMENT_HEAD':
-      return departmentSlug ? `/dashboard/${departmentSlug}` : '/dashboard';
     case 'MANAGER':
+      return '/dashboard';
     case 'TEAM_MEMBER':
       return '/tasks';
     case 'COACH_ADVISOR':

@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useParams, Link } from 'react-router-dom';
-import { CheckSquare, AlertTriangle, Zap, TrendingUp, Users, Clock, Target, BookOpen, Calendar } from 'lucide-react';
+import { CheckSquare, AlertTriangle, Zap, TrendingUp, Users, Clock, Target, BookOpen, Calendar, X, ChevronRight, Building2, CheckCircle2, Lock, ArrowDown } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -8,21 +9,306 @@ import { useAuthStore } from '@/store/authStore';
 import { cn, kraStatusColor, formatDate } from '@/lib/utils';
 import api from '@/api/client';
 
-function StatCard({ title, value, icon: Icon, color, bg, subtitle }: {
+function StatCard({ title, value, icon: Icon, color, bg, subtitle, href }: {
   title: string; value: string | number; icon: React.ElementType;
-  color: string; bg: string; subtitle?: string;
+  color: string; bg: string; subtitle?: string; href?: string;
 }) {
+  const inner = (
+    <CardContent className="p-5">
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-sm text-muted-foreground">{title}</p>
+          <p className="text-3xl font-bold mt-1">{value}</p>
+          {subtitle && <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>}
+        </div>
+        <div className={cn('p-2.5 rounded-lg', bg)}>
+          <Icon className={cn('h-5 w-5', color)} />
+        </div>
+      </div>
+    </CardContent>
+  );
+  if (href) {
+    return (
+      <Link to={href}>
+        <Card className="hover:shadow-md hover:border-primary/40 transition-all cursor-pointer">{inner}</Card>
+      </Link>
+    );
+  }
+  return <Card>{inner}</Card>;
+}
+
+type Task = { id: string; title: string; status: string; priority: string; dueDate?: string; blockerType?: string; kra?: { name: string }; assignee?: { id: string; name: string } };
+
+function TaskList({ tasks, isOverdue, isDueToday, showAssignee }: {
+  tasks: Task[];
+  isOverdue: (t: Task) => boolean;
+  isDueToday: (t: Task) => boolean;
+  showAssignee: boolean;
+}) {
+  const sorted = [...tasks]
+    .sort((a, b) => {
+      const aRank = isOverdue(a) ? 0 : isDueToday(a) ? 1 : a.dueDate ? 2 : 3;
+      const bRank = isOverdue(b) ? 0 : isDueToday(b) ? 1 : b.dueDate ? 2 : 3;
+      if (aRank !== bRank) return aRank - bRank;
+      if (a.dueDate && b.dueDate) return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+      return 0;
+    })
+    .slice(0, 8);
+
   return (
-    <Card>
-      <CardContent className="p-5">
-        <div className="flex items-start justify-between">
-          <div>
-            <p className="text-sm text-muted-foreground">{title}</p>
-            <p className="text-3xl font-bold mt-1">{value}</p>
-            {subtitle && <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>}
+    <div className="space-y-2">
+      {sorted.map((task) => (
+        <div key={task.id} className="flex items-center gap-3 p-3 rounded-lg border hover:bg-muted/50 transition-colors">
+          <div className={cn('h-2 w-2 rounded-full shrink-0', {
+            'bg-red-500': task.status === 'BLOCKED',
+            'bg-blue-500': task.status === 'IN_PROGRESS',
+            'bg-gray-300': task.status === 'TODO',
+          })} />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium truncate">{task.title}</p>
+            {showAssignee && task.assignee && (
+              <p className="text-xs text-muted-foreground truncate">{task.assignee.name}</p>
+            )}
+            {task.kra && !showAssignee && (
+              <p className="text-xs text-muted-foreground truncate">KRA: {task.kra.name}</p>
+            )}
           </div>
-          <div className={cn('p-2.5 rounded-lg', bg)}>
-            <Icon className={cn('h-5 w-5', color)} />
+          {isOverdue(task) && (
+            <span className="shrink-0 text-xs font-semibold px-1.5 py-0.5 rounded bg-red-100 text-red-600 border border-red-200">Overdue</span>
+          )}
+          {isDueToday(task) && !isOverdue(task) && (
+            <span className="shrink-0 text-xs font-semibold px-1.5 py-0.5 rounded bg-orange-100 text-orange-600 border border-orange-200">Today</span>
+          )}
+          {!isOverdue(task) && !isDueToday(task) && task.dueDate && (
+            <span className="shrink-0 text-xs text-muted-foreground">{formatDate(task.dueDate)}</span>
+          )}
+          <Badge className={cn('shrink-0 text-xs border hidden sm:flex', {
+            'bg-red-50 text-red-700 border-red-200': task.priority === 'CRITICAL',
+            'bg-orange-50 text-orange-700 border-orange-200': task.priority === 'HIGH',
+            'bg-yellow-50 text-yellow-700 border-yellow-200': task.priority === 'MEDIUM',
+            'bg-gray-50 text-gray-600 border-gray-200': task.priority === 'LOW',
+          })}>{task.priority}</Badge>
+        </div>
+      ))}
+      {tasks.length > 8 && (
+        <Link to="/tasks" className="block text-center text-xs text-primary hover:underline pt-1">
+          View all {tasks.length} tasks →
+        </Link>
+      )}
+    </div>
+  );
+}
+
+// ── Setup Guide ──────────────────────────────────────────────────────────────
+
+type SetupStep = {
+  num: number;
+  title: string;
+  desc: string;
+  href: string;
+  doneKey: string;
+};
+
+const CEO_STEPS: SetupStep[] = [
+  { num: 1, title: 'Create your first Department', desc: 'Departments organise your company into functional teams (e.g. Engineering, Sales).', href: '/departments', doneKey: 'hasDepts' },
+  { num: 2, title: 'Invite Team Members', desc: 'Add people to your org and assign them to departments.', href: '/team', doneKey: 'hasMembers' },
+  { num: 3, title: 'Create a Company Goal', desc: 'Set the high-level outcomes your company is working toward this period.', href: '/goals?create=goal', doneKey: 'hasGoals' },
+  { num: 4, title: 'Add KRAs to your Goals', desc: 'KRAs break goals into measurable result areas owned by each department.', href: '/goals?create=kra', doneKey: 'hasKras' },
+  { num: 5, title: 'Assign the first Task', desc: 'Tasks linked to KRAs roll execution up to your company goals automatically.', href: '/tasks', doneKey: 'hasTasks' },
+];
+
+const DEPT_HEAD_STEPS: SetupStep[] = [
+  { num: 1, title: 'Create a Department Goal', desc: 'Define what your department is working toward this quarter.', href: '/goals?create=goal', doneKey: 'hasGoals' },
+  { num: 2, title: 'Add KRAs for your Department', desc: 'KRAs make your goal measurable. Each KRA needs a target and owner.', href: '/goals?create=kra', doneKey: 'hasKras' },
+  { num: 3, title: 'Assign Tasks to your Team', desc: 'Break KRAs into actionable tasks and assign them to team members.', href: '/tasks', doneKey: 'hasTasks' },
+  { num: 4, title: 'Run a Daily Standup', desc: '15-minute daily ritual to keep your team aligned and unblocked.', href: '/standup', doneKey: 'hasStandup' },
+];
+
+const MANAGER_STEPS: SetupStep[] = [
+  { num: 1, title: 'Assign Tasks to your Team', desc: 'Create tasks for your direct reports and link them to KRAs.', href: '/tasks', doneKey: 'hasTasks' },
+  { num: 2, title: 'Run a Daily Standup', desc: 'Schedule a 15-minute standup to track progress across your team.', href: '/standup', doneKey: 'hasStandup' },
+];
+
+type Checks = Record<string, boolean>;
+
+const STEP_ICONS: Record<string, React.ElementType> = {
+  hasDepts: Building2,
+  hasMembers: Users,
+  hasGoals: Target,
+  hasKras: TrendingUp,
+  hasTasks: CheckSquare,
+  hasStandup: Zap,
+};
+
+function SetupGuide({ role, checks }: { role: string; checks: Checks }) {
+  const [dismissed, setDismissed] = useState(
+    () => localStorage.getItem(`gr_setup_${role}`) === '1'
+  );
+
+  const steps =
+    ['OWNER', 'COMPANY_ADMIN'].includes(role) ? CEO_STEPS
+    : role === 'DEPARTMENT_HEAD' ? DEPT_HEAD_STEPS
+    : role === 'MANAGER' ? MANAGER_STEPS
+    : null;
+
+  if (!steps || dismissed) return null;
+
+  const doneCount = steps.filter((s) => checks[s.doneKey]).length;
+  const allDone = doneCount === steps.length;
+  const pct = Math.round((doneCount / steps.length) * 100);
+
+  return (
+    <Card className={cn(
+      'overflow-hidden border',
+      allDone ? 'border-green-200 bg-gradient-to-br from-green-50/60 to-emerald-50/40' : 'border-blue-200 bg-gradient-to-br from-blue-50/60 to-indigo-50/40'
+    )}>
+      <CardContent className="p-5">
+        {/* Header */}
+        <div className="flex items-start justify-between mb-5">
+          <div>
+            <p className="font-semibold text-sm flex items-center gap-2">
+              {allDone
+                ? <CheckCircle2 className="h-4 w-4 text-green-500" />
+                : <Zap className="h-4 w-4 text-blue-500" />
+              }
+              {allDone ? 'Setup Complete!' : 'Getting Started'}
+              <span className="text-xs font-normal text-muted-foreground">{doneCount} of {steps.length} done</span>
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {allDone
+                ? 'Your workspace is fully set up. Dismiss this when ready.'
+                : 'Follow these steps in order — each one unlocks the next.'
+              }
+            </p>
+          </div>
+          <button
+            onClick={() => { localStorage.setItem(`gr_setup_${role}`, '1'); setDismissed(true); }}
+            className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded"
+            title="Dismiss"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Flow nodes */}
+        <div className="flex flex-col sm:flex-row sm:items-stretch gap-0">
+          {steps.map((step, idx) => {
+            const done = checks[step.doneKey];
+            const prevDone = steps.slice(0, idx).every((s) => checks[s.doneKey]);
+            const isNext = !done && prevDone;
+            const isLast = idx === steps.length - 1;
+            const Icon = STEP_ICONS[step.doneKey] || Target;
+
+            return (
+              <div key={step.num} className="flex flex-col sm:flex-row sm:items-stretch flex-1 min-w-0">
+                {/* Node card */}
+                <div className={cn(
+                  'flex-1 flex flex-col items-center text-center p-3 sm:p-4 rounded-xl border transition-all',
+                  done
+                    ? 'bg-green-50 border-green-200'
+                    : isNext
+                    ? 'bg-white border-blue-300 shadow-md ring-1 ring-blue-100'
+                    : 'bg-white/50 border-dashed border-border'
+                )}>
+                  {/* Icon circle */}
+                  <div className={cn(
+                    'relative flex h-11 w-11 items-center justify-center rounded-full mb-2 shrink-0',
+                    done ? 'bg-green-500' : isNext ? 'bg-blue-500' : 'bg-muted'
+                  )}>
+                    {done ? (
+                      <CheckCircle2 className="h-5 w-5 text-white" />
+                    ) : (
+                      <>
+                        <Icon className={cn('h-5 w-5', isNext ? 'text-white' : 'text-muted-foreground/60')} />
+                        {!isNext && (
+                          <Lock className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 text-muted-foreground bg-white rounded-full border border-border p-0.5" />
+                        )}
+                      </>
+                    )}
+                    {isNext && (
+                      <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
+                        <span className="relative inline-flex h-3 w-3 rounded-full bg-blue-500" />
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Step label */}
+                  <span className={cn(
+                    'text-[10px] font-bold uppercase tracking-widest mb-0.5',
+                    done ? 'text-green-600' : isNext ? 'text-blue-500' : 'text-muted-foreground/50'
+                  )}>
+                    Step {step.num}
+                  </span>
+
+                  {/* Title */}
+                  <p className={cn(
+                    'text-xs font-semibold leading-snug mb-1',
+                    done ? 'line-through text-muted-foreground' : isNext ? 'text-foreground' : 'text-muted-foreground'
+                  )}>
+                    {step.title}
+                  </p>
+
+                  {/* Description — visible on desktop */}
+                  <p className="hidden sm:block text-[10px] text-muted-foreground leading-relaxed flex-1 mb-2">
+                    {step.desc}
+                  </p>
+
+                  {/* CTA */}
+                  {done ? (
+                    <span className="text-[10px] font-medium text-green-600 flex items-center gap-0.5 mt-auto">
+                      <CheckCircle2 className="h-3 w-3" /> Done
+                    </span>
+                  ) : (
+                    <Link
+                      to={isNext ? step.href : '#'}
+                      className={cn(
+                        'mt-auto text-[10px] px-2.5 py-1 rounded-md font-medium transition-colors',
+                        isNext
+                          ? 'bg-blue-500 text-white hover:bg-blue-600'
+                          : 'bg-muted text-muted-foreground pointer-events-none opacity-40'
+                      )}
+                    >
+                      {isNext ? '→ Start' : 'Locked'}
+                    </Link>
+                  )}
+                </div>
+
+                {/* Connector */}
+                {!isLast && (
+                  <>
+                    {/* Desktop: right chevron */}
+                    <div className="hidden sm:flex items-center justify-center w-7 shrink-0 self-center">
+                      <ChevronRight className={cn(
+                        'h-4 w-4',
+                        done ? 'text-green-400' : 'text-border'
+                      )} />
+                    </div>
+                    {/* Mobile: down arrow */}
+                    <div className="flex sm:hidden items-center justify-center h-5 self-center">
+                      <ArrowDown className={cn(
+                        'h-3.5 w-3.5',
+                        done ? 'text-green-400' : 'text-border'
+                      )} />
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Progress bar */}
+        <div className="mt-4 space-y-1">
+          <div className="flex justify-between text-xs text-muted-foreground">
+            <span>Setup progress</span>
+            <span>{pct}%</span>
+          </div>
+          <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+            <div
+              className="h-full bg-blue-500 rounded-full transition-all duration-700"
+              style={{ width: `${pct}%` }}
+            />
           </div>
         </div>
       </CardContent>
@@ -76,12 +362,29 @@ function DepartmentDashboard({ slug }: { slug: string }) {
       {/* Widget row 1: task counts */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 gap-4">
         <StatCard title="Overdue Tasks" value={dash.overdueCount} icon={Clock} color="text-red-500" bg="bg-red-50"
-          subtitle="Past due date" />
+          subtitle="Past due date" href="/tasks?status=overdue" />
         <StatCard title="Blocked Today" value={dash.blockedCount} icon={AlertTriangle} color="text-orange-500" bg="bg-orange-50"
-          subtitle="Need resolution" />
+          subtitle="Need resolution" href="/tasks?status=BLOCKED" />
         <StatCard title="Due Today" value={dash.dueTodayCount} icon={Calendar} color="text-blue-500" bg="bg-blue-50"
-          subtitle="Pending tasks" />
+          subtitle="Pending tasks" href="/tasks?status=due_today" />
       </div>
+
+      {/* Overdue alert banner */}
+      {dash.overdueCount > 0 && (
+        <div className="rounded-xl border border-red-200 bg-red-50">
+          <div className="flex items-center justify-between px-4 py-3">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-red-600 shrink-0" />
+              <span className="font-semibold text-sm text-red-800">
+                {dash.overdueCount} overdue task{dash.overdueCount > 1 ? 's' : ''} in this department need attention
+              </span>
+            </div>
+            <Link to="/tasks?status=overdue" className="text-xs font-medium text-red-600 hover:text-red-800 hover:underline shrink-0">
+              View tasks →
+            </Link>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Widget 4: KRA Progress */}
@@ -100,7 +403,7 @@ function DepartmentDashboard({ slug }: { slug: string }) {
                 {dash.kras.map((kra) => {
                   const pct = kra.target > 0 ? Math.round((kra.current / kra.target) * 100) : 0;
                   return (
-                    <div key={kra.id} className="space-y-1.5">
+                    <Link key={kra.id} to="/goals" className="block space-y-1.5 p-2 -mx-2 rounded-lg hover:bg-muted/50 transition-colors">
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-medium truncate flex-1 mr-4">{kra.name}</span>
                         <div className="flex items-center gap-2 shrink-0">
@@ -109,7 +412,7 @@ function DepartmentDashboard({ slug }: { slug: string }) {
                         </div>
                       </div>
                       <Progress value={pct} className="h-2" />
-                    </div>
+                    </Link>
                   );
                 })}
               </div>
@@ -126,13 +429,13 @@ function DepartmentDashboard({ slug }: { slug: string }) {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
+            <div className="space-y-1">
               {(dept?.users || []).slice(0, 8).map((member) => (
-                <div key={member.id} className="flex items-center gap-2">
+                <Link key={member.id} to="/team" className="flex items-center gap-2 p-1.5 -mx-1.5 rounded-lg hover:bg-muted/50 transition-colors">
                   <div className={cn('h-2 w-2 rounded-full shrink-0', member.status === 'ACTIVE' ? 'bg-green-500' : 'bg-gray-300')} />
                   <span className="text-sm flex-1 truncate">{member.name}</span>
                   <span className="text-xs text-muted-foreground capitalize shrink-0">{member.role.toLowerCase().replace(/_/g, ' ')}</span>
-                </div>
+                </Link>
               ))}
             </div>
           </CardContent>
@@ -248,15 +551,15 @@ function DepartmentDashboard({ slug }: { slug: string }) {
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
             {[
-              { label: 'Total Tasks', value: dept?._count.tasks || 0, color: 'text-foreground' },
-              { label: 'Overdue', value: dash.overdueCount, color: 'text-red-600' },
-              { label: 'Blocked', value: dash.blockedCount, color: 'text-orange-600' },
-              { label: 'Due Today', value: dash.dueTodayCount, color: 'text-blue-600' },
-            ].map(({ label, value, color }) => (
-              <div key={label} className="p-4 rounded-lg bg-muted/40">
+              { label: 'Total Tasks', value: dept?._count.tasks || 0, color: 'text-foreground', href: '/tasks' },
+              { label: 'Overdue', value: dash.overdueCount, color: 'text-red-600', href: '/tasks?status=overdue' },
+              { label: 'Blocked', value: dash.blockedCount, color: 'text-orange-600', href: '/tasks?status=BLOCKED' },
+              { label: 'Due Today', value: dash.dueTodayCount, color: 'text-blue-600', href: '/tasks?status=due_today' },
+            ].map(({ label, value, color, href }) => (
+              <Link key={label} to={href} className="block p-4 rounded-lg bg-muted/40 hover:bg-muted/70 hover:shadow-sm transition-all">
                 <p className={cn('text-2xl font-bold', color)}>{value}</p>
                 <p className="text-xs text-muted-foreground mt-1">{label}</p>
-              </div>
+              </Link>
             ))}
           </div>
         </CardContent>
@@ -271,29 +574,80 @@ export default function Dashboard() {
   const { slug } = useParams<{ slug?: string }>();
   const { user } = useAuthStore();
 
-  const { data: cockpit } = useQuery({
+  const isCeo = ['OWNER', 'COMPANY_ADMIN'].includes(user?.role || '');
+
+  const { data: cockpit, isLoading: cockpitLoading } = useQuery({
     queryKey: ['cockpit'],
     queryFn: () => api.get('/owner/cockpit').then((r) => r.data),
-    enabled: !slug && ['OWNER', 'COMPANY_ADMIN'].includes(user?.role || ''),
+    enabled: !slug && isCeo,
   });
 
-  const { data: tasks } = useQuery({
+  const { data: tasks, isLoading: tasksLoading } = useQuery({
     queryKey: ['tasks', 'mine'],
     queryFn: () => api.get('/tasks').then((r) => r.data),
+    enabled: !slug,
+  });
+
+  const { data: setupGoals = [], isLoading: goalsLoading } = useQuery<{ id: string }[]>({
+    queryKey: ['goals'],
+    queryFn: () => api.get('/goals').then((r) => r.data),
+    enabled: !slug,
+  });
+
+  const { data: setupKras = [], isLoading: krasLoading } = useQuery<{ id: string }[]>({
+    queryKey: ['kras'],
+    queryFn: () => api.get('/kras').then((r) => r.data),
     enabled: !slug,
   });
 
   // If a department slug is in the URL, show department dashboard
   if (slug) return <DepartmentDashboard slug={slug} />;
 
-  const myTasks = tasks || [];
-  const dueTodayTasks = myTasks.filter((t: { dueDate?: string; status: string }) => {
+  const allTasks: Task[] = tasks || [];
+
+  // Don't render the guide until all relevant queries have settled — prevents the
+  // "show for 200ms then vanish" flash caused by checks starting as all-false.
+  const checksReady =
+    !goalsLoading && !krasLoading && !tasksLoading && (!isCeo || !cockpitLoading);
+
+  const setupChecks: Checks = {
+    hasDepts:   (cockpit?.departments?.length  ?? 0) > 0,
+    hasMembers: (cockpit?.totalUsers           ?? 0) > 1,
+    hasGoals:   setupGoals.length > 0,
+    hasKras:    setupKras.length  > 0,
+    hasTasks:   (cockpit?.tasks?.total ?? allTasks.length) > 0,
+    hasStandup: false,
+  };
+
+  const todayDate = new Date(); todayDate.setHours(0, 0, 0, 0);
+
+  const isOverdue = (t: Task) => {
     if (!t.dueDate || t.status === 'DONE') return false;
-    const d = new Date(t.dueDate);
-    const today = new Date();
-    return d.toDateString() === today.toDateString();
-  });
-  const blockedTasks = myTasks.filter((t: { status: string }) => t.status === 'BLOCKED');
+    const d = new Date(t.dueDate); d.setHours(0,0,0,0);
+    return d < todayDate;
+  };
+  const isDueToday = (t: Task) => {
+    if (!t.dueDate || t.status === 'DONE') return false;
+    const d = new Date(t.dueDate); d.setHours(0,0,0,0);
+    return d.getTime() === todayDate.getTime();
+  };
+
+  const isManagerOrHead = ['DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
+
+  // All tasks the API returns are already scoped by role:
+  //   TEAM_MEMBER   → own tasks only
+  //   MANAGER       → own + direct-reports tasks
+  //   DEPARTMENT_HEAD → all dept tasks
+  const openTasks     = allTasks.filter((t) => t.status !== 'DONE' && t.status !== 'CANCELLED');
+  const dueTodayTasks = allTasks.filter(isDueToday);
+  const overdueTasks  = allTasks.filter(isOverdue);
+  const blockedTasks  = allTasks.filter((t) => t.status === 'BLOCKED');
+  const doneTasks     = allTasks.filter((t) => t.status === 'DONE');
+
+  // Personal tasks (assigned directly to this user)
+  const myOpenTasks = openTasks.filter((t) => t.assignee?.id === user?.id);
+  // Team tasks = open tasks NOT assigned to me (only meaningful for manager/head)
+  const teamOpenTasks = openTasks.filter((t) => t.assignee?.id !== user?.id);
 
   return (
     <div className="p-4 sm:p-8 space-y-6 sm:space-y-8">
@@ -307,92 +661,191 @@ export default function Dashboard() {
         </p>
       </div>
 
-      {/* Owner stats */}
+      {/* Setup guide — only rendered after queries settle so it never flashes */}
+      {user?.role && checksReady && <SetupGuide role={user.role} checks={setupChecks} />}
+
+      {/* Overdue alert — visible to CEO / dept head / manager when team tasks are overdue */}
+      {(isCeo || isManagerOrHead) && overdueTasks.length > 0 && (
+        <div className="rounded-xl border border-red-200 bg-red-50">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-red-200">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-red-600 shrink-0" />
+              <span className="font-semibold text-sm text-red-800">
+                {overdueTasks.length} Overdue Task{overdueTasks.length > 1 ? 's' : ''} — Action Required
+              </span>
+            </div>
+            <Link to="/tasks?status=overdue" className="text-xs font-medium text-red-600 hover:text-red-800 hover:underline shrink-0">
+              View all →
+            </Link>
+          </div>
+          <div className="divide-y divide-red-100">
+            {overdueTasks.slice(0, 5).map((task) => {
+              const d = new Date(task.dueDate!); d.setHours(0, 0, 0, 0);
+              const daysOverdue = Math.round((todayDate.getTime() - d.getTime()) / 86400000);
+              return (
+                <div key={task.id} className="flex items-center gap-3 px-4 py-2.5">
+                  <div className="h-2 w-2 rounded-full bg-red-500 shrink-0" />
+                  <p className="text-sm font-medium text-red-900 flex-1 truncate">{task.title}</p>
+                  {task.assignee && (
+                    <span className="text-xs text-red-500 shrink-0 font-medium">{task.assignee.name}</span>
+                  )}
+                  <span className="text-xs bg-red-100 text-red-700 border border-red-200 px-1.5 py-0.5 rounded font-semibold shrink-0">
+                    {daysOverdue === 1 ? '1 day' : `${daysOverdue} days`} overdue
+                  </span>
+                </div>
+              );
+            })}
+            {overdueTasks.length > 5 && (
+              <div className="px-4 py-2 text-center">
+                <Link to="/tasks?status=overdue" className="text-xs text-red-600 hover:underline">
+                  +{overdueTasks.length - 5} more overdue tasks
+                </Link>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* CEO stat cards */}
       {cockpit && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard title="Active Users" value={cockpit.activeUsers} icon={Users} color="text-white" bg="bg-blue-500"
-            subtitle={`of ${cockpit.totalUsers} total`} />
+            subtitle={`of ${cockpit.totalUsers} total`} href="/team" />
           <StatCard title="Tasks Done" value={cockpit.tasks?.done || 0} icon={CheckSquare} color="text-white" bg="bg-green-500"
-            subtitle={`of ${cockpit.tasks?.total || 0} total`} />
-          <StatCard title="Overdue Tasks" value={cockpit.tasks?.overdue || 0} icon={Clock} color="text-white" bg="bg-orange-500" />
-          <StatCard title="Blocked" value={cockpit.tasks?.blocked || 0} icon={AlertTriangle} color="text-white" bg="bg-red-500" />
+            subtitle={`of ${cockpit.tasks?.total || 0} total`} href="/tasks?status=DONE" />
+          <StatCard title="Overdue Tasks" value={cockpit.tasks?.overdue || 0} icon={Clock} color="text-white" bg="bg-orange-500"
+            href="/tasks?status=overdue" />
+          <StatCard title="Blocked" value={cockpit.tasks?.blocked || 0} icon={AlertTriangle} color="text-white" bg="bg-red-500"
+            href="/tasks?status=BLOCKED" />
+        </div>
+      )}
+
+      {/* Task stats for all non-CEO roles */}
+      {!isCeo && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <StatCard title="Open Tasks" value={openTasks.length} icon={CheckSquare} color="text-blue-600" bg="bg-blue-50"
+            subtitle={`${doneTasks.length} done`} href="/tasks" />
+          <StatCard title="Due Today" value={dueTodayTasks.length} icon={Calendar} color="text-orange-600" bg="bg-orange-50"
+            href="/tasks?status=due_today" />
+          <StatCard title="Overdue" value={overdueTasks.length} icon={Clock} color="text-red-600" bg="bg-red-50"
+            href="/tasks?status=overdue" />
+          <StatCard title="Blocked" value={blockedTasks.length} icon={AlertTriangle} color="text-red-600" bg="bg-red-50"
+            href="/tasks?status=BLOCKED" />
         </div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* My tasks today */}
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <CheckSquare className="h-4 w-4 text-blue-500" />
-              My Tasks Today
-              <Badge variant="secondary" className="ml-auto">{dueTodayTasks.length}</Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {dueTodayTasks.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <CheckSquare className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                <p className="text-sm">No tasks due today</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {dueTodayTasks.slice(0, 8).map((task: { id: string; title: string; status: string; priority: string; kra?: { name: string } }) => (
-                  <div key={task.id} className="flex items-start gap-3 p-3 rounded-lg border hover:bg-muted/50 transition-colors">
-                    <div className={cn('mt-0.5 h-2 w-2 rounded-full shrink-0', {
-                      'bg-red-500': task.status === 'BLOCKED',
-                      'bg-blue-500': task.status === 'IN_PROGRESS',
-                      'bg-gray-300': task.status === 'TODO',
-                    })} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{task.title}</p>
-                      {task.kra && <p className="text-xs text-muted-foreground">KRA: {task.kra.name}</p>}
-                    </div>
-                    <Badge className={cn('shrink-0 text-xs border', {
-                      'bg-red-50 text-red-700 border-red-200': task.priority === 'CRITICAL',
-                      'bg-orange-50 text-orange-700 border-orange-200': task.priority === 'HIGH',
-                      'bg-yellow-50 text-yellow-700 border-yellow-200': task.priority === 'MEDIUM',
-                      'bg-gray-50 text-gray-700': task.priority === 'LOW',
-                    })}>
-                      {task.priority}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        {/* Tasks panel — My Tasks always shown; team tasks below for manager/head */}
+        <div className="lg:col-span-2 space-y-4">
+          {/* My Tasks — always personal */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <CheckSquare className="h-4 w-4 text-blue-500" />
+                My Tasks
+                <Badge variant="secondary" className="ml-auto">{myOpenTasks.length} open</Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {myOpenTasks.length === 0 ? (
+                <div className="text-center py-6 text-muted-foreground">
+                  <CheckSquare className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">No tasks assigned to you</p>
+                  <Link to="/tasks" className="text-xs text-primary hover:underline mt-1 inline-block">Go to Tasks →</Link>
+                </div>
+              ) : (
+                <TaskList tasks={myOpenTasks} isOverdue={isOverdue} isDueToday={isDueToday} showAssignee={false} />
+              )}
+            </CardContent>
+          </Card>
 
-        {/* Blockers */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-orange-500" />
-              Blockers
-              <Badge variant={blockedTasks.length > 0 ? 'destructive' : 'secondary'} className="ml-auto">
-                {blockedTasks.length}
-              </Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {blockedTasks.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <p className="text-sm">No blockers — great!</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {blockedTasks.slice(0, 5).map((task: { id: string; title: string; blockerType?: string }) => (
-                  <div key={task.id} className="p-2.5 rounded-md bg-red-50 border border-red-100">
-                    <p className="text-sm font-medium text-red-900 truncate">{task.title}</p>
-                    {task.blockerType && (
-                      <p className="text-xs text-red-500 mt-0.5 capitalize">{task.blockerType.toLowerCase().replace(/_/g, ' ')}</p>
-                    )}
-                  </div>
+          {/* Team Tasks — only for manager / dept head */}
+          {isManagerOrHead && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Users className="h-4 w-4 text-indigo-500" />
+                  {user?.role === 'DEPARTMENT_HEAD' ? 'Department Tasks' : 'Team Tasks'}
+                  <Badge variant="secondary" className="ml-auto">{teamOpenTasks.length} open</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {teamOpenTasks.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">No open tasks for your team</p>
+                ) : (
+                  <TaskList tasks={teamOpenTasks} isOverdue={isOverdue} isDueToday={isDueToday} showAssignee={true} />
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </div>
+
+        {/* Right panel: Blockers for team member / Team summary + blockers for manager/head */}
+        <div className="space-y-4">
+          {/* Team summary — only for manager / dept head */}
+          {isManagerOrHead && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Users className="h-4 w-4 text-blue-500" />
+                  Team Overview
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="grid grid-cols-2 gap-3">
+                {[
+                  { label: 'Open', value: openTasks.length, color: 'text-blue-600', href: '/tasks' },
+                  { label: 'Done', value: doneTasks.length, color: 'text-green-600', href: '/tasks?status=DONE' },
+                  { label: 'Overdue', value: overdueTasks.length, color: 'text-red-600', href: '/tasks?status=overdue' },
+                  { label: 'Blocked', value: blockedTasks.length, color: 'text-orange-600', href: '/tasks?status=BLOCKED' },
+                ].map(({ label, value, color, href }) => (
+                  <Link key={label} to={href} className="block rounded-lg bg-muted/40 p-3 text-center hover:bg-muted/70 hover:shadow-sm transition-all">
+                    <p className={cn('text-xl font-bold', color)}>{value}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
+                  </Link>
                 ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Blockers */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-orange-500" />
+                {isManagerOrHead ? 'Team Blockers' : 'Blockers'}
+                <Badge variant={blockedTasks.length > 0 ? 'destructive' : 'secondary'} className="ml-auto">
+                  {blockedTasks.length}
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {blockedTasks.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">No blockers — great!</p>
+              ) : (
+                <div className="space-y-2">
+                  {blockedTasks.slice(0, 5).map((task) => (
+                    <div key={task.id} className="p-2.5 rounded-md bg-red-50 border border-red-100">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-sm font-medium text-red-900 truncate flex-1">{task.title}</p>
+                        {isManagerOrHead && task.assignee && (
+                          <span className="text-xs text-red-400 shrink-0">{task.assignee.name.split(' ')[0]}</span>
+                        )}
+                      </div>
+                      {task.blockerType && (
+                        <p className="text-xs text-red-500 mt-0.5 capitalize">{task.blockerType.toLowerCase().replace(/_/g, ' ')}</p>
+                      )}
+                    </div>
+                  ))}
+                  {blockedTasks.length > 5 && (
+                    <Link to="/tasks" className="block text-center text-xs text-primary hover:underline pt-1">
+                      View all {blockedTasks.length} →
+                    </Link>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       {/* KRA Health (owners/admins) */}
@@ -409,7 +862,7 @@ export default function Dashboard() {
               {cockpit.kras.map((kra: { id: string; name: string; status: string; current: number; target: number; department?: { name: string } }) => {
                 const pct = kra.target > 0 ? Math.round((kra.current / kra.target) * 100) : 0;
                 return (
-                  <div key={kra.id} className="space-y-1.5">
+                  <Link key={kra.id} to="/goals" className="block space-y-1.5 p-2 -mx-2 rounded-lg hover:bg-muted/50 transition-colors">
                     <div className="flex items-center justify-between">
                       <div className="flex-1 min-w-0 mr-3">
                         <p className="text-sm font-medium truncate">{kra.name}</p>
@@ -421,7 +874,7 @@ export default function Dashboard() {
                       </div>
                     </div>
                     <Progress value={pct} className="h-1.5" />
-                  </div>
+                  </Link>
                 );
               })}
             </div>

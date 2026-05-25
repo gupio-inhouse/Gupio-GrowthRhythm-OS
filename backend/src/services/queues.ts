@@ -59,4 +59,10 @@ export async function scheduleRecurringJobs() {
     repeat: { pattern: '30 2 * * *' },
     jobId: 'daily-task-reminder',
   });
+
+  // Same-day due alert — every day 9 AM IST (03:30 UTC)
+  await taskReminderQueue.add('check-due-today', {}, {
+    repeat: { pattern: '30 3 * * *' },
+    jobId: 'daily-task-due-today',
+  });
 }

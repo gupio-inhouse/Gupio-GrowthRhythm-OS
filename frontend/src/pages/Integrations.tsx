@@ -46,6 +46,7 @@ function OAuthIntegrationCard({
   status,
   disconnectEndpoint,
   invalidateKey,
+  authPath,
 }: {
   title: string;
   description: string;
@@ -53,6 +54,7 @@ function OAuthIntegrationCard({
   status: IntegrationStatus | null;
   disconnectEndpoint: string;
   invalidateKey: string;
+  authPath: string;
 }) {
   const qc = useQueryClient();
   const disconnectMutation = useMutation({
@@ -88,10 +90,14 @@ function OAuthIntegrationCard({
               {disconnectMutation.isPending ? 'Disconnecting…' : 'Disconnect'}
             </Button>
           ) : status?.authUrl ? (
-            <Button size="sm" asChild>
-              <a href={status.authUrl}>
-                <ExternalLink className="h-3 w-3 mr-1.5" />Connect
-              </a>
+            <Button
+              size="sm"
+              onClick={async () => {
+                const res = await api.get(authPath);
+                window.location.href = res.data.url;
+              }}
+            >
+              <ExternalLink className="h-3 w-3 mr-1.5" />Connect
             </Button>
           ) : null}
         </div>
@@ -157,11 +163,12 @@ export default function Integrations() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <OAuthIntegrationCard
             title="Google Calendar"
-            description="Sync standups and review meetings to Google Calendar"
+            description="Sync standups and review meetings to Google Calendar. Generates Google Meet links automatically."
             icon={INTEGRATION_ICONS['google']}
             status={calendarStatus ?? null}
             disconnectEndpoint="/integrations/calendar/disconnect"
             invalidateKey="integration-calendar"
+            authPath="/integrations/calendar/auth"
           />
           <OAuthIntegrationCard
             title="Microsoft Outlook"
@@ -170,6 +177,7 @@ export default function Integrations() {
             status={outlookStatus ?? null}
             disconnectEndpoint="/integrations/outlook/disconnect"
             invalidateKey="integration-outlook"
+            authPath="/integrations/outlook/auth"
           />
         </div>
       </section>

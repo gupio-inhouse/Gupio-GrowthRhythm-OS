@@ -255,6 +255,7 @@ model Department {
   parentDeptId     String? @map("parent_department_id")
   standupTime      String  @default("09:00") @map("standup_time")
   standupDuration  Int     @default(15) @map("standup_duration")
+  standupMeetUrl   String? @map("standup_meet_url")
   isActive         Boolean @default(true) @map("is_active")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")

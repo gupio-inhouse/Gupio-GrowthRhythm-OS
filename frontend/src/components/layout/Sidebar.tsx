@@ -10,7 +10,7 @@ import { getInitials } from '@/lib/utils';
 import FeedbackDialog from './FeedbackDialog';
 
 const navItems = [
-  { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['OWNER', 'COMPANY_ADMIN'] },
+  { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'] },
   { label: 'Owner Cockpit', href: '/cockpit', icon: BarChart3, roles: ['OWNER'] },
   { label: 'Tasks', href: '/tasks', icon: CheckSquare, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'] },
   { label: 'Goals & KRAs', href: '/goals', icon: Target, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'] },

@@ -133,4 +133,85 @@ router.post(
   }
 );
 
+router.patch(
+  '/:id',
+  requireRole('OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'),
+  auditLog('team', 'UPDATE'),
+  async (req: AuthRequest, res: Response) => {
+    const { orgId, role, userId } = req.user!;
+
+    const team = await prisma.team.findFirst({
+      where: { id: req.params.id as string, orgId },
+      select: { id: true, departmentId: true },
+    });
+
+    if (!team) {
+      res.status(404).json({ error: 'Team not found' });
+      return;
+    }
+
+    if (role === 'DEPARTMENT_HEAD' || role === 'MANAGER') {
+      const me = await prisma.user.findUnique({ where: { id: userId }, select: { departmentId: true } });
+      if (!me?.departmentId || me.departmentId !== team.departmentId) {
+        res.status(403).json({ error: 'You can only update teams in your own department' });
+        return;
+      }
+    }
+
+    const nextDeptId = (req.body.departmentId as string | undefined) ?? team.departmentId;
+
+    if (req.body.managerUserId) {
+      const manager = await prisma.user.findFirst({
+        where: { id: req.body.managerUserId as string, orgId, departmentId: nextDeptId, status: 'ACTIVE' },
+        select: { id: true },
+      });
+      if (!manager) {
+        res.status(400).json({ error: 'Manager must be an active user in the selected department' });
+        return;
+      }
+    }
+
+    try {
+      const updated = await prisma.team.update({
+        where: { id: req.params.id as string },
+        data: {
+          ...(req.body.name && { name: req.body.name }),
+          ...(req.body.slug && { slug: req.body.slug }),
+          ...(req.body.description !== undefined && { description: req.body.description || null }),
+          ...(req.body.departmentId && { departmentId: req.body.departmentId }),
+          managerUserId: req.body.managerUserId || null,
+        },
+        include: {
+          department: { select: { id: true, name: true, slug: true } },
+          manager: { select: { id: true, name: true, email: true, avatarUrl: true, _count: { select: { directReports: true } } } },
+        },
+      });
+      res.json({ ...updated, memberCount: updated.manager?._count.directReports ?? 0 });
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === 'P2002') {
+        res.status(409).json({ error: 'Team slug already exists' });
+      } else {
+        res.status(500).json({ error: 'Failed to update team' });
+      }
+    }
+  }
+);
+
+router.delete(
+  '/:id',
+  requireRole('OWNER', 'COMPANY_ADMIN'),
+  async (req: AuthRequest, res: Response) => {
+    const team = await prisma.team.findFirst({
+      where: { id: req.params.id as string, orgId: req.user!.orgId },
+      select: { id: true },
+    });
+    if (!team) {
+      res.status(404).json({ error: 'Team not found' });
+      return;
+    }
+    await prisma.team.delete({ where: { id: req.params.id as string } });
+    res.json({ success: true });
+  }
+);
+
 export default router;

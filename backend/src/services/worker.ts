@@ -1,10 +1,10 @@
 import { Worker, Job } from 'bullmq';
 import redis from '../lib/redis';
 import prisma from '../lib/prisma';
-import { fanOutNotification } from './notification.service';
+import { fanOutNotification, createNotification } from './notification.service';
 import { generateWeeklyDigest } from './ai.service';
 import { generateMeetUrl } from './meet.service';
-import { sendTaskDueReminderEmail, sendTaskOverdueEmail, sendStandupReminderEmail, deliverEmail, setEmailQueue } from './email.service';
+import { sendTaskDueTodayEmail, sendTaskDueReminderEmail, sendTaskOverdueEmail, sendStandupReminderEmail, deliverEmail, setEmailQueue } from './email.service';
 import { emailQueue } from './queues';
 
 const APP_URL = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();
@@ -39,13 +39,9 @@ export const standupWorker = new Worker('standup', async (job: Job) => {
       where: { departmentId: dept.id, scheduledAt: tomorrow },
     });
     if (!standup) {
-      const meetUrl = await generateMeetUrl(
-        dept.orgId,
-        dept.slug,
-        dept.name,
-        tomorrow,
-        dept.standupDuration ?? 15
-      );
+      // Use department's saved link first; fall back to Google Calendar integration
+      const meetUrl = dept.standupMeetUrl
+        || await generateMeetUrl(dept.orgId, dept.slug, dept.name, tomorrow, dept.standupDuration ?? 15);
       standup = await prisma.standup.create({
         data: { orgId: dept.orgId, departmentId: dept.id, scheduledAt: tomorrow, timerMinutes: 15, meetUrl },
       });
@@ -122,12 +118,10 @@ export const escalationWorker = new Worker('escalation', async (job: Job) => {
     });
 
     for (const task of repeatedBlockers) {
-      const notifyIds = [task.assignee.id];
-      if (task.department?.headUserId) notifyIds.push(task.department.headUserId);
-
+      // In-app only — no escalation to dept head/manager/CEO
       await fanOutNotification(
         task.assignee.orgId,
-        [...new Set(notifyIds)],
+        [task.assignee.id],
         'BLOCKER_ESCALATED',
         { taskTitle: task.title, blockerCount: task.blockerCount }
       );
@@ -271,8 +265,48 @@ emailWorker.on('failed', (job, err) => {
   console.error(`[email-worker] Job ${job?.id} failed (attempt ${job?.attemptsMade}): ${err.message}`);
 });
 
-// ── Task reminder worker: due tomorrow + overdue ──────────────────────────────
+// ── Task reminder worker: due today + due tomorrow + overdue ──────────────────
 export const taskReminderWorker = new Worker('task-reminder', async (job: Job) => {
+  if (job.name === 'check-due-today') {
+    const now = new Date();
+    const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(now); todayEnd.setHours(23, 59, 59, 999);
+
+    const dueToday = await prisma.task.findMany({
+      where: {
+        status: { notIn: ['DONE', 'CANCELLED'] },
+        dueDate: { gte: todayStart, lte: todayEnd },
+      },
+      include: { assignee: { select: { id: true, name: true, email: true } } },
+      take: 500,
+    });
+
+    let count = 0;
+    for (const task of dueToday) {
+      if (!task.dueDate) continue;
+
+      // Email
+      sendTaskDueTodayEmail({
+        to: task.assignee.email,
+        assigneeName: task.assignee.name,
+        taskTitle: task.title,
+        priority: task.priority,
+        dueDate: task.dueDate,
+        appUrl: APP_URL,
+      }).catch(console.error);
+
+      // In-app notification
+      createNotification(task.assignee.id, 'TASK_DUE_TODAY', {
+        taskTitle: task.title,
+        taskId: task.id,
+      }).catch(console.error);
+
+      count++;
+    }
+    console.log(`[task-reminder-worker] ${count} due-today alerts sent`);
+    return;
+  }
+
   if (job.name !== 'check-due-and-overdue') return;
 
   const now = new Date();

@@ -247,6 +247,34 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
   res.json({ ...user, phone: decryptField(user.phone) });
 });
 
+// DELETE /users/:id — hard delete (OWNER/ADMIN only, cannot delete self or another OWNER)
+router.delete('/:id', requireRole('OWNER', 'COMPANY_ADMIN'), async (req: AuthRequest, res: Response) => {
+  const targetId = req.params.id as string;
+
+  if (targetId === req.user!.userId) {
+    res.status(400).json({ error: 'You cannot delete your own account' });
+    return;
+  }
+
+  const target = await prisma.user.findFirst({
+    where: { id: targetId, orgId: req.user!.orgId },
+    select: { id: true, role: true },
+  });
+
+  if (!target) {
+    res.status(404).json({ error: 'User not found' });
+    return;
+  }
+
+  if (target.role === 'OWNER') {
+    res.status(403).json({ error: 'Cannot delete an organization owner' });
+    return;
+  }
+
+  await prisma.user.delete({ where: { id: targetId } });
+  res.json({ success: true });
+});
+
 // POST /users/bulk-import — CSV bulk user import (OWNER/ADMIN only)
 router.post('/bulk-import', requireRole('OWNER', 'COMPANY_ADMIN'), async (req: AuthRequest, res: Response) => {
   const { rows } = req.body as { rows: Array<Record<string, string>> };

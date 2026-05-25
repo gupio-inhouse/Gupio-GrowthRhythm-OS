@@ -423,6 +423,50 @@ interface SendTaskReminderEmailParams {
   appUrl: string;
 }
 
+export async function sendTaskDueTodayEmail({
+  to, assigneeName, taskTitle, priority, dueDate, appUrl,
+}: SendTaskReminderEmailParams): Promise<boolean> {
+  const firstName = assigneeName.split(' ')[0];
+  const dueDateStr = new Date(dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  const subject = `Due today: "${taskTitle}"`;
+
+  const html = `
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><title>${subject}</title></head>
+<body style="margin:0;padding:0;background-color:#0f172a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#0f172a;padding:40px 16px;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;">
+        <tr><td align="center" style="padding-bottom:32px;">
+          <table cellpadding="0" cellspacing="0"><tr>
+            <td style="background-color:#2563eb;border-radius:12px;width:44px;height:44px;text-align:center;vertical-align:middle;"><span style="font-size:22px;line-height:44px;">&#9889;</span></td>
+            <td style="padding-left:12px;vertical-align:middle;"><p style="margin:0;font-size:18px;font-weight:700;color:#ffffff;">GrowthRhythm</p><p style="margin:0;font-size:11px;color:#93c5fd;">Business Operating System</p></td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="background-color:#1e293b;border-radius:16px;border:1px solid rgba(255,255,255,0.08);padding:40px 36px;">
+          <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#f97316;">&#128197; Task due today</h1>
+          <p style="margin:0 0 24px;font-size:14px;color:#94a3b8;">Hi ${firstName}, this task is due <strong style="color:#e2e8f0;">today (${dueDateStr})</strong>. Make sure it's done before EOD.</p>
+          <div style="background-color:#0f172a;border-radius:12px;border:1px solid rgba(249,115,22,0.3);padding:20px 24px;margin-bottom:28px;">
+            <p style="margin:0 0 8px;font-size:16px;font-weight:600;color:#f1f5f9;">${taskTitle}</p>
+            <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background-color:#f9731620;color:#f97316;border:1px solid #f9731640;">${priority.charAt(0) + priority.slice(1).toLowerCase()} priority &bull; Due today</span>
+          </div>
+          <table cellpadding="0" cellspacing="0" style="margin:0 0 28px;"><tr>
+            <td style="background-color:#f97316;border-radius:10px;">
+              <a href="${appUrl}/tasks" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:10px;">Mark as Done</a>
+            </td>
+          </tr></table>
+          <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:0 0 20px;"/>
+          <p style="margin:0;font-size:12px;color:#475569;">You received this because a task assigned to you is due today.</p>
+        </td></tr>
+        <tr><td align="center" style="padding-top:24px;"><p style="margin:0;font-size:12px;color:#334155;">&copy; 2026 GrowthRhythm OS by Gupio &bull; <a href="https://mygupio.com" style="color:#3b82f6;text-decoration:none;">mygupio.com</a></p></td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`.trim();
+
+  const text = `Hi ${firstName},\n\nYour task "${taskTitle}" (${priority.toLowerCase()} priority) is due TODAY — ${dueDateStr}. Please complete it before end of day.\n\nView it at: ${appUrl}/tasks`;
+  return sendEmail({ to, subject, html, text });
+}
+
 export async function sendTaskDueReminderEmail({
   to, assigneeName, taskTitle, priority, dueDate, appUrl,
 }: SendTaskReminderEmailParams): Promise<boolean> {

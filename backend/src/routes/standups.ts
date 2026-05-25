@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import prisma from '../lib/prisma';
-import { authenticate, AuthRequest } from '../middleware/auth';
+import { authenticate, AuthRequest, requireRole } from '../middleware/auth';
 import { generateStandupDigest } from '../services/ai.service';
 import { fanOutNotification } from '../services/notification.service';
 import { generateMeetUrl } from '../services/meet.service';
@@ -69,17 +69,20 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 
 // POST /standups — create / schedule
 router.post('/', async (req: AuthRequest, res: Response) => {
-  const { departmentId, scheduledAt } = req.body;
+  const { departmentId, scheduledAt, meetUrl: manualMeetUrl } = req.body;
   const date = new Date(scheduledAt);
 
-  const dept = await prisma.department.findUnique({
-    where: { id: departmentId as string },
-    select: { slug: true, name: true, standupDuration: true },
-  });
-
-  const meetUrl = dept
-    ? await generateMeetUrl(req.user!.orgId, dept.slug, dept.name, date, dept.standupDuration ?? 15)
-    : undefined;
+  // Use manually pasted link if provided; otherwise try Google Calendar integration
+  let meetUrl: string | null | undefined = manualMeetUrl?.trim() || null;
+  if (!meetUrl) {
+    const dept = await prisma.department.findUnique({
+      where: { id: departmentId as string },
+      select: { slug: true, name: true, standupDuration: true },
+    });
+    meetUrl = dept
+      ? await generateMeetUrl(req.user!.orgId, dept.slug, dept.name, date, dept.standupDuration ?? 15)
+      : null;
+  }
 
   const standup = await prisma.standup.create({
     data: {
@@ -90,6 +93,22 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     },
   });
   res.status(201).json(standup);
+});
+
+// DELETE /standups/:id
+router.delete('/:id', requireRole('OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'), async (req: AuthRequest, res: Response) => {
+  const standup = await prisma.standup.findUnique({
+    where: { id: req.params.id as string },
+    select: { id: true, orgId: true, status: true },
+  });
+  if (!standup || standup.orgId !== req.user!.orgId) {
+    res.status(404).json({ error: 'Standup not found' }); return;
+  }
+  if (standup.status === 'IN_PROGRESS') {
+    res.status(400).json({ error: 'Cannot delete a standup that is in progress' }); return;
+  }
+  await prisma.standup.delete({ where: { id: standup.id } });
+  res.json({ success: true });
 });
 
 // POST /standups/:id/start

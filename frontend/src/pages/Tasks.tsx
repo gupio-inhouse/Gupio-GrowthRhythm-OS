@@ -1,5 +1,6 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { Plus, CheckSquare, AlertTriangle, Clock, Search, LayoutGrid, List, Upload } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -38,12 +39,48 @@ const STATUS_COLORS: Record<string, string> = {
   CANCELLED: 'border-gray-100',
 };
 
+function DueBadge({ dueDate, status, className }: { dueDate: string; status: string; className?: string }) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const due = new Date(dueDate); due.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((due.getTime() - today.getTime()) / 86400000);
+  const done = status === 'DONE' || status === 'CANCELLED';
+
+  if (done) {
+    return <span className={cn('text-xs text-muted-foreground', className)}>{formatDate(dueDate)}</span>;
+  }
+  if (diffDays < 0) {
+    const days = Math.abs(diffDays);
+    return (
+      <span className={cn('text-xs font-semibold px-1.5 py-0.5 rounded bg-red-100 text-red-600 border border-red-200', className)}>
+        {days === 1 ? '1 day overdue' : `${days}d overdue`}
+      </span>
+    );
+  }
+  if (diffDays === 0) {
+    return <span className={cn('text-xs font-semibold px-1.5 py-0.5 rounded bg-orange-100 text-orange-600 border border-orange-200', className)}>Due today</span>;
+  }
+  if (diffDays === 1) {
+    return <span className={cn('text-xs font-semibold px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700 border border-yellow-200', className)}>Tomorrow</span>;
+  }
+  if (diffDays <= 3) {
+    return <span className={cn('text-xs font-semibold px-1.5 py-0.5 rounded bg-yellow-50 text-yellow-700 border border-yellow-200', className)}>In {diffDays}d</span>;
+  }
+  return <span className={cn('text-xs text-muted-foreground', className)}>{formatDate(dueDate)}</span>;
+}
+
 export default function Tasks() {
   const qc = useQueryClient();
   const { user } = useAuthStore();
+  const [searchParams] = useSearchParams();
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState(() => searchParams.get('status') ?? '');
   const [view, setView] = useState<'list' | 'kanban'>('list');
+
+  // Sync filter when URL param changes (e.g. navigating from dashboard)
+  useEffect(() => {
+    const s = searchParams.get('status') ?? '';
+    setStatusFilter(s);
+  }, [searchParams]);
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [csvImportOpen, setCsvImportOpen] = useState(false);
@@ -88,16 +125,49 @@ export default function Tasks() {
 
   const canSearchByUser = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
 
-  const filtered = tasks.filter((t) => {
-    if (search) {
-      const q = search.toLowerCase();
-      const matchesTitle = t.title.toLowerCase().includes(q);
-      const matchesAssignee = canSearchByUser && t.assignee?.name.toLowerCase().includes(q);
-      if (!matchesTitle && !matchesAssignee) return false;
-    }
-    if (statusFilter && t.status !== statusFilter) return false;
-    return true;
-  });
+  const todayMidnight = new Date(); todayMidnight.setHours(0, 0, 0, 0);
+  const isTaskOverdue = (t: Task) => {
+    if (!t.dueDate || t.status === 'DONE' || t.status === 'CANCELLED') return false;
+    const d = new Date(t.dueDate); d.setHours(0, 0, 0, 0);
+    return d < todayMidnight;
+  };
+  const isTaskDueToday = (t: Task) => {
+    if (!t.dueDate || t.status === 'DONE' || t.status === 'CANCELLED') return false;
+    const d = new Date(t.dueDate); d.setHours(0, 0, 0, 0);
+    return d.getTime() === todayMidnight.getTime();
+  };
+
+  const filtered = tasks
+    .filter((t) => {
+      if (search) {
+        const q = search.toLowerCase();
+        const matchesTitle = t.title.toLowerCase().includes(q);
+        const matchesAssignee = canSearchByUser && t.assignee?.name.toLowerCase().includes(q);
+        if (!matchesTitle && !matchesAssignee) return false;
+      }
+      if (statusFilter === 'overdue') return isTaskOverdue(t);
+      if (statusFilter === 'due_today') return isTaskDueToday(t);
+      if (statusFilter && t.status !== statusFilter) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      // Done/cancelled always last
+      const aInactive = a.status === 'DONE' || a.status === 'CANCELLED';
+      const bInactive = b.status === 'DONE' || b.status === 'CANCELLED';
+      if (aInactive !== bInactive) return aInactive ? 1 : -1;
+      // Among active: overdue first, then due today, then nearest future, then no date
+      const urgency = (t: Task) => {
+        if (isTaskOverdue(t)) return 0;
+        if (isTaskDueToday(t)) return 1;
+        if (t.dueDate) return 2;
+        return 3;
+      };
+      const uA = urgency(a), uB = urgency(b);
+      if (uA !== uB) return uA - uB;
+      // Same urgency bucket — sort by date ascending (nearest first)
+      if (a.dueDate && b.dueDate) return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+      return 0;
+    });
 
   const statusCounts = {
     TODO: tasks.filter((t) => t.status === 'TODO').length,
@@ -314,13 +384,8 @@ function TaskRow({ task, onStatusChange, onClick }: {
                   ⚠ {task.blockerType.toLowerCase().replace(/_/g, ' ')}
                 </span>
               )}
-              {/* Mobile: show due date inline */}
-              {task.dueDate && (
-                <span className={cn('text-xs sm:hidden',
-                  new Date(task.dueDate) < new Date() && task.status !== 'DONE' ? 'text-red-500 font-medium' : 'text-muted-foreground')}>
-                  {formatDate(task.dueDate)}
-                </span>
-              )}
+              {/* Mobile: due badge */}
+              {task.dueDate && <DueBadge dueDate={task.dueDate} status={task.status} className="sm:hidden" />}
             </div>
           </div>
 
@@ -328,12 +393,7 @@ function TaskRow({ task, onStatusChange, onClick }: {
           <Badge className={cn('text-xs border shrink-0 hidden sm:flex', priorityColor(task.priority))}>{task.priority}</Badge>
 
           {/* Due date (desktop) */}
-          {task.dueDate && (
-            <span className={cn('text-xs shrink-0 hidden sm:block',
-              new Date(task.dueDate) < new Date() && task.status !== 'DONE' ? 'text-red-500 font-medium' : 'text-muted-foreground')}>
-              {formatDate(task.dueDate)}
-            </span>
-          )}
+          {task.dueDate && <DueBadge dueDate={task.dueDate} status={task.status} className="hidden sm:flex shrink-0" />}
 
           {/* Comments count */}
           {!!task._count?.comments && (
@@ -414,11 +474,7 @@ function KanbanCard({ task, onStatusChange, onClick }: {
       <div className="flex items-center justify-between">
         <Badge className={cn('text-xs border', priorityColor(task.priority))}>{task.priority}</Badge>
         <div className="flex items-center gap-2">
-          {task.dueDate && (
-            <span className={cn('text-xs', new Date(task.dueDate) < new Date() && task.status !== 'DONE' ? 'text-red-500' : 'text-muted-foreground')}>
-              {formatDate(task.dueDate)}
-            </span>
-          )}
+          {task.dueDate && <DueBadge dueDate={task.dueDate} status={task.status} />}
           {task.assignee && (
             <Avatar className="h-6 w-6">
               <AvatarImage src={task.assignee.avatarUrl} />

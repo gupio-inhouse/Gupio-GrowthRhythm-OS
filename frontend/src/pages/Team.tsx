@@ -5,7 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
   UserPlus, Search, Users, Shield, Crown, Briefcase, User as UserIcon,
-  Mail, Phone, Building2, CheckCircle2, Plus, UserX, UserCheck,
+  Mail, Phone, Building2, CheckCircle2, Plus, UserX, UserCheck, Pencil, Trash2,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -126,6 +126,13 @@ export default function Team() {
   const [invited, setInvited] = useState(false);
   const [inviteResult, setInviteResult] = useState<InviteResult | null>(null);
   const [teamError, setTeamError] = useState('');
+  const [editingTeamId, setEditingTeamId] = useState<string | null>(null);
+  const [confirmDeleteTeamId, setConfirmDeleteTeamId] = useState<string | null>(null);
+  const [editMemberOpen, setEditMemberOpen] = useState(false);
+  const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
+  const [editMemberForm, setEditMemberForm] = useState({ name: '', role: '', departmentId: '', phone: '' });
+  const [editMemberError, setEditMemberError] = useState('');
+  const [confirmDeleteMemberId, setConfirmDeleteMemberId] = useState<string | null>(null);
   const [teamForm, setTeamForm] = useState<TeamForm>({
     name: '',
     slug: '',
@@ -139,11 +146,58 @@ export default function Team() {
   const canBulkImport = ['OWNER', 'COMPANY_ADMIN'].includes(me?.role || '');
   const canInviteOnlyTeamMembers = me?.role === 'MANAGER';
   const canDeactivate = ['OWNER', 'COMPANY_ADMIN'].includes(me?.role || '');
+  const canEditUser = ['OWNER', 'COMPANY_ADMIN'].includes(me?.role || '');
+  const canDeleteUser = ['OWNER', 'COMPANY_ADMIN'].includes(me?.role || '');
 
   const toggleStatus = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) =>
       api.patch(`/users/${id}`, { status }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+  });
+
+  const updateMember = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
+      api.patch(`/users/${id}`, data).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['users'] });
+      setEditMemberOpen(false);
+      setEditingMember(null);
+      setEditMemberError('');
+    },
+    onError: (e: unknown) => setEditMemberError(e instanceof Error ? e.message : 'Failed to update member'),
+  });
+
+  const deleteMember = useMutation({
+    mutationFn: (id: string) => api.delete(`/users/${id}`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['users'] });
+      setConfirmDeleteMemberId(null);
+    },
+  });
+
+  const updateTeam = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: TeamForm }) =>
+      api.patch(`/teams/${id}`, {
+        ...data,
+        managerUserId: data.managerUserId || null,
+        description: data.description?.trim() || undefined,
+      }).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['teams'] });
+      setTeamOpen(false);
+      setEditingTeamId(null);
+      setTeamError('');
+      setTeamForm({ name: '', slug: '', departmentId: '', managerUserId: '', description: '' });
+    },
+    onError: (e: unknown) => setTeamError(e instanceof Error ? e.message : 'Unable to update team'),
+  });
+
+  const deleteTeam = useMutation({
+    mutationFn: (id: string) => api.delete(`/teams/${id}`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['teams'] });
+      setConfirmDeleteTeamId(null);
+    },
   });
 
   const { data: members = [], isLoading } = useQuery<TeamMember[]>({
@@ -247,8 +301,34 @@ export default function Team() {
     setTeamOpen(open);
     if (!open) {
       setTeamError('');
+      setEditingTeamId(null);
+      setTeamForm({ name: '', slug: '', departmentId: '', managerUserId: '', description: '' });
       clearCreateParam();
     }
+  };
+
+  const openEditTeam = (team: Team) => {
+    setEditingTeamId(team.id);
+    setTeamForm({
+      name: team.name,
+      slug: team.slug,
+      departmentId: team.department.id,
+      managerUserId: team.manager?.id || '',
+      description: team.description || '',
+    });
+    setTeamOpen(true);
+  };
+
+  const openEditMember = (member: TeamMember) => {
+    setEditingMember(member);
+    setEditMemberForm({
+      name: member.name,
+      role: member.role,
+      departmentId: member.department?.id || '',
+      phone: member.phone || '',
+    });
+    setEditMemberError('');
+    setEditMemberOpen(true);
   };
 
   const closeInviteDialog = () => {
@@ -321,16 +401,54 @@ export default function Team() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {teams.map((team) => (
-          <Card key={team.id} className="hover:shadow-sm transition-shadow">
+          <Card key={team.id} className="hover:shadow-sm transition-shadow group">
             <CardHeader className="pb-3">
               <div className="flex items-start justify-between gap-3">
-                <div>
+                <div className="flex-1 min-w-0">
                   <CardTitle className="text-lg">{team.name}</CardTitle>
                   <p className="text-xs text-muted-foreground mt-1">
                     {team.department.name} · /{team.slug}
                   </p>
                 </div>
-                <Badge variant="secondary">{team.memberCount} members</Badge>
+                <div className="flex items-center gap-1 shrink-0">
+                  <Badge variant="secondary">{team.memberCount} members</Badge>
+                  {canCreateTeam && (
+                    <button
+                      onClick={() => openEditTeam(team)}
+                      className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors opacity-0 group-hover:opacity-100"
+                      title="Edit team"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                  {canDeleteUser && (
+                    confirmDeleteTeamId === team.id ? (
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => deleteTeam.mutate(team.id)}
+                          disabled={deleteTeam.isPending}
+                          className="text-xs px-2 py-1 rounded bg-red-500 text-white hover:bg-red-600"
+                        >
+                          {deleteTeam.isPending ? '…' : 'Delete'}
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteTeamId(null)}
+                          className="text-xs px-2 py-1 rounded bg-muted hover:bg-muted/80"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDeleteTeamId(team.id)}
+                        className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                        title="Delete team"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )
+                  )}
+                </div>
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -466,7 +584,7 @@ export default function Team() {
                     </div>
                   </div>
 
-                  <div className="hidden md:flex items-center gap-3">
+                  <div className="hidden md:flex items-center gap-2">
                     {member.department && (
                       <span className="flex items-center gap-1 text-xs text-muted-foreground bg-muted px-2 py-1 rounded-md">
                         <Building2 className="h-3 w-3" />
@@ -480,21 +598,60 @@ export default function Team() {
                     {member.status === 'DEACTIVATED' && (
                       <Badge variant="secondary" className="text-xs text-muted-foreground">Deactivated</Badge>
                     )}
-                    {canDeactivate && member.id !== me?.id && member.role !== 'OWNER' && (
-                      <button
-                        onClick={() => toggleStatus.mutate({
-                          id: member.id,
-                          status: member.status === 'DEACTIVATED' ? 'ACTIVE' : 'DEACTIVATED',
-                        })}
-                        className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors opacity-0 group-hover:opacity-100"
-                        title={member.status === 'DEACTIVATED' ? 'Reactivate member' : 'Deactivate member'}
-                      >
-                        {member.status === 'DEACTIVATED'
-                          ? <UserCheck className="h-4 w-4 text-green-600" />
-                          : <UserX className="h-4 w-4 text-red-500" />
-                        }
-                      </button>
-                    )}
+                    {/* Actions */}
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {canEditUser && member.id !== me?.id && (
+                        <button
+                          onClick={() => openEditMember(member)}
+                          className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                          title="Edit member"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      {canDeactivate && member.id !== me?.id && member.role !== 'OWNER' && (
+                        <button
+                          onClick={() => toggleStatus.mutate({
+                            id: member.id,
+                            status: member.status === 'DEACTIVATED' ? 'ACTIVE' : 'DEACTIVATED',
+                          })}
+                          className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                          title={member.status === 'DEACTIVATED' ? 'Reactivate member' : 'Deactivate member'}
+                        >
+                          {member.status === 'DEACTIVATED'
+                            ? <UserCheck className="h-4 w-4 text-green-600" />
+                            : <UserX className="h-4 w-4 text-orange-500" />
+                          }
+                        </button>
+                      )}
+                      {canDeleteUser && member.id !== me?.id && member.role !== 'OWNER' && (
+                        confirmDeleteMemberId === member.id ? (
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => deleteMember.mutate(member.id)}
+                              disabled={deleteMember.isPending}
+                              className="text-xs px-2 py-0.5 rounded bg-red-500 text-white hover:bg-red-600"
+                            >
+                              {deleteMember.isPending ? '…' : 'Delete'}
+                            </button>
+                            <button
+                              onClick={() => setConfirmDeleteMemberId(null)}
+                              className="text-xs px-2 py-0.5 rounded bg-muted hover:bg-muted/80"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmDeleteMemberId(member.id)}
+                            className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-red-500 transition-colors"
+                            title="Delete member"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )
+                      )}
+                    </div>
                   </div>
                 </div>
               </CardContent>
@@ -637,6 +794,86 @@ export default function Team() {
         </DialogContent>
       </Dialog>
 
+      {/* Edit Member Dialog */}
+      <Dialog open={editMemberOpen} onOpenChange={(open) => { if (!open) { setEditMemberOpen(false); setEditingMember(null); setEditMemberError(''); } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Member</DialogTitle>
+            <DialogDescription>Update {editingMember?.name}'s profile and role.</DialogDescription>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!editingMember) return;
+              updateMember.mutate({
+                id: editingMember.id,
+                data: {
+                  name: editMemberForm.name,
+                  role: editMemberForm.role,
+                  departmentId: editMemberForm.departmentId || null,
+                  phone: editMemberForm.phone || '',
+                },
+              });
+            }}
+            className="space-y-4"
+          >
+            <div className="space-y-1.5">
+              <Label>Full Name</Label>
+              <Input
+                value={editMemberForm.name}
+                onChange={(e) => setEditMemberForm((p) => ({ ...p, name: e.target.value }))}
+                placeholder="Full name"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Role</Label>
+              <Select value={editMemberForm.role} onValueChange={(v) => setEditMemberForm((p) => ({ ...p, role: v }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="TEAM_MEMBER">Team Member</SelectItem>
+                  <SelectItem value="MANAGER">Manager</SelectItem>
+                  <SelectItem value="DEPARTMENT_HEAD">Department Head</SelectItem>
+                  <SelectItem value="COMPANY_ADMIN">Admin</SelectItem>
+                  <SelectItem value="COACH_ADVISOR">Coach / Advisor</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Department</Label>
+              <Select
+                value={editMemberForm.departmentId || 'none'}
+                onValueChange={(v) => setEditMemberForm((p) => ({ ...p, departmentId: v === 'none' ? '' : v }))}
+              >
+                <SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No department</SelectItem>
+                  {departments.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Phone (optional)</Label>
+              <Input
+                type="tel"
+                value={editMemberForm.phone}
+                onChange={(e) => setEditMemberForm((p) => ({ ...p, phone: e.target.value }))}
+                placeholder="+91 98765 43210"
+              />
+            </div>
+            {editMemberError && <p className="text-sm text-destructive">{editMemberError}</p>}
+            <Separator />
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEditMemberOpen(false)}>Cancel</Button>
+              <Button type="submit" disabled={updateMember.isPending}>
+                {updateMember.isPending ? 'Saving...' : 'Save Changes'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
       {bulkImportOpen && (
         <BulkUserImportDialog
           onClose={() => setBulkImportOpen(false)}
@@ -650,9 +887,9 @@ export default function Team() {
       <Dialog open={teamOpen} onOpenChange={handleTeamOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Create Team</DialogTitle>
+            <DialogTitle>{editingTeamId ? 'Edit Team' : 'Create Team'}</DialogTitle>
             <DialogDescription>
-              Create a real team under a department and optionally assign a manager.
+              {editingTeamId ? 'Update the team details below.' : 'Create a real team under a department and optionally assign a manager.'}
             </DialogDescription>
           </DialogHeader>
 
@@ -660,7 +897,11 @@ export default function Team() {
             onSubmit={(e) => {
               e.preventDefault();
               setTeamError('');
-              createTeam.mutate(teamForm);
+              if (editingTeamId) {
+                updateTeam.mutate({ id: editingTeamId, data: teamForm });
+              } else {
+                createTeam.mutate(teamForm);
+              }
             }}
             className="space-y-4"
           >
@@ -737,8 +978,11 @@ export default function Team() {
               <Button type="button" variant="outline" onClick={() => handleTeamOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={createTeam.isPending}>
-                {createTeam.isPending ? 'Creating...' : 'Create Team'}
+              <Button type="submit" disabled={createTeam.isPending || updateTeam.isPending}>
+                {editingTeamId
+                  ? (updateTeam.isPending ? 'Saving...' : 'Save Changes')
+                  : (createTeam.isPending ? 'Creating...' : 'Create Team')
+                }
               </Button>
             </DialogFooter>
           </form>

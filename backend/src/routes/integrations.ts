@@ -85,7 +85,7 @@ router.get('/calendar/status', authenticate, async (req: AuthRequest, res: Respo
   });
 });
 
-// GET /integrations/calendar/auth — initiates OAuth (authenticated)
+// GET /integrations/calendar/auth — returns the Google OAuth URL as JSON (authenticated)
 router.get('/calendar/auth', authenticate, async (req: AuthRequest, res: Response) => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   if (!clientId) {
@@ -96,7 +96,7 @@ router.get('/calendar/auth', authenticate, async (req: AuthRequest, res: Respons
   const redirectUri = `${BACKEND_URL}/api/integrations/calendar/callback`;
   const scope = encodeURIComponent('https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events');
   const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}&access_type=offline&prompt=consent&state=${state}`;
-  res.redirect(url);
+  res.json({ url });
 });
 
 // GET /integrations/calendar/callback — Google redirects here (public)
@@ -179,7 +179,7 @@ router.get('/outlook/auth', authenticate, async (req: AuthRequest, res: Response
   const redirectUri = `${BACKEND_URL}/api/integrations/outlook/callback`;
   const scope = encodeURIComponent('https://graph.microsoft.com/Calendars.ReadWrite offline_access');
   const url = `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scope}&state=${state}&prompt=consent`;
-  res.redirect(url);
+  res.json({ url });
 });
 
 // GET /integrations/outlook/callback — Microsoft redirects here (public)
