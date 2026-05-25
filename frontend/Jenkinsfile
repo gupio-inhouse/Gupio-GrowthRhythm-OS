@@ -7,7 +7,7 @@ pipeline {
     }
 
     triggers {
-        // Poll the repository every minute for changes
+        // Poll the repository every minutess for changes
         pollSCM('* * * * *')
     }
 
