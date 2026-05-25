@@ -7,7 +7,7 @@ pipeline {
     }
 
     triggers {
-        // Fallback: Poll the repository every minute for changessssssss
+        // Fallback: Poll the repository every minute for changeeeeeeeeeeeeeesssssss
         pollSCM('* * * * *')
     }
 
