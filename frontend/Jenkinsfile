@@ -104,7 +104,7 @@ pipeline {
                 set -eux
                 echo "📦 Installing frontend dependencies..."
                 cd frontend
-                npm ci
+                npm ci --cache .npm-cache
                 '''
             }
         }
