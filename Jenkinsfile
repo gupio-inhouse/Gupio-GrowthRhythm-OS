@@ -4,33 +4,30 @@ pipeline {
     options {
         skipDefaultCheckout(true)
         timestamps()
+        // Keep only last 20 builds to save disk space
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+        // Prevent multiple builds of the same pipeline running simultaneously
+        disableConcurrentBuilds()
     }
 
     triggers {
-        GenericTrigger(
-            genericVariables: [
-                [key: 'COMMITS_ADDED',    value: '$.commits[*].added[*]',    expressionType: 'JSONPath', defaultValue: ''],
-                [key: 'COMMITS_MODIFIED', value: '$.commits[*].modified[*]', expressionType: 'JSONPath', defaultValue: ''],
-                [key: 'COMMITS_REMOVED',  value: '$.commits[*].removed[*]',  expressionType: 'JSONPath', defaultValue: '']
-            ],
-            causeString: 'GitHub push — backend files changed',
-            printContributedVariables: false,
-            printPostContent: false,
-            silentResponse: true,
-            regexpFilterText: '$COMMITS_ADDED $COMMITS_MODIFIED $COMMITS_REMOVED',
-            regexpFilterExpression: '.*backend/.*'
-        )
+        // H spreads Jenkins load — effectively polls every 2 minutes
+        // Each job gets a consistent random offset within the window
+        pollSCM('H/2 * * * *')
     }
 
     environment {
-        PATH = "/opt/homebrew/opt/openjdk@21/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-        PNPM_HOME = "${HOME}/.pnpm-global"
+        PATH         = "/opt/homebrew/opt/openjdk@21/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        PNPM_HOME    = "${HOME}/.pnpm-global"
 
-        // AWS & ECR Configuration
+        // AWS & ECR
         ECR_REGISTRY = "920372991367.dkr.ecr.ap-south-1.amazonaws.com"
-        ECR_REPO = "task-manager"
-        AWS_REGION = "ap-south-1"
-        EC2_USER = "ubuntu"
+        ECR_REPO     = "task-manager"
+        AWS_REGION   = "ap-south-1"
+        EC2_USER     = "ubuntu"
+
+        // Path prefix this pipeline cares about
+        WATCH_PATH   = "backend/"
     }
 
     stages {
@@ -47,7 +44,7 @@ pipeline {
                     }
                     env.TARGET_BRANCH = rawBranch.replace('origin/', '').replace('*/', '')
                 }
-                echo "🚚 Performing shallow branch checkout for branch: ${env.TARGET_BRANCH}..."
+                echo "🚚 Checking out branch: ${env.TARGET_BRANCH}..."
 
                 retry(3) {
                     sh '''
@@ -68,6 +65,7 @@ pipeline {
                       git remote add origin "$REPO_URL"
                     fi
 
+                    # depth 2 required so we can diff HEAD~1 vs HEAD
                     git fetch --depth 2 origin "refs/heads/$BRANCH"
                     git checkout -B "$BRANCH" FETCH_HEAD
                     git reset --hard FETCH_HEAD
@@ -76,8 +74,8 @@ pipeline {
                 }
 
                 sh '''
-                echo "📌 Branch: $(git rev-parse --abbrev-ref HEAD)"
-                echo "📌 Commit: $(git rev-parse HEAD)"
+                echo "📌 Branch : $(git rev-parse --abbrev-ref HEAD)"
+                echo "📌 Commit : $(git rev-parse HEAD)"
                 git log -1 --oneline
                 '''
             }
@@ -86,32 +84,44 @@ pipeline {
         stage('Detect Changes') {
             steps {
                 script {
+                    // Get files changed in this commit vs its parent
                     def changedFiles = sh(
                         script: '''
                             if git rev-parse HEAD~1 > /dev/null 2>&1; then
                                 git diff --name-only HEAD~1 HEAD
                             else
+                                # First commit — treat everything as changed
                                 git show --name-only --format="" HEAD
                             fi
                         ''',
                         returnStdout: true
                     ).trim()
 
-                    echo "📂 Changed files:\n${changedFiles}"
+                    echo "📂 Changed files in this commit:\n${changedFiles}"
 
-                    if (changedFiles.split('\n').any { it.startsWith('backend/') }) {
+                    // Trigger full run if backend/ OR the backend Jenkinsfile itself changed
+                    def lines = changedFiles ? changedFiles.split('\n') : []
+                    def relevant = lines.any { f ->
+                        f.startsWith('backend/') || f == 'Jenkinsfile'
+                    }
+
+                    if (relevant) {
                         env.BACKEND_CHANGED = 'true'
-                        echo "✅ Backend changes detected — pipeline will run."
+                        currentBuild.description = "🚀 backend/ changes — deploying"
+                        echo "✅ Relevant changes detected — pipeline will run."
                     } else {
                         env.BACKEND_CHANGED = 'false'
-                        echo "⏭️ No backend changes detected — skipping build & deploy."
+                        currentBuild.description = "⏭️ No backend changes — skipped"
+                        echo "⏭️ No backend changes detected — all build stages will be skipped."
                     }
                 }
             }
         }
 
         stage('Generate Image Tag') {
-            when { expression { env.BACKEND_CHANGED == 'true' } }
+            when {
+                expression { env.BACKEND_CHANGED == 'true' }
+            }
             steps {
                 script {
                     def today = new Date().format('yyyy-MM-dd')
@@ -120,14 +130,11 @@ pipeline {
 
                     sh "mkdir -p ${counterDir}"
 
-                    // Read current count or start at 0
                     def countStr = sh(script: "cat ${counterFile} 2>/dev/null || echo 0", returnStdout: true).trim()
                     def currentCount = (countStr.isInteger() ? countStr.toInteger() : 0) + 1
 
-                    // Save the new count
                     sh "echo ${currentCount} > ${counterFile}"
 
-                    // Set the tag with 'v' prefix
                     env.IMAGE_TAG = "${today}.v${currentCount}"
 
                     echo "======================================"
@@ -138,7 +145,9 @@ pipeline {
         }
 
         stage('Build & Push to ECR') {
-            when { expression { env.BACKEND_CHANGED == 'true' } }
+            when {
+                expression { env.BACKEND_CHANGED == 'true' }
+            }
             steps {
                 withCredentials([[
                     $class: 'AmazonWebServicesCredentialsBinding',
@@ -146,7 +155,6 @@ pipeline {
                     accessKeyVariable: 'AWS_ACCESS_KEY_ID',
                     secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
                 ]]) {
-
                     sh '''
                     set -eux
 
@@ -167,12 +175,13 @@ pipeline {
         }
 
         stage('Deploy to EC2') {
-            when { expression { env.BACKEND_CHANGED == 'true' } }
+            when {
+                expression { env.BACKEND_CHANGED == 'true' }
+            }
             steps {
                 withCredentials([
                     string(credentialsId: 'growthrhythm-backend-ip', variable: 'EC2_HOST')
                 ]) {
-
                     sshagent(credentials: ['ec2-ssh-key']) {
                         sh """
                             ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} '
@@ -189,14 +198,24 @@ pipeline {
     }
 
     post {
+        always {
+            script {
+                // Mark as NOT_BUILT (grey) when skipped — keeps build history clean
+                if (env.BACKEND_CHANGED == 'false') {
+                    currentBuild.result = 'NOT_BUILT'
+                }
+            }
+            echo "📦 Backend pipeline finished. Result: ${currentBuild.result ?: 'SUCCESS'}"
+        }
         success {
-            echo '✅ Pipeline succeeded!'
+            script {
+                if (env.BACKEND_CHANGED == 'true') {
+                    echo "✅ Backend deployed successfully! Image: ${env.IMAGE_TAG}"
+                }
+            }
         }
         failure {
-            echo '❌ Pipeline failed! Check logs.'
-        }
-        always {
-            echo '📦 Pipeline finished.'
+            echo '❌ Backend pipeline failed! Check the logs above.'
         }
     }
 }

@@ -4,31 +4,27 @@ pipeline {
     options {
         skipDefaultCheckout(true)
         timestamps()
+        // Keep only last 20 builds to save disk space
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+        // Prevent multiple builds of the same pipeline running simultaneously
+        disableConcurrentBuilds()
     }
 
     triggers {
-        GenericTrigger(
-            genericVariables: [
-                [key: 'COMMITS_ADDED',    value: '$.commits[*].added[*]',    expressionType: 'JSONPath', defaultValue: ''],
-                [key: 'COMMITS_MODIFIED', value: '$.commits[*].modified[*]', expressionType: 'JSONPath', defaultValue: ''],
-                [key: 'COMMITS_REMOVED',  value: '$.commits[*].removed[*]',  expressionType: 'JSONPath', defaultValue: '']
-            ],
-            causeString: 'GitHub push — frontend files changed',
-            printContributedVariables: false,
-            printPostContent: false,
-            silentResponse: true,
-            regexpFilterText: '$COMMITS_ADDED $COMMITS_MODIFIED $COMMITS_REMOVED',
-            regexpFilterExpression: '.*frontend/.*'
-        )
+        // H spreads Jenkins load — effectively polls every 2 minutes
+        pollSCM('H/2 * * * *')
     }
 
     environment {
         PATH               = "/opt/homebrew/opt/openjdk@21/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
-        // AWS & S3 Configuration
+        // AWS & S3
         AWS_REGION         = "ap-south-1"
         S3_BUCKET          = "gupio-task-manager"
         CLOUDFRONT_DIST_ID = "E33CPU4Q6V79J6"
+
+        // Path prefix this pipeline cares about
+        WATCH_PATH         = "frontend/"
     }
 
     stages {
@@ -45,7 +41,7 @@ pipeline {
                     }
                     env.TARGET_BRANCH = rawBranch.replace('origin/', '').replace('*/', '')
                 }
-                echo "🚚 Performing shallow branch checkout for branch: ${env.TARGET_BRANCH}..."
+                echo "🚚 Checking out branch: ${env.TARGET_BRANCH}..."
 
                 retry(3) {
                     sh '''
@@ -66,6 +62,7 @@ pipeline {
                       git remote add origin "$REPO_URL"
                     fi
 
+                    # depth 2 required so we can diff HEAD~1 vs HEAD
                     git fetch --depth 2 origin "refs/heads/$BRANCH"
                     git checkout -B "$BRANCH" FETCH_HEAD
                     git reset --hard FETCH_HEAD
@@ -74,8 +71,8 @@ pipeline {
                 }
 
                 sh '''
-                echo "📌 Branch: $(git rev-parse --abbrev-ref HEAD)"
-                echo "📌 Commit: $(git rev-parse HEAD)"
+                echo "📌 Branch : $(git rev-parse --abbrev-ref HEAD)"
+                echo "📌 Commit : $(git rev-parse HEAD)"
                 git log -1 --oneline
                 '''
             }
@@ -84,32 +81,44 @@ pipeline {
         stage('Detect Changes') {
             steps {
                 script {
+                    // Get files changed in this commit vs its parent
                     def changedFiles = sh(
                         script: '''
                             if git rev-parse HEAD~1 > /dev/null 2>&1; then
                                 git diff --name-only HEAD~1 HEAD
                             else
+                                # First commit — treat everything as changed
                                 git show --name-only --format="" HEAD
                             fi
                         ''',
                         returnStdout: true
                     ).trim()
 
-                    echo "📂 Changed files:\n${changedFiles}"
+                    echo "📂 Changed files in this commit:\n${changedFiles}"
 
-                    if (changedFiles.split('\n').any { it.startsWith('frontend/') }) {
+                    // Trigger full run if frontend/ OR the frontend Jenkinsfile itself changed
+                    def lines = changedFiles ? changedFiles.split('\n') : []
+                    def relevant = lines.any { f ->
+                        f.startsWith('frontend/') && !f.startsWith('frontend/.npm-cache')
+                    }
+
+                    if (relevant) {
                         env.FRONTEND_CHANGED = 'true'
-                        echo "✅ Frontend changes detected — pipeline will run."
+                        currentBuild.description = "🚀 frontend/ changes — deploying"
+                        echo "✅ Relevant changes detected — pipeline will run."
                     } else {
                         env.FRONTEND_CHANGED = 'false'
-                        echo "⏭️ No frontend changes detected — skipping build & deploy."
+                        currentBuild.description = "⏭️ No frontend changes — skipped"
+                        echo "⏭️ No frontend changes detected — all build stages will be skipped."
                     }
                 }
             }
         }
 
         stage('Install Dependencies') {
-            when { expression { env.FRONTEND_CHANGED == 'true' } }
+            when {
+                expression { env.FRONTEND_CHANGED == 'true' }
+            }
             steps {
                 sh '''
                 set -eux
@@ -121,7 +130,9 @@ pipeline {
         }
 
         stage('Build Frontend') {
-            when { expression { env.FRONTEND_CHANGED == 'true' } }
+            when {
+                expression { env.FRONTEND_CHANGED == 'true' }
+            }
             steps {
                 sh '''
                 set -eux
@@ -135,7 +146,9 @@ pipeline {
         }
 
         stage('Deploy to S3') {
-            when { expression { env.FRONTEND_CHANGED == 'true' } }
+            when {
+                expression { env.FRONTEND_CHANGED == 'true' }
+            }
             steps {
                 withCredentials([[
                     $class: 'AmazonWebServicesCredentialsBinding',
@@ -169,7 +182,9 @@ pipeline {
         }
 
         stage('Invalidate CloudFront') {
-            when { expression { env.FRONTEND_CHANGED == 'true' } }
+            when {
+                expression { env.FRONTEND_CHANGED == 'true' }
+            }
             steps {
                 withCredentials([[
                     $class: 'AmazonWebServicesCredentialsBinding',
@@ -199,14 +214,24 @@ pipeline {
     }
 
     post {
+        always {
+            script {
+                // Mark as NOT_BUILT (grey) when skipped — keeps build history clean
+                if (env.FRONTEND_CHANGED == 'false') {
+                    currentBuild.result = 'NOT_BUILT'
+                }
+            }
+            echo "📦 Frontend pipeline finished. Result: ${currentBuild.result ?: 'SUCCESS'}"
+        }
         success {
-            echo '✅ Frontend deployed successfully!'
+            script {
+                if (env.FRONTEND_CHANGED == 'true') {
+                    echo "✅ Frontend deployed successfully to S3: ${env.S3_BUCKET}"
+                }
+            }
         }
         failure {
-            echo '❌ Frontend deployment failed! Check logs.'
-        }
-        always {
-            echo '📦 Frontend pipeline finished.'
+            echo '❌ Frontend pipeline failed! Check the logs above.'
         }
     }
 }
