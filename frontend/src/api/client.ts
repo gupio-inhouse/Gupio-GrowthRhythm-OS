@@ -12,13 +12,19 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Handle 401 globally
+// Handle 401 globally — preserve the current URL so login can redirect back
 api.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401) {
       localStorage.removeItem('gr_token');
-      window.location.href = '/login';
+      // Clear persisted auth store so ProtectedRoute re-evaluates correctly
+      localStorage.removeItem('gr-auth');
+      const current = window.location.pathname + window.location.search;
+      const isLoginPage = current.startsWith('/login') || current === '/';
+      window.location.href = isLoginPage
+        ? '/login'
+        : `/login?returnTo=${encodeURIComponent(current)}`;
     }
     return Promise.reject(err);
   }
