@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, useLocation, Link } from 'react-router-dom';
+import { useNavigate, useLocation, useSearchParams, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -29,7 +29,11 @@ export default function Login() {
   const [forgotLoading, setForgotLoading] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
-  const returnTo = (location.state as { returnTo?: string } | null)?.returnTo;
+  const [searchParams] = useSearchParams();
+  // returnTo comes from router state (ProtectedRoute redirect) OR query param (401 interceptor redirect)
+  const returnTo =
+    (location.state as { returnTo?: string } | null)?.returnTo ||
+    (searchParams.get('returnTo') ? decodeURIComponent(searchParams.get('returnTo')!) : null);
   const setAuth = useAuthStore((s) => s.setAuth);
 
   const handleForgot = async () => {
