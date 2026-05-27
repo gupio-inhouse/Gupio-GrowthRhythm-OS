@@ -4,7 +4,7 @@ import prisma from '../lib/prisma';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { auditLog } from '../middleware/audit';
 import { fanOutNotification, createNotification } from '../services/notification.service';
-import { generateTaskSuggestions } from '../services/ai.service';
+import { generateTaskSuggestions, generateStatusChangeSuggestions } from '../services/ai.service';
 import { sendTaskAssignedEmail } from '../services/email.service';
 
 const APP_URL = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();
@@ -84,6 +84,7 @@ const createSchema = z.object({
 const updateSchema = createSchema.partial().extend({
   status: z.enum(['TODO', 'IN_PROGRESS', 'BLOCKED', 'IN_REVIEW', 'DONE', 'CANCELLED']).optional(),
   blockerType: z.enum(['APPROVAL', 'CLIENT', 'DEPENDENCY', 'RESOURCE', 'UNCLEAR_REQUIREMENT', 'SYSTEM_ISSUE', 'OTHER']).optional(),
+  blockerDescription: z.string().optional(),
   blockerOwnerId: z.string().optional(),
   blockerExpectedResolution: z.string().datetime().optional(),
 });
@@ -208,6 +209,12 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
         orderBy: { createdAt: 'asc' },
       },
       attachments: true,
+      statusHistories: {
+        include: {
+          changedBy: { select: { id: true, name: true, avatarUrl: true } }
+        },
+        orderBy: { changedAt: 'desc' },
+      },
     },
   });
 
@@ -503,6 +510,28 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
       assigneeName: task.assignee.name,
       taskId: task.id,
     }).catch(console.error);
+  }
+
+  // Capture status change history and generate suggestions/better options
+  if (task.status !== existingTask.status) {
+    try {
+      const blockerDesc = parsed.data.blockerDescription || '';
+      const suggestions = await generateStatusChangeSuggestions(task.id, task.status, req.user!.orgId, blockerDesc);
+      await prisma.taskStatusHistory.create({
+        data: {
+          taskId: task.id,
+          fromStatus: existingTask.status,
+          toStatus: task.status,
+          changedById: req.user!.userId,
+          blockerType: parsed.data.blockerType || null,
+          blockerDescription: blockerDesc || null,
+          blockerExpectedResolution: parsed.data.blockerExpectedResolution ? new Date(parsed.data.blockerExpectedResolution) : null,
+          suggestions: suggestions,
+        }
+      });
+    } catch (err) {
+      console.error('Error logging status transition history:', err);
+    }
   }
 
   res.json(task);

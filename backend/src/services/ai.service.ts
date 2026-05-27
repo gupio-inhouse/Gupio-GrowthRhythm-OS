@@ -39,6 +39,25 @@ export const PROMPTS = {
     user: (title: string, blockerType: string, description: string) =>
       `A task "${title}" is blocked due to "${blockerType}". Context: ${description || 'none'}.\n\nSuggest 3 specific next steps to unblock it. Return JSON: {"suggestions": ["step 1", "step 2", "step 3"]}`,
   },
+  STATUS_CHANGE_SUGGESTIONS: {
+    version: 'v1',
+    system: 'You are a project management assistant for Indian SMBs. Be concise and actionable.',
+    user: (title: string, status: string, context: string) => {
+      let focus = '';
+      if (status === 'BLOCKED') {
+        focus = `is blocked. Suggest 3 specific next steps to unblock it.`;
+      } else if (status === 'DONE') {
+        focus = `is completed. Suggest 3 verification steps, follow-ups, or learnings.`;
+      } else if (status === 'IN_PROGRESS') {
+        focus = `is now in progress. Suggest 3 best practices or ways to execute it efficiently and stay on track.`;
+      } else if (status === 'IN_REVIEW') {
+        focus = `is pending review. Suggest 3 checklist items for the reviewer to verify.`;
+      } else {
+        focus = `is set to ${status}. Suggest 3 next steps to plan or proceed.`;
+      }
+      return `A task "${title}" has changed status to "${status}". Context/Blocker: ${context || 'none'}.\n\n${focus} Return JSON: {"suggestions": ["step 1", "step 2", "step 3"]}`;
+    }
+  },
   LEARNING_RECOMMEND: {
     version: 'v1',
     system: 'You are a learning coach for Indian SMBs. Recommend targeted skill-building based on the employee\'s role and learning gaps.',
@@ -267,5 +286,73 @@ export async function generateTaskSuggestions(
     return parsed.suggestions ?? [];
   } catch {
     return [];
+  }
+}
+
+export async function generateStatusChangeSuggestions(
+  taskId: string,
+  status: string,
+  orgId: string,
+  blockerDetails?: string
+): Promise<string[]> {
+  const task = await prisma.task.findUnique({
+    where: { id: taskId },
+    select: { title: true, description: true },
+  });
+  if (!task) return [];
+
+  const fallbackSuggestions: Record<string, string[]> = {
+    BLOCKED: [
+      'Identify the root dependency or approval bottleneck and address it directly.',
+      'Set up a quick 5-minute sync with the blocker owner to align on next steps.',
+      'Escalate to the department head if the blocker resolution is delayed.'
+    ],
+    IN_PROGRESS: [
+      'Break down this task into smaller milestones or actionable sub-tasks.',
+      'Block dedicated focus time in your calendar to execute without distractions.',
+      'Share early drafts or progress with team members to get quick feedback.'
+    ],
+    DONE: [
+      'Double check the completed work against the initial task requirements.',
+      'Request feedback or approval from the task assigner or team manager.',
+      'Document any key learnings or useful documentation from this work.'
+    ],
+    IN_REVIEW: [
+      'Send a direct message or link to the reviewer to prompt their review.',
+      'Prepare a quick walkthrough or summary of the completed deliverables.',
+      'Be ready to iterate on the task if feedback or changes are requested.'
+    ],
+    TODO: [
+      'Identify any prerequisite information or resources needed to start.',
+      'Estimate the time needed for completion and set a personal target.',
+      'Confirm the expected outcome with the task creator before beginning.'
+    ],
+  };
+
+  const statusKey = status as keyof typeof fallbackSuggestions;
+  const fallbacks = fallbackSuggestions[statusKey] || [
+    'Define the next immediate action item to get started on this task.',
+    'Align with relevant stakeholders on the priority and expected timeline.',
+    'Check if any resources are missing that might delay progression.'
+  ];
+
+  try {
+    const hasCredits = await deductAiCredits(orgId, 1);
+    if (!hasCredits) return fallbacks;
+
+    const context = blockerDetails || task.description || '';
+    const p = PROMPTS.STATUS_CHANGE_SUGGESTIONS;
+    const text = await callClaude(
+      p.user(task.title, status, context),
+      p.system,
+      'fast',
+      1800
+    );
+
+    const parsed = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] ?? '{}') as { suggestions?: string[] };
+    return parsed.suggestions && parsed.suggestions.length > 0 ? parsed.suggestions : fallbacks;
+  } catch (error) {
+    console.error('Error generating status suggestions via AI, using fallback:', error);
+    return fallbacks;
   }
 }

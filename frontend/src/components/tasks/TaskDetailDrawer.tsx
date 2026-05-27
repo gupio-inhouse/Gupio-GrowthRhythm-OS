@@ -31,6 +31,18 @@ type TaskAttachment = {
   createdAt: string;
 };
 
+type TaskStatusHistory = {
+  id: string;
+  fromStatus: string | null;
+  toStatus: string;
+  changedAt: string;
+  changedBy: { id: string; name: string; avatarUrl?: string };
+  blockerType?: string | null;
+  blockerDescription?: string | null;
+  blockerExpectedResolution?: string | null;
+  suggestions?: string[] | null;
+};
+
 type TaskDetail = {
   id: string;
   title: string;
@@ -51,6 +63,7 @@ type TaskDetail = {
   department?: { id: string; name: string };
   comments: Comment[];
   attachments: TaskAttachment[];
+  statusHistories: TaskStatusHistory[];
 };
 
 const STATUSES = ['TODO', 'IN_PROGRESS', 'BLOCKED', 'IN_REVIEW', 'DONE', 'CANCELLED'];
@@ -226,6 +239,7 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
     updateMutation.mutate({
       status: 'BLOCKED',
       blockerType: data.blockerType,
+      blockerDescription: data.blockerDescription,
       blockerExpectedResolution: data.blockerExpectedResolution
         ? new Date(data.blockerExpectedResolution).toISOString()
         : undefined,
@@ -626,6 +640,68 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
                       removingId={removeAttachmentMutation.variables}
                     />
                   </div>
+                </div>
+
+                {/* Status History & Suggestions */}
+                <Separator />
+                <div>
+                  <p className="text-sm font-medium mb-3">Status History & Better Options</p>
+                  {(!task.statusHistories || task.statusHistories.length === 0) ? (
+                    <p className="text-sm text-muted-foreground">No status changes captured yet.</p>
+                  ) : (
+                    <div className="relative border-l pl-4 ml-2 space-y-4">
+                      {task.statusHistories.map((history) => (
+                        <div key={history.id} className="relative group">
+                          {/* Timeline dot */}
+                          <div className="absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full bg-primary border border-background ring-4 ring-background" />
+                          
+                          <div className="space-y-1.5">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {history.fromStatus && (
+                                <>
+                                  <Badge variant="outline" className="text-[10px] scale-95 origin-left">
+                                    {STATUS_LABELS[history.fromStatus] || history.fromStatus}
+                                  </Badge>
+                                  <span className="text-xs text-muted-foreground">→</span>
+                                </>
+                              )}
+                              <Badge className={cn('text-[11px] font-medium border', statusColor(history.toStatus))}>
+                                {STATUS_LABELS[history.toStatus] || history.toStatus}
+                              </Badge>
+                              <span className="text-xs text-muted-foreground font-light">
+                                by <span className="font-normal text-foreground">{history.changedBy.name}</span> · {formatRelative(history.changedAt)}
+                              </span>
+                            </div>
+
+                            {history.blockerType && (
+                              <div className="text-xs text-red-600 bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900/30 rounded px-2.5 py-1.5 block max-w-lg">
+                                <span className="font-semibold capitalize">
+                                  Blocked ({history.blockerType.toLowerCase().replace(/_/g, ' ')})
+                                </span>
+                                {history.blockerDescription && `: ${history.blockerDescription}`}
+                                {history.blockerExpectedResolution && ` (Expected resolution: ${formatDate(history.blockerExpectedResolution)})`}
+                              </div>
+                            )}
+
+                            {history.suggestions && Array.isArray(history.suggestions) && history.suggestions.length > 0 && (
+                              <div className="rounded-lg bg-gradient-to-r from-violet-50 to-indigo-50 dark:from-violet-950/20 dark:to-indigo-950/20 border border-violet-100 dark:border-violet-900/30 p-3 space-y-2 mt-2 max-w-lg">
+                                <div className="flex items-center gap-1.5 text-xs font-semibold text-violet-800 dark:text-violet-300">
+                                  <span className="animate-pulse">✨</span> AI-Suggested Better Options & Next Steps:
+                                </div>
+                                <ul className="text-xs space-y-1.5 text-muted-foreground list-decimal list-inside pl-1">
+                                  {history.suggestions.map((suggestion, idx) => (
+                                    <li key={idx} className="leading-relaxed hover:text-foreground transition-colors">
+                                      {suggestion}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Comments */}
