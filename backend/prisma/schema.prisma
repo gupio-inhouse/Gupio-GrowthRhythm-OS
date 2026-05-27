@@ -244,6 +244,7 @@ model User {
   interviewScorecards  InterviewScorecard[]
   onboardingChecklists OnboardingChecklist[]
   appFeedback          AppFeedback[]
+  taskStatusHistories  TaskStatusHistory[] @relation("UserStatusHistories")
 
   @@unique([orgId, email])
   @@map("users")
@@ -392,6 +393,7 @@ model Task {
   dependents   Task[]       @relation("TaskDependency")
   comments     TaskComment[]
   attachments  TaskAttachment[]
+  statusHistories TaskStatusHistory[]
 
   @@map("tasks")
 }
@@ -813,3 +815,22 @@ model OAuthToken {
   @@unique([orgId, provider])
   @@map("oauth_tokens")
 }
+
+model TaskStatusHistory {
+  id              String      @id @default(cuid())
+  taskId          String      @map("task_id")
+  fromStatus      TaskStatus? @map("from_status")
+  toStatus        TaskStatus  @map("to_status")
+  changedAt       DateTime    @default(now()) @map("changed_at")
+  changedById     String      @map("changed_by_id")
+  blockerType     BlockerType? @map("blocker_type")
+  blockerDescription String?  @map("blocker_description")
+  blockerExpectedResolution DateTime? @map("blocker_expected_resolution")
+  suggestions     Json?       @map("suggestions")
+
+  task      Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  changedBy User @relation("UserStatusHistories", fields: [changedById], references: [id], onDelete: Cascade)
+
+  @@map("task_status_histories")
+}
+
