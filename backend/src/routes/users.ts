@@ -72,6 +72,23 @@ function getOverdueDays(dueDate: Date, referenceDate: Date): number {
   return diffDays > 0 ? diffDays : 0;
 }
 
+function formatIndianDate(date: Date | null | undefined): string {
+  if (!date) return '';
+  return new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    dateStyle: 'medium',
+  }).format(date);
+}
+
+function formatIndianDateTime(date: Date | null | undefined): string {
+  if (!date) return '';
+  return new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    dateStyle: 'medium',
+    timeStyle: 'medium',
+  }).format(date);
+}
+
 // GET /users
 router.get('/', async (req: AuthRequest, res: Response) => {
   const viewer = await getViewerScope(req.user!.userId);
@@ -372,9 +389,9 @@ router.get('/:id/report/export-csv', async (req: AuthRequest, res: Response) => 
       dependency: task.dependency?.title || '',
       blockerType: task.blockerType || '',
       blockerCount: task.blockerCount,
-      dueDate: task.dueDate?.toISOString() || '',
-      completedAt: task.completedAt?.toISOString() || '',
-      createdAt: task.createdAt.toISOString(),
+      dueDate: formatIndianDate(task.dueDate),
+      completedAt: formatIndianDateTime(task.completedAt),
+      createdAt: formatIndianDateTime(task.createdAt),
       isOverdue: overdueStr,
     };
   }));
