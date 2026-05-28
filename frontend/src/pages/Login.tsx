@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useLocation, useSearchParams, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -28,6 +28,12 @@ export default function Login() {
   const [forgotSent, setForgotSent] = useState(false);
   const [forgotLoading, setForgotLoading] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  // returnTo comes from router state (ProtectedRoute redirect) OR query param (401 interceptor redirect)
+  const returnTo =
+    (location.state as { returnTo?: string } | null)?.returnTo ||
+    (searchParams.get('returnTo') ? decodeURIComponent(searchParams.get('returnTo')!) : null);
   const setAuth = useAuthStore((s) => s.setAuth);
 
   const handleForgot = async () => {
@@ -50,7 +56,10 @@ export default function Login() {
     try {
       const res = await api.post('/auth/login', data);
       setAuth(res.data.token, res.data.user, res.data.org);
-      navigate(getRoleRedirect(res.data.user.role, res.data.user.departmentSlug));
+      const destination = returnTo && returnTo !== '/login' && returnTo !== '/'
+        ? returnTo
+        : getRoleRedirect(res.data.user.role, res.data.user.departmentSlug);
+      navigate(destination, { replace: true });
     } catch (err: unknown) {
       setError((err as { response?: { data?: { error?: string } } }).response?.data?.error || 'Login failed');
     }

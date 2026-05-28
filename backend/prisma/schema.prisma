@@ -58,6 +58,7 @@ enum TaskStatus {
   TODO
   IN_PROGRESS
   BLOCKED
+  IN_REVIEW
   DONE
   CANCELLED
 }
@@ -229,6 +230,8 @@ model User {
   ownedGoals           Goal[]             @relation("GoalOwner")
   ownedKRAs            KRA[]              @relation("KRAOwner")
   assignedTasks        Task[]             @relation("TaskAssignee")
+  tasksAssigned        Task[]             @relation("TaskAssigner")
+  tasksReviewed        Task[]             @relation("TaskReviewer")
   taskComments         TaskComment[]
   standupCards         StandupCard[]
   learningAssignments  LearningAssignment[]
@@ -241,6 +244,7 @@ model User {
   interviewScorecards  InterviewScorecard[]
   onboardingChecklists OnboardingChecklist[]
   appFeedback          AppFeedback[]
+  taskStatusHistories  TaskStatusHistory[] @relation("UserStatusHistories")
 
   @@unique([orgId, email])
   @@map("users")
@@ -357,6 +361,7 @@ model Task {
   kraId          String?      @map("kra_id")
   departmentId   String?      @map("department_id")
   assigneeUserId String       @map("assignee_user_id")
+  assignedByUserId String?    @map("assigned_by_user_id")
   title          String
   description    String?
   expectedOutcome String?     @map("expected_outcome")
@@ -364,7 +369,10 @@ model Task {
   priority       TaskPriority @default(MEDIUM)
   startDate      DateTime?    @map("start_date")
   dueDate        DateTime?    @map("due_date")
+  completionSubmittedAt DateTime? @map("completion_submitted_at")
   completedAt    DateTime?    @map("completed_at")
+  completionReviewedAt DateTime? @map("completion_reviewed_at")
+  completionReviewedByUserId String? @map("completion_reviewed_by_user_id")
   blockerType    BlockerType? @map("blocker_type")
   blockerOwnerId String?      @map("blocker_owner_id")
   blockerExpectedResolution DateTime? @map("blocker_expected_resolution")
@@ -379,10 +387,13 @@ model Task {
   kra          KRA?         @relation(fields: [kraId], references: [id])
   department   Department?  @relation(fields: [departmentId], references: [id])
   assignee     User         @relation("TaskAssignee", fields: [assigneeUserId], references: [id])
+  assignedBy   User?        @relation("TaskAssigner", fields: [assignedByUserId], references: [id])
+  completionReviewedBy User? @relation("TaskReviewer", fields: [completionReviewedByUserId], references: [id])
   dependency   Task?        @relation("TaskDependency", fields: [dependencyId], references: [id])
   dependents   Task[]       @relation("TaskDependency")
   comments     TaskComment[]
   attachments  TaskAttachment[]
+  statusHistories TaskStatusHistory[]
 
   @@map("tasks")
 }
@@ -804,3 +815,22 @@ model OAuthToken {
   @@unique([orgId, provider])
   @@map("oauth_tokens")
 }
+
+model TaskStatusHistory {
+  id              String      @id @default(cuid())
+  taskId          String      @map("task_id")
+  fromStatus      TaskStatus? @map("from_status")
+  toStatus        TaskStatus  @map("to_status")
+  changedAt       DateTime    @default(now()) @map("changed_at")
+  changedById     String      @map("changed_by_id")
+  blockerType     BlockerType? @map("blocker_type")
+  blockerDescription String?  @map("blocker_description")
+  blockerExpectedResolution DateTime? @map("blocker_expected_resolution")
+  suggestions     Json?       @map("suggestions")
+
+  task      Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  changedBy User @relation("UserStatusHistories", fields: [changedById], references: [id], onDelete: Cascade)
+
+  @@map("task_status_histories")
+}
+

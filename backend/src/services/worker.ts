@@ -195,18 +195,19 @@ export const reminderWorker = new Worker('standup-reminder', async (job: Job) =>
     const normalized = ((standupUtcMinutes % 1440) + 1440) % 1440;
     if (normalized < windowStartMin || normalized > windowEndMin) continue;
 
+    // Only remind if a standup is actually scheduled for today
+    const standup = await prisma.standup.findFirst({
+      where: { departmentId: dept.id, scheduledAt: { gte: today, lt: tomorrow } },
+      select: { meetUrl: true },
+    });
+    if (!standup) continue;
+
     await fanOutNotification(
       dept.orgId,
       dept.users.map((u) => u.id),
       'STANDUP_REMINDER',
       { departmentName: dept.name, time: dept.standupTime, minutesUntil: 15 }
     );
-
-    // Fetch today's standup for the meet URL
-    const standup = await prisma.standup.findFirst({
-      where: { departmentId: dept.id, scheduledAt: { gte: today, lt: tomorrow } },
-      select: { meetUrl: true },
-    });
 
     // Send email to each member
     for (const user of dept.users) {
@@ -215,7 +216,7 @@ export const reminderWorker = new Worker('standup-reminder', async (job: Job) =>
         name: user.name,
         departmentName: dept.name,
         standupTime: dept.standupTime,
-        meetUrl: standup?.meetUrl ?? null,
+        meetUrl: standup.meetUrl ?? null,
         appUrl: APP_URL,
       }).catch(console.error);
     }

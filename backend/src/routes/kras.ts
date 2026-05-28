@@ -21,7 +21,7 @@ const createSchema = z.object({
   departmentId: z.string(),
   goalId: z.string().optional(),
   ownerUserId: z.string(),
-  target: z.number(),
+  target: z.number().optional(),
   unit: z.string().optional(),
   period: z.string(),
 });
@@ -111,7 +111,7 @@ router.post('/', requireRole('OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'), audit
   }
 
   const kra = await prisma.kRA.create({
-    data: { ...parsed.data, orgId: req.user!.orgId },
+    data: { ...parsed.data, target: parsed.data.target ?? 100, orgId: req.user!.orgId },
     include: { owner: { select: { id: true, name: true } } },
   });
 

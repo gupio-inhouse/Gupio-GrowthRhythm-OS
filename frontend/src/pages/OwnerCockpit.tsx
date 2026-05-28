@@ -323,9 +323,8 @@ export default function OwnerCockpit() {
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
               {kras.map((kra) => {
-                const pct = kra.target > 0 ? Math.round((kra.current / kra.target) * 100) : 0;
                 return (
-                  <Link key={kra.id} to="/goals" className="block space-y-1.5 rounded-lg p-2 -mx-2 hover:bg-muted/50 transition-colors">
+                  <Link key={kra.id} to="/goals" className="block rounded-lg p-2 -mx-2 hover:bg-muted/50 transition-colors">
                     <div className="flex items-center justify-between">
                       <div className="flex-1 min-w-0 mr-3">
                         <p className="text-sm font-medium truncate">{kra.name}</p>
@@ -337,13 +336,8 @@ export default function OwnerCockpit() {
                         <Badge className={cn('text-xs border', kraStatusColor(kra.status))}>
                           {kra.status.replace('_', ' ')}
                         </Badge>
-                        <span className="text-xs text-muted-foreground w-8 text-right">{pct}%</span>
                       </div>
                     </div>
-                    <Progress
-                      value={pct}
-                      className={cn('h-1.5', pct >= 80 ? '[&>div]:bg-green-500' : pct >= 50 ? '[&>div]:bg-yellow-500' : '[&>div]:bg-red-500')}
-                    />
                   </Link>
                 );
               })}

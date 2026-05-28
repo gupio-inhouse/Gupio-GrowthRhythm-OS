@@ -60,6 +60,35 @@ function createCsv(rows: Array<Record<string, unknown>>) {
   return lines.join('\n');
 }
 
+function getOverdueDays(dueDate: Date, referenceDate: Date): number {
+  const dueDay = new Date(dueDate);
+  dueDay.setHours(0, 0, 0, 0);
+
+  const refDay = new Date(referenceDate);
+  refDay.setHours(0, 0, 0, 0);
+
+  const diffTime = refDay.getTime() - dueDay.getTime();
+  const diffDays = Math.round(diffTime / 86400000);
+  return diffDays > 0 ? diffDays : 0;
+}
+
+function formatIndianDate(date: Date | null | undefined): string {
+  if (!date) return '';
+  return new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    dateStyle: 'medium',
+  }).format(date);
+}
+
+function formatIndianDateTime(date: Date | null | undefined): string {
+  if (!date) return '';
+  return new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    dateStyle: 'medium',
+    timeStyle: 'medium',
+  }).format(date);
+}
+
 // GET /users
 router.get('/', async (req: AuthRequest, res: Response) => {
   const viewer = await getViewerScope(req.user!.userId);
@@ -378,7 +407,6 @@ router.get('/:id/report/export-csv', async (req: AuthRequest, res: Response) => 
     return;
   }
 
-  const todayStart = startOfToday();
   const tasks = await prisma.task.findMany({
     where: { orgId: req.user!.orgId, assigneeUserId: user.id },
     select: {
@@ -388,6 +416,7 @@ router.get('/:id/report/export-csv', async (req: AuthRequest, res: Response) => 
       dueDate: true,
       completedAt: true,
       createdAt: true,
+      updatedAt: true,
       blockerType: true,
       blockerCount: true,
       kra: { select: { name: true } },
@@ -397,23 +426,36 @@ router.get('/:id/report/export-csv', async (req: AuthRequest, res: Response) => 
     orderBy: [{ createdAt: 'desc' }],
   });
 
-  const csv = createCsv(tasks.map((task) => ({
-    employeeName: user.name,
-    employeeEmail: user.email,
-    employeeRole: user.role,
-    department: task.department?.name || user.department?.name || '',
-    taskTitle: task.title,
-    status: task.status,
-    priority: task.priority,
-    kra: task.kra?.name || '',
-    dependency: task.dependency?.title || '',
-    blockerType: task.blockerType || '',
-    blockerCount: task.blockerCount,
-    dueDate: task.dueDate?.toISOString() || '',
-    completedAt: task.completedAt?.toISOString() || '',
-    createdAt: task.createdAt.toISOString(),
-    isOverdue: !!task.dueDate && task.status !== 'DONE' && task.status !== 'CANCELLED' && task.dueDate < todayStart ? 'YES' : 'NO',
-  })));
+  const csv = createCsv(tasks.map((task) => {
+    let overdueStr = 'NO';
+    if (task.dueDate && task.status !== 'CANCELLED') {
+      const refDate = task.status === 'DONE'
+        ? (task.completedAt || task.updatedAt || new Date())
+        : new Date();
+      const overdueDays = getOverdueDays(task.dueDate, refDate);
+      if (overdueDays > 0) {
+        overdueStr = `${overdueDays} day${overdueDays > 1 ? 's' : ''} overdue`;
+      }
+    }
+
+    return {
+      employeeName: user.name,
+      employeeEmail: user.email,
+      employeeRole: user.role,
+      department: task.department?.name || user.department?.name || '',
+      taskTitle: task.title,
+      status: task.status,
+      priority: task.priority,
+      kra: task.kra?.name || '',
+      dependency: task.dependency?.title || '',
+      blockerType: task.blockerType || '',
+      blockerCount: task.blockerCount,
+      dueDate: formatIndianDate(task.dueDate),
+      completedAt: formatIndianDateTime(task.completedAt),
+      createdAt: formatIndianDateTime(task.createdAt),
+      isOverdue: overdueStr,
+    };
+  }));
 
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${user.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-report.csv"`);
@@ -528,11 +570,22 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
   const { name, phone, avatarUrl, departmentId, managerId, role, status, notificationPrefs } = req.body;
 
   const isOwnerOrAdmin = ['OWNER', 'COMPANY_ADMIN'].includes(req.user!.role);
+  const isDeptHead = req.user!.role === 'DEPARTMENT_HEAD';
   const isSelf = req.user!.userId === req.params.id;
 
-  if (!isOwnerOrAdmin && !isSelf) {
+  if (!isOwnerOrAdmin && !isDeptHead && !isSelf) {
     res.status(403).json({ error: 'Forbidden' });
     return;
+  }
+
+  // DEPARTMENT_HEAD can only assign manager for users in their own department
+  if (isDeptHead && managerId !== undefined) {
+    const me = await prisma.user.findUnique({ where: { id: req.user!.userId }, select: { departmentId: true } });
+    const target = await prisma.user.findUnique({ where: { id: req.params.id as string }, select: { departmentId: true } });
+    if (!me?.departmentId || me.departmentId !== target?.departmentId) {
+      res.status(403).json({ error: 'You can only assign managers for users in your own department' });
+      return;
+    }
   }
 
   const data: Record<string, unknown> = {};
@@ -541,7 +594,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
   if (avatarUrl) data.avatarUrl = avatarUrl;
   if (notificationPrefs !== undefined) data.notificationPrefs = notificationPrefs;
   if (isOwnerOrAdmin && departmentId !== undefined) data.departmentId = departmentId;
-  if (isOwnerOrAdmin && managerId !== undefined) data.managerId = managerId;
+  if ((isOwnerOrAdmin || isDeptHead) && managerId !== undefined) data.managerId = managerId;
   if (isOwnerOrAdmin && role) data.role = role;
   if (isOwnerOrAdmin && status) data.status = status;
 
