@@ -348,6 +348,90 @@ function SetupGuide({ role, checks }: { role: string; checks: Checks }) {
   );
 }
 
+function ResourceCapacityCard() {
+  const { data: workload = [], isLoading } = useQuery<Array<{
+    id: string; name: string; email: string; role: string; departmentName: string | null; activeTaskCount: number;
+  }>>({
+    queryKey: ['users-workload'],
+    queryFn: () => api.get('/users/workload').then((r) => r.data),
+  });
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Users className="h-4 w-4 text-blue-500 animate-pulse" />
+            Resource Capacity
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="h-10 rounded-lg bg-muted animate-pulse" />
+          ))}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (workload.length === 0) return null;
+
+  return (
+    <Card className="hover:shadow-md transition-all duration-300 border border-border/80">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Users className="h-4 w-4 text-emerald-500" />
+          Resource Capacity
+          <Badge variant="outline" className="ml-auto text-[10px] uppercase font-bold tracking-wider text-emerald-700 border-emerald-200 bg-emerald-50">
+            Least Loaded
+          </Badge>
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">Team members with the most available bandwidth</p>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-2">
+          {workload.map((member) => {
+            const taskCount = member.activeTaskCount;
+            let badgeClass = 'bg-green-50 text-green-700 border-green-200';
+            let statusText = '0 active tasks';
+
+            if (taskCount > 0 && taskCount <= 2) {
+              badgeClass = 'bg-blue-50 text-blue-700 border-blue-200';
+              statusText = `${taskCount} active task${taskCount > 1 ? 's' : ''}`;
+            } else if (taskCount > 2) {
+              badgeClass = 'bg-amber-50 text-amber-700 border-amber-200';
+              statusText = `${taskCount} active tasks`;
+            }
+
+            return (
+              <Link
+                key={member.id}
+                to={`/team/${member.id}/report`}
+                className="flex items-center justify-between p-2 rounded-lg border border-transparent hover:border-primary/20 hover:bg-muted/40 transition-all group"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="h-8 w-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-semibold text-xs shrink-0 group-hover:scale-105 transition-transform">
+                    {member.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">{member.name}</p>
+                    <p className="text-[10px] text-muted-foreground truncate uppercase tracking-wider">
+                      {member.role.toLowerCase().replace(/_/g, ' ')} {member.departmentName ? `· ${member.departmentName}` : ''}
+                    </p>
+                  </div>
+                </div>
+                <Badge className={cn('text-xs border font-medium shrink-0', badgeClass)}>
+                  {statusText}
+                </Badge>
+              </Link>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── Department dashboard (when slug is present) ──────────────────────────────
 
 type DeptDashboard = {
@@ -361,6 +445,10 @@ type DeptMember = { id: string; name: string; role: string; status: string; avat
 type DeptDetail = { id: string; name: string; users: DeptMember[]; _count: { tasks: number; standups: number } };
 
 function DepartmentDashboard({ slug }: { slug: string }) {
+  const { user } = useAuthStore();
+  const isManagerOrHead = ['DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
+  const isCeo = ['OWNER', 'COMPANY_ADMIN'].includes(user?.role || '');
+
   const { data: dash } = useQuery<DeptDashboard>({
     queryKey: ['dept-dashboard', slug],
     queryFn: () => api.get(`/departments/${slug}/dashboard`).then((r) => r.data),
@@ -453,25 +541,28 @@ function DepartmentDashboard({ slug }: { slug: string }) {
         </Card>
 
         {/* Widget 5: Team */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Users className="h-4 w-4 text-blue-500" />
-              Team ({dept?.users.length || 0})
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-1">
-              {(dept?.users || []).slice(0, 8).map((member) => (
-                <Link key={member.id} to={`/team/${member.id}/report`} className="flex items-center gap-2 p-1.5 -mx-1.5 rounded-lg hover:bg-muted/50 transition-colors">
-                  <div className={cn('h-2 w-2 rounded-full shrink-0', member.status === 'ACTIVE' ? 'bg-green-500' : 'bg-gray-300')} />
-                  <span className="text-sm flex-1 truncate">{member.name}</span>
-                  <span className="text-xs text-muted-foreground capitalize shrink-0">{member.role.toLowerCase().replace(/_/g, ' ')}</span>
-                </Link>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Users className="h-4 w-4 text-blue-500" />
+                Team ({dept?.users.length || 0})
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-1">
+                {(dept?.users || []).slice(0, 8).map((member) => (
+                  <Link key={member.id} to={`/team/${member.id}/report`} className="flex items-center gap-2 p-1.5 -mx-1.5 rounded-lg hover:bg-muted/50 transition-colors">
+                    <div className={cn('h-2 w-2 rounded-full shrink-0', member.status === 'ACTIVE' ? 'bg-green-500' : 'bg-gray-300')} />
+                    <span className="text-sm flex-1 truncate">{member.name}</span>
+                    <span className="text-xs text-muted-foreground capitalize shrink-0">{member.role.toLowerCase().replace(/_/g, ' ')}</span>
+                  </Link>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+          {(isManagerOrHead || isCeo) && <ResourceCapacityCard />}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -866,6 +957,9 @@ export default function Dashboard() {
               </CardContent>
             </Card>
           )}
+
+          {/* Resource Capacity */}
+          {(isManagerOrHead || isCeo) && <ResourceCapacityCard />}
 
           {/* Blockers */}
           <Card>

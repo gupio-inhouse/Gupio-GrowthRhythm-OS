@@ -106,6 +106,67 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   );
 });
 
+// GET /users/workload
+router.get('/workload', async (req: AuthRequest, res: Response) => {
+  const viewer = await getViewerScope(req.user!.userId);
+  if (!viewer) {
+    res.status(403).json({ error: 'Forbidden' });
+    return;
+  }
+
+  if (!['OWNER', 'COMPANY_ADMIN', 'SUPER_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(viewer.role)) {
+    res.status(403).json({ error: 'Forbidden' });
+    return;
+  }
+
+  const users = await prisma.user.findMany({
+    where: {
+      orgId: req.user!.orgId,
+      status: 'ACTIVE',
+      role: { notIn: ['SUPER_ADMIN', 'COACH_ADVISOR'] },
+      ...(viewer.role !== 'OWNER' && viewer.role !== 'COMPANY_ADMIN' && viewer.role !== 'SUPER_ADMIN' && viewer.departmentId
+        ? { departmentId: viewer.departmentId }
+        : {}),
+    },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      avatarUrl: true,
+      role: true,
+      department: { select: { name: true } },
+      assignedTasks: {
+        where: {
+          status: { notIn: ['DONE', 'CANCELLED'] },
+        },
+        select: {
+          id: true,
+        },
+      },
+    },
+  });
+
+  const workload = users.map((u) => ({
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    avatarUrl: u.avatarUrl,
+    role: u.role,
+    departmentName: u.department?.name ?? null,
+    activeTaskCount: u.assignedTasks.length,
+  }));
+
+  // Sort by active task count ascending, then by name ascending
+  workload.sort((a, b) => {
+    if (a.activeTaskCount !== b.activeTaskCount) {
+      return a.activeTaskCount - b.activeTaskCount;
+    }
+    return a.name.localeCompare(b.name);
+  });
+
+  res.json(workload.slice(0, 5));
+});
+
 // GET /users/:id
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   const viewer = await getViewerScope(req.user!.userId);

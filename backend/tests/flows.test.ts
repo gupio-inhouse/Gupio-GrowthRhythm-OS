@@ -411,6 +411,22 @@ test('allows each role to authenticate and access a representative flow', async 
   assert.equal(superStats.status, 200);
 });
 
+test('fetches users workload sorted by task count', async () => {
+  const owner = await login(state.owner!.user.email);
+  const res = await jsonRequest<Array<{ id: string; name: string; activeTaskCount: number }>>('/api/users/workload', {
+    headers: authHeaders(owner.token),
+  });
+
+  assert.equal(res.status, 200);
+  assert.ok(Array.isArray(res.body));
+  assert.ok(res.body.length > 0);
+
+  // Assert it's sorted by activeTaskCount ascending
+  for (let i = 1; i < res.body.length; i++) {
+    assert.ok(res.body[i - 1].activeTaskCount <= res.body[i].activeTaskCount);
+  }
+});
+
 test('persists goals, KRAs, tasks, notifications, and task progress', async () => {
   const ownerToken = state.owner!.token;
 

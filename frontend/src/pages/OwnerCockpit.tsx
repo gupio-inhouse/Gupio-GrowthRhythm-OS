@@ -31,6 +31,90 @@ function LinkedCard({ to, children, className = '' }: { to: string; children: Re
   );
 }
 
+function ResourceCapacityCard() {
+  const { data: workload = [], isLoading } = useQuery<Array<{
+    id: string; name: string; email: string; role: string; departmentName: string | null; activeTaskCount: number;
+  }>>({
+    queryKey: ['users-workload'],
+    queryFn: () => api.get('/users/workload').then((r) => r.data),
+  });
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Users className="h-4 w-4 text-blue-500 animate-pulse" />
+            Resource Capacity
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="h-10 rounded-lg bg-muted animate-pulse" />
+          ))}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (workload.length === 0) return null;
+
+  return (
+    <Card className="hover:shadow-md transition-all duration-300 border border-border/80">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Users className="h-4 w-4 text-emerald-500" />
+          Resource Capacity
+          <Badge variant="outline" className="ml-auto text-[10px] uppercase font-bold tracking-wider text-emerald-700 border-emerald-200 bg-emerald-50">
+            Least Loaded
+          </Badge>
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">Team members with the most available bandwidth</p>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-2">
+          {workload.map((member) => {
+            const taskCount = member.activeTaskCount;
+            let badgeClass = 'bg-green-50 text-green-700 border-green-200';
+            let statusText = '0 active tasks';
+
+            if (taskCount > 0 && taskCount <= 2) {
+              badgeClass = 'bg-blue-50 text-blue-700 border-blue-200';
+              statusText = `${taskCount} active task${taskCount > 1 ? 's' : ''}`;
+            } else if (taskCount > 2) {
+              badgeClass = 'bg-amber-50 text-amber-700 border-amber-200';
+              statusText = `${taskCount} active tasks`;
+            }
+
+            return (
+              <Link
+                key={member.id}
+                to={`/team/${member.id}/report`}
+                className="flex items-center justify-between p-2 rounded-lg border border-transparent hover:border-primary/20 hover:bg-muted/40 transition-all group"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="h-8 w-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-semibold text-xs shrink-0 group-hover:scale-105 transition-transform">
+                    {member.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">{member.name}</p>
+                    <p className="text-[10px] text-muted-foreground truncate uppercase tracking-wider">
+                      {member.role.toLowerCase().replace(/_/g, ' ')} {member.departmentName ? `· ${member.departmentName}` : ''}
+                    </p>
+                  </div>
+                </div>
+                <Badge className={cn('text-xs border font-medium shrink-0', badgeClass)}>
+                  {statusText}
+                </Badge>
+              </Link>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function OwnerCockpit() {
   const navigate = useNavigate();
   const { data, isLoading } = useQuery({
@@ -385,54 +469,65 @@ export default function OwnerCockpit() {
         </Card>
       )}
 
-      {/* Repeated blockers (from M8.1 blocker analysis) */}
-      {blockers?.repeatedBlockers?.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-red-500" />
-              Repeated Blockers (3+ times)
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {blockers.repeatedBlockers.map((task: { id: string; title: string; blockerCount: number; assignee?: { id: string; name: string }; department?: { name: string } }) => (
-                <div
-                  key={task.id}
-                  className="flex items-center gap-3 p-3 rounded-lg bg-red-50 border border-red-100 hover:bg-red-100/70 transition-colors cursor-pointer"
-                  onClick={() => navigate(`/tasks?status=BLOCKED&taskId=${task.id}`)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      navigate(`/tasks?status=BLOCKED&taskId=${task.id}`);
-                    }
-                  }}
-                  role="button"
-                  tabIndex={0}
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{task.title}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      {task.assignee && (
-                        <Link
-                          to={`/team/${task.assignee.id}/report`}
-                          onClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => e.stopPropagation()}
-                          className="text-xs text-primary hover:underline"
-                        >
-                          {task.assignee.name}
-                        </Link>
-                      )}
-                      {task.department && <span className="text-xs text-muted-foreground">· {task.department.name}</span>}
+      {/* Bottom widgets grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <ResourceCapacityCard />
+
+        {/* Repeated blockers (from M8.1 blocker analysis) */}
+        {blockers?.repeatedBlockers?.length > 0 ? (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-red-500" />
+                Repeated Blockers (3+ times)
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {blockers.repeatedBlockers.map((task: { id: string; title: string; blockerCount: number; assignee?: { id: string; name: string }; department?: { name: string } }) => (
+                  <div
+                    key={task.id}
+                    className="flex items-center gap-3 p-3 rounded-lg bg-red-50 border border-red-100 hover:bg-red-100/70 transition-colors cursor-pointer"
+                    onClick={() => navigate(`/tasks?status=BLOCKED&taskId=${task.id}`)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        navigate(`/tasks?status=BLOCKED&taskId=${task.id}`);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{task.title}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {task.assignee && (
+                          <Link
+                            to={`/team/${task.assignee.id}/report`}
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
+                            className="text-xs text-primary hover:underline"
+                          >
+                            {task.assignee.name}
+                          </Link>
+                        )}
+                        {task.department && <span className="text-xs text-muted-foreground">· {task.department.name}</span>}
+                      </div>
                     </div>
+                    <Badge variant="destructive" className="text-xs shrink-0">{task.blockerCount}x blocked</Badge>
                   </div>
-                  <Badge variant="destructive" className="text-xs shrink-0">{task.blockerCount}x blocked</Badge>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card className="border border-dashed bg-muted/10 flex flex-col items-center justify-center text-center p-6 min-h-[220px]">
+            <CheckSquare className="h-8 w-8 mb-2 text-emerald-500 opacity-60" />
+            <p className="text-sm font-medium">No Repeated Blockers</p>
+            <p className="text-xs text-muted-foreground">No tasks have been blocked 3+ times.</p>
+          </Card>
+        )}
+      </div>
     </div>
   );
 }
