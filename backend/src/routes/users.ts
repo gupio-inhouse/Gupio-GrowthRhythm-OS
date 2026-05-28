@@ -60,6 +60,18 @@ function createCsv(rows: Array<Record<string, unknown>>) {
   return lines.join('\n');
 }
 
+function getOverdueDays(dueDate: Date, referenceDate: Date): number {
+  const dueDay = new Date(dueDate);
+  dueDay.setHours(0, 0, 0, 0);
+
+  const refDay = new Date(referenceDate);
+  refDay.setHours(0, 0, 0, 0);
+
+  const diffTime = refDay.getTime() - dueDay.getTime();
+  const diffDays = Math.round(diffTime / 86400000);
+  return diffDays > 0 ? diffDays : 0;
+}
+
 // GET /users
 router.get('/', async (req: AuthRequest, res: Response) => {
   const viewer = await getViewerScope(req.user!.userId);
@@ -317,7 +329,6 @@ router.get('/:id/report/export-csv', async (req: AuthRequest, res: Response) => 
     return;
   }
 
-  const todayStart = startOfToday();
   const tasks = await prisma.task.findMany({
     where: { orgId: req.user!.orgId, assigneeUserId: user.id },
     select: {
@@ -327,6 +338,7 @@ router.get('/:id/report/export-csv', async (req: AuthRequest, res: Response) => 
       dueDate: true,
       completedAt: true,
       createdAt: true,
+      updatedAt: true,
       blockerType: true,
       blockerCount: true,
       kra: { select: { name: true } },
@@ -336,23 +348,36 @@ router.get('/:id/report/export-csv', async (req: AuthRequest, res: Response) => 
     orderBy: [{ createdAt: 'desc' }],
   });
 
-  const csv = createCsv(tasks.map((task) => ({
-    employeeName: user.name,
-    employeeEmail: user.email,
-    employeeRole: user.role,
-    department: task.department?.name || user.department?.name || '',
-    taskTitle: task.title,
-    status: task.status,
-    priority: task.priority,
-    kra: task.kra?.name || '',
-    dependency: task.dependency?.title || '',
-    blockerType: task.blockerType || '',
-    blockerCount: task.blockerCount,
-    dueDate: task.dueDate?.toISOString() || '',
-    completedAt: task.completedAt?.toISOString() || '',
-    createdAt: task.createdAt.toISOString(),
-    isOverdue: !!task.dueDate && task.status !== 'DONE' && task.status !== 'CANCELLED' && task.dueDate < todayStart ? 'YES' : 'NO',
-  })));
+  const csv = createCsv(tasks.map((task) => {
+    let overdueStr = 'NO';
+    if (task.dueDate && task.status !== 'CANCELLED') {
+      const refDate = task.status === 'DONE'
+        ? (task.completedAt || task.updatedAt || new Date())
+        : new Date();
+      const overdueDays = getOverdueDays(task.dueDate, refDate);
+      if (overdueDays > 0) {
+        overdueStr = `${overdueDays} day${overdueDays > 1 ? 's' : ''} overdue`;
+      }
+    }
+
+    return {
+      employeeName: user.name,
+      employeeEmail: user.email,
+      employeeRole: user.role,
+      department: task.department?.name || user.department?.name || '',
+      taskTitle: task.title,
+      status: task.status,
+      priority: task.priority,
+      kra: task.kra?.name || '',
+      dependency: task.dependency?.title || '',
+      blockerType: task.blockerType || '',
+      blockerCount: task.blockerCount,
+      dueDate: task.dueDate?.toISOString() || '',
+      completedAt: task.completedAt?.toISOString() || '',
+      createdAt: task.createdAt.toISOString(),
+      isOverdue: overdueStr,
+    };
+  }));
 
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${user.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-report.csv"`);
