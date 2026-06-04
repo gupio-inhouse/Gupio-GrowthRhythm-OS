@@ -124,7 +124,7 @@ export default function Tasks() {
   };
 
   const handleExtendDeadline = (taskId: string, newDate: string) => {
-    updateMutation.mutate({ id: taskId, patch: { dueDate: new Date(newDate).toISOString() } });
+    updateMutation.mutate({ id: taskId, patch: { dueDate: new Date(`${newDate}T23:59:59`).toISOString() } });
   };
 
   const handleBlockerConfirm = (data: { blockerType: string; blockerDescription: string; blockerExpectedResolution?: string }) => {
@@ -170,7 +170,7 @@ export default function Tasks() {
   const isTaskDueToday = (t: Task) => {
     if (!t.dueDate || t.status === 'DONE' || t.status === 'CANCELLED') return false;
     const d = new Date(t.dueDate);
-    return d >= todayMidnight && d <= endOfToday;
+    return d >= now && d <= endOfToday;
   };
 
   const filtered = tasks

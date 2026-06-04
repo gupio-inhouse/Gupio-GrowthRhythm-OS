@@ -755,7 +755,7 @@ export default function Dashboard() {
   const isDueToday = (t: Task) => {
     if (!t.dueDate || t.status === 'DONE' || t.status === 'CANCELLED') return false;
     const d = new Date(t.dueDate);
-    return d >= todayDate && d <= endOfToday;
+    return d >= now && d <= endOfToday;
   };
 
   // All tasks the API returns are already scoped by role:

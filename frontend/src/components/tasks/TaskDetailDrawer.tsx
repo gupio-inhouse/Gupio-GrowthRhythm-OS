@@ -135,7 +135,7 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
   const screenshotInputRef = useRef<HTMLInputElement | null>(null);
   const documentInputRef = useRef<HTMLInputElement | null>(null);
 
-  const canEdit = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
+  const canEditAsManager = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
   const canContribute = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'].includes(user?.role || '');
 
   const { data: task, isLoading } = useQuery<TaskDetail>({
@@ -143,6 +143,8 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
     queryFn: () => api.get(`/tasks/${taskId}`).then((r) => r.data),
     enabled: !!taskId,
   });
+
+  const canEdit = canEditAsManager || (user?.role === 'TEAM_MEMBER' && !!task && task.assignee?.id === user?.id);
 
   const updateMutation = useMutation({
     mutationFn: (patch: Record<string, unknown>) => api.patch(`/tasks/${taskId}`, patch),

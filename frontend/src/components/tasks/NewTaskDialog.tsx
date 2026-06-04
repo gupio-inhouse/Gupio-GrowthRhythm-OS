@@ -123,6 +123,8 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
           if (!taskToEdit.dueDate) return '';
           const d = new Date(taskToEdit.dueDate);
           const h = d.getHours(), m = d.getMinutes();
+          // 23:59 is the end-of-day default — treat as "no specific time"
+          if (h === 23 && m === 59) return '';
           return (h !== 0 || m !== 0)
             ? `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
             : '';
@@ -140,24 +142,30 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
   const handleClose = () => { reset(); onClose(); };
 
   const onSubmit = async (data: FormData) => {
-    const dueDate = data.dueDate;
-    const dueTime = data.dueTime;
-    let dueDateIso: string | undefined;
-    if (dueDate) {
-      dueDateIso = new Date(`${dueDate}T${dueTime || '00:00'}`).toISOString();
-    }
-
-    const payload = {
-      title: data.title,
-      description: data.description || undefined,
-      expectedOutcome: data.expectedOutcome || undefined,
-      assigneeUserId: isTeamMember ? user!.id : data.assigneeUserId,
-      departmentId: data.departmentId || undefined,
-      kraId: data.kraId || undefined,
-      dependencyId: data.dependencyId || undefined,
-      priority: data.priority,
-      dueDate: dueDateIso,
-    };
+    const payload: Record<string, unknown> = isTeamMember && isEditMode
+      ? {
+          title: data.title,
+          description: data.description || undefined,
+        }
+      : (() => {
+          const dueDate = data.dueDate;
+          const dueTime = data.dueTime;
+          let dueDateIso: string | undefined;
+          if (dueDate) {
+            dueDateIso = new Date(`${dueDate}T${dueTime || '23:59:59'}`).toISOString();
+          }
+          return {
+            title: data.title,
+            description: data.description || undefined,
+            expectedOutcome: data.expectedOutcome || undefined,
+            assigneeUserId: isTeamMember ? user!.id : data.assigneeUserId,
+            departmentId: data.departmentId || undefined,
+            kraId: data.kraId || undefined,
+            dependencyId: data.dependencyId || undefined,
+            priority: data.priority,
+            dueDate: dueDateIso,
+          };
+        })();
 
     if (isEditMode && taskToEdit) {
       await api.patch(`/tasks/${taskToEdit.id}`, payload);
@@ -198,11 +206,13 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
             <Textarea placeholder="Additional context..." rows={2} {...register('description')} />
           </div>
 
-          {/* Expected Outcome */}
-          <div className="space-y-1.5">
-            <Label>Expected Outcome</Label>
-            <Input placeholder="What does done look like?" {...register('expectedOutcome')} />
-          </div>
+          {/* Expected Outcome — hidden for team members in edit mode */}
+          {!(isTeamMember && isEditMode) && (
+            <div className="space-y-1.5">
+              <Label>Expected Outcome</Label>
+              <Input placeholder="What does done look like?" {...register('expectedOutcome')} />
+            </div>
+          )}
 
           {/* Manager/DeptHead/Owner view: Department + Priority */}
           {!isTeamMember && (
@@ -287,8 +297,8 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
             </div>
           )}
 
-          {/* Team member view: KRA + Priority */}
-          {isTeamMember && (
+          {/* Team member view: KRA + Priority — hidden in edit mode */}
+          {isTeamMember && !isEditMode && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label>KRA (optional)</Label>
@@ -321,17 +331,19 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
             </div>
           )}
 
-          {/* Due Date + Time */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label>Due Date</Label>
-              <Input type="date" {...register('dueDate')} />
+          {/* Due Date + Time — hidden for team members in edit mode */}
+          {!(isTeamMember && isEditMode) && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Due Date</Label>
+                <Input type="date" {...register('dueDate')} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Due Time</Label>
+                <Input type="time" {...register('dueTime')} />
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <Label>Due Time</Label>
-              <Input type="time" {...register('dueTime')} />
-            </div>
-          </div>
+          )}
 
           {/* Depends On (managers only) */}
           {!isTeamMember && (

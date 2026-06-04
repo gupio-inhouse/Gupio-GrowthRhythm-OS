@@ -241,6 +241,8 @@ model User {
   auditLogs            AuditLog[]
   headOfDepartments    Department[]       @relation("DepartmentHead")
   managedTeams         Team[]             @relation("TeamManager")
+  headedTeams          Team[]             @relation("TeamDeptHead")
+  teamMemberships      TeamMember[]
   interviewScorecards  InterviewScorecard[]
   onboardingChecklists OnboardingChecklist[]
   appFeedback          AppFeedback[]
@@ -284,23 +286,39 @@ model Department {
 }
 
 model Team {
-  id             String     @id @default(cuid())
-  orgId          String     @map("org_id")
-  departmentId   String     @map("department_id")
-  managerUserId  String?    @map("manager_user_id")
-  name           String
-  slug           String
-  description    String?
-  isActive       Boolean    @default(true) @map("is_active")
-  createdAt      DateTime   @default(now()) @map("created_at")
-  updatedAt      DateTime   @updatedAt @map("updated_at")
+  id                   String     @id @default(cuid())
+  orgId                String     @map("org_id")
+  departmentId         String     @map("department_id")
+  managerUserId        String?    @map("manager_user_id")
+  departmentHeadUserId String?    @map("department_head_user_id")
+  name                 String
+  slug                 String
+  description          String?
+  isActive             Boolean    @default(true) @map("is_active")
+  createdAt            DateTime   @default(now()) @map("created_at")
+  updatedAt            DateTime   @updatedAt @map("updated_at")
 
   org            Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   department     Department   @relation(fields: [departmentId], references: [id])
   manager        User?        @relation("TeamManager", fields: [managerUserId], references: [id])
+  departmentHead User?        @relation("TeamDeptHead", fields: [departmentHeadUserId], references: [id])
+  members        TeamMember[]
 
   @@unique([orgId, slug])
   @@map("teams")
+}
+
+model TeamMember {
+  id       String   @id @default(cuid())
+  teamId   String   @map("team_id")
+  userId   String   @map("user_id")
+  joinedAt DateTime @default(now()) @map("joined_at")
+
+  team     Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@map("team_members")
 }
 
 model Goal {

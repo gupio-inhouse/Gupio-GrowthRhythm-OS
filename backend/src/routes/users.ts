@@ -269,6 +269,7 @@ router.get('/:id/report', async (req: AuthRequest, res: Response) => {
     return;
   }
 
+  const now = new Date();
   const todayStart = startOfToday();
   const todayEnd = endOfToday();
   const weekStart = startOfWeek();
@@ -305,13 +306,13 @@ router.get('/:id/report', async (req: AuthRequest, res: Response) => {
     !!task.dueDate &&
     task.status !== 'DONE' &&
     task.status !== 'CANCELLED' &&
-    task.dueDate < todayStart
+    task.dueDate < now
   ).length;
   const dueTodayTasks = tasks.filter((task) =>
     !!task.dueDate &&
     task.status !== 'DONE' &&
     task.status !== 'CANCELLED' &&
-    task.dueDate >= todayStart &&
+    task.dueDate >= now &&
     task.dueDate <= todayEnd
   ).length;
   const completedThisWeek = tasks.filter((task) => !!task.completedAt && task.completedAt >= weekStart).length;

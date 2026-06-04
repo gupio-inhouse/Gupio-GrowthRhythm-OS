@@ -1,6 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, CheckSquare, Users, Target, Zap, BookOpen,
+  LayoutDashboard, CheckSquare, Users, UsersRound, Target, Zap, BookOpen,
   Building2, Settings, LogOut, BarChart3, Shield, Plug, MessageSquare, X, ClipboardList,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -18,6 +18,7 @@ const navItems = [
   { label: 'Learning', href: '/learning', icon: BookOpen, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'] },
   { label: 'Departments', href: '/departments', icon: Building2, roles: ['OWNER', 'COMPANY_ADMIN'] },
   { label: 'Team', href: '/team', icon: Users, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'] },
+  { label: 'Project Team', href: '/teams', icon: UsersRound, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'] },
   { label: 'Integrations', href: '/integrations', icon: Plug, roles: ['OWNER', 'COMPANY_ADMIN'] },
   { label: 'Audit Log', href: '/audit-log', icon: ClipboardList, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'] },
   { label: 'App Feedback', href: '/app-feedback', icon: MessageSquare, roles: ['OWNER', 'COMPANY_ADMIN'] },

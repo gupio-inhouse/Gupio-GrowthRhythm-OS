@@ -367,9 +367,9 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
   }
 
   if (actor.role === 'TEAM_MEMBER') {
-    const forbiddenFields = ['assigneeUserId', 'departmentId', 'kraId', 'priority', 'dependencyId', 'dueDate', 'startDate', 'title'];
+    const forbiddenFields = ['assigneeUserId', 'departmentId', 'kraId', 'priority', 'dependencyId', 'dueDate', 'startDate'];
     if (forbiddenFields.some((field) => field in req.body)) {
-      res.status(403).json({ error: 'Team members can only update status and blocker details on their own tasks' });
+      res.status(403).json({ error: 'Team members can only update title, description, status, and blocker details on their own tasks' });
       return;
     }
     if (parsed.data.status === 'IN_REVIEW') {

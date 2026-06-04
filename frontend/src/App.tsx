@@ -11,6 +11,7 @@ import Learning from '@/pages/Learning';
 import Departments from '@/pages/Departments';
 import OwnerCockpit from '@/pages/OwnerCockpit';
 import Team from '@/pages/Team';
+import Teams from '@/pages/Teams';
 import IndividualReport from '@/pages/IndividualReport';
 import Settings from '@/pages/Settings';
 import SuperAdmin from '@/pages/SuperAdmin';
@@ -70,6 +71,7 @@ export default function App() {
             <Route path="departments" element={<Departments />} />
             <Route path="team/:userId/report" element={<IndividualReport />} />
             <Route path="team" element={<Team />} />
+            <Route path="teams" element={<Teams />} />
             <Route path="integrations" element={<Integrations />} />
             <Route path="app-feedback" element={<AppFeedback />} />
             <Route path="audit-log" element={<AuditLog />} />
