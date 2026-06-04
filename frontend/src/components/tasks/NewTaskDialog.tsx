@@ -46,6 +46,7 @@ type UserItem = { id: string; name: string; role: string; departmentId?: string 
 type Department = { id: string; name: string };
 type KRA = { id: string; name: string; departmentId?: string };
 type TaskItem = { id: string; title: string };
+type TeamItem = { id: string; name: string; members: { user: { id: string } }[] };
 
 export type TaskToEdit = {
   id: string;
@@ -93,6 +94,12 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
   const { data: allTasks = [] } = useQuery<TaskItem[]>({
     queryKey: ['tasks-list'],
     queryFn: () => api.get('/tasks').then((r) => r.data),
+    enabled: open && !isTeamMember,
+  });
+
+  const { data: teams = [] } = useQuery<TeamItem[]>({
+    queryKey: ['teams'],
+    queryFn: () => api.get('/teams').then((r) => r.data),
     enabled: open && !isTeamMember,
   });
 
@@ -185,6 +192,10 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
     ? kras.filter((k) => k.departmentId === effectiveDeptId)
     : kras;
 
+  const assigneeTeams = watchedAssigneeId
+    ? teams.filter((t) => t.members.some((m) => m.user.id === watchedAssigneeId))
+    : [];
+
   return (
     <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
       <DialogContent className="w-[calc(100vw-2rem)] max-w-lg">
@@ -272,6 +283,11 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
                 </Select>
                 {'assigneeUserId' in errors && errors.assigneeUserId && (
                   <p className="text-xs text-destructive">{(errors.assigneeUserId as { message?: string }).message}</p>
+                )}
+                {assigneeTeams.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Team{assigneeTeams.length > 1 ? 's' : ''}: <span className="font-medium text-foreground">{assigneeTeams.map((t) => t.name).join(', ')}</span>
+                  </p>
                 )}
               </div>
 

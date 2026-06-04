@@ -72,15 +72,6 @@ const teamSchema = z.object({
 });
 type TeamForm = z.infer<typeof teamSchema>;
 
-const taskSchema = z.object({
-  title: z.string().min(2, 'Title required'),
-  description: z.string().optional(),
-  priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).default('MEDIUM'),
-  dueDate: z.string().optional(),
-  assignToUserId: z.string().optional(),
-});
-type TaskForm = z.infer<typeof taskSchema>;
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function slugify(s: string) {
@@ -279,7 +270,6 @@ function ProjectOverviewPanel({ team, onUpdated, onDelete, isDeleting, deleteErr
   const qc = useQueryClient();
   const [editOpen, setEditOpen] = useState(false);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
-  const [assignTaskOpen, setAssignTaskOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [expandedMember, setExpandedMember] = useState<string | null>(null);
 
@@ -444,9 +434,6 @@ function ProjectOverviewPanel({ team, onUpdated, onDelete, isDeleting, deleteErr
           <div className="flex items-center justify-between">
             <CardTitle className="text-base">Team Members ({team.memberCount})</CardTitle>
             <div className="flex items-center gap-2">
-              <Button size="sm" variant="outline" className="gap-1.5 h-7 text-xs" onClick={() => setAssignTaskOpen(true)}>
-                <ClipboardList className="h-3.5 w-3.5" /> Assign Task
-              </Button>
               <Button size="sm" className="gap-1.5 h-7 text-xs" onClick={() => setAddMemberOpen(true)}>
                 <UserPlus className="h-3.5 w-3.5" /> Add Member
               </Button>
@@ -475,15 +462,6 @@ function ProjectOverviewPanel({ team, onUpdated, onDelete, isDeleting, deleteErr
       </Card>
 
       {/* Dialogs */}
-      <AssignTaskDialog
-        open={assignTaskOpen}
-        team={team}
-        isTeamMember={false}
-        onClose={() => {
-          setAssignTaskOpen(false);
-          qc.invalidateQueries({ queryKey: ['team-overview', team.id] });
-        }}
-      />
       {editOpen && (
         <TeamFormDialog
           open={editOpen}
@@ -621,7 +599,6 @@ function TeamDetail({
   onUpdated: (t: Team) => void; onDelete: () => void; isDeleting: boolean;
 }) {
   const [addMemberOpen, setAddMemberOpen] = useState(false);
-  const [assignTaskOpen, setAssignTaskOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const qc = useQueryClient();
 
@@ -690,12 +667,6 @@ function TeamDetail({
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold">Members ({team.members.length})</h3>
             <div className="flex items-center gap-2">
-              {(canManage || isTeamMember) && (
-                <Button size="sm" variant="outline" className="gap-1.5 h-7 text-xs" onClick={() => setAssignTaskOpen(true)}>
-                  <ClipboardList className="h-3.5 w-3.5" />
-                  {isTeamMember ? 'Add My Task' : 'Assign Task'}
-                </Button>
-              )}
               {canManage && (
                 <Button size="sm" className="gap-1.5 h-7 text-xs" onClick={() => setAddMemberOpen(true)}>
                   <UserPlus className="h-3.5 w-3.5" /> Add Member
@@ -740,12 +711,6 @@ function TeamDetail({
         </div>
       </CardContent>
 
-      <AssignTaskDialog
-        open={assignTaskOpen}
-        team={team}
-        isTeamMember={isTeamMember}
-        onClose={() => setAssignTaskOpen(false)}
-      />
       {canManage && addMemberOpen && (
         <AddMemberDialog
           open={addMemberOpen}
@@ -921,101 +886,3 @@ function AddMemberDialog({ open, team, onClose, onAdded }: {
   );
 }
 
-// ── Assign task dialog ────────────────────────────────────────────────────────
-
-function AssignTaskDialog({ open, team, isTeamMember, onClose }: {
-  open: boolean; team: Team; isTeamMember: boolean; onClose: () => void;
-}) {
-  const { register, handleSubmit, setValue, watch, reset, formState: { errors, isSubmitting } } = useForm<TaskForm>({
-    resolver: zodResolver(taskSchema),
-    defaultValues: { priority: 'MEDIUM', assignToUserId: '' },
-  });
-
-  const watchedPriority = watch('priority') || 'MEDIUM';
-  const watchedAssignee = watch('assignToUserId') || '';
-  const [success, setSuccess] = useState('');
-  const [apiError, setApiError] = useState('');
-
-  const onSubmit = async (data: TaskForm) => {
-    setApiError(''); setSuccess('');
-    try {
-      const res = await api.post(`/teams/${team.id}/tasks`, { ...data, assignToUserId: data.assignToUserId || undefined });
-      const count = res.data.created?.length ?? 0;
-      setSuccess(`${count} task${count !== 1 ? 's' : ''} created successfully`);
-      reset({ priority: 'MEDIUM', assignToUserId: '' });
-    } catch (err: unknown) {
-      const e = err as { response?: { data?: { error?: string } } };
-      setApiError(e?.response?.data?.error ?? 'Failed to assign task');
-    }
-  };
-
-  const handleClose = () => { reset(); setSuccess(''); setApiError(''); onClose(); };
-
-  return (
-    <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
-      <DialogContent className="w-[calc(100vw-2rem)] max-w-md">
-        <DialogHeader>
-          <DialogTitle>{isTeamMember ? 'Add My Task' : 'Assign Task'} — {team.name}</DialogTitle>
-        </DialogHeader>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          {!isTeamMember && (
-            <div className="space-y-1.5">
-              <Label>Assign To</Label>
-              <Select value={watchedAssignee} onValueChange={(v) => setValue('assignToUserId', v === '__all__' ? '' : v)}>
-                <SelectTrigger><SelectValue placeholder="Whole team" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__all__">
-                    Whole team ({team.members.length} members)
-                  </SelectItem>
-                  {team.members.map((m) => <SelectItem key={m.user.id} value={m.user.id}>{m.user.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                {watchedAssignee
-                  ? `Assigned to: ${team.members.find((m) => m.user.id === watchedAssignee)?.user.name}`
-                  : `Creates 1 task for each of the ${team.members.length} member${team.members.length !== 1 ? 's' : ''}`}
-              </p>
-            </div>
-          )}
-          {isTeamMember && (
-            <p className="text-xs text-muted-foreground rounded-md bg-muted/50 px-3 py-2">
-              This task will be added to your personal task list under <span className="font-medium">{team.name}</span>.
-            </p>
-          )}
-          <div className="space-y-1.5">
-            <Label>Title *</Label>
-            <Input placeholder="What needs to be done?" {...register('title')} />
-            {errors.title && <p className="text-xs text-destructive">{errors.title.message}</p>}
-          </div>
-          <div className="space-y-1.5">
-            <Label>Description</Label>
-            <Textarea placeholder="Additional context…" rows={2} {...register('description')} />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label>Priority</Label>
-              <Select value={watchedPriority} onValueChange={(v) => setValue('priority', v as TaskForm['priority'])}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Due Date</Label>
-              <Input type="date" {...register('dueDate')} />
-            </div>
-          </div>
-          {success && <p className="text-sm text-green-600 font-medium">{success}</p>}
-          {apiError && <p className="text-sm text-destructive">{apiError}</p>}
-          <DialogFooter className="pt-2">
-            <Button type="button" variant="outline" onClick={handleClose}>Close</Button>
-            <Button type="submit" disabled={isSubmitting || (!isTeamMember && team.members.length === 0)}>
-              {isSubmitting ? (isTeamMember ? 'Adding…' : 'Assigning…') : (isTeamMember ? 'Add Task' : 'Assign Task')}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
