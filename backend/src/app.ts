@@ -66,7 +66,6 @@ export function createApp() {
   app.use('/api/events', eventsRouter);
   app.use('/api/integrations', integrationsRouter);
   app.use('/api/upload', uploadRouter);
-  app.use('/uploads', express.static('uploads'));
   app.use('/api/mfa', mfaRouter);
   app.use('/api/feedback', feedbackRouter);
   app.use('/api/audit-logs', auditLogsRouter);

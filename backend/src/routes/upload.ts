@@ -1,26 +1,14 @@
 import { Router, Response } from 'express';
-import fs from 'fs';
 import multer from 'multer';
 import path from 'path';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { uploadToS3 } from '../lib/s3';
 
 const router = Router();
 router.use(authenticate);
 
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    const uploadDir = path.join(process.cwd(), 'uploads');
-    fs.mkdirSync(uploadDir, { recursive: true });
-    cb(null, uploadDir);
-  },
-  filename: (_req, file, cb) => {
-    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    cb(null, `${unique}${path.extname(file.originalname)}`);
-  },
-});
-
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB
   fileFilter: (_req, file, cb) => {
     const allowed = /pdf|doc|docx|mp4|webm|mov|jpg|jpeg|png|gif|webp/i;
@@ -32,20 +20,25 @@ const upload = multer({
   },
 });
 
-// POST /upload/content — M7.2: upload learning content file
-router.post('/content', upload.single('file'), (req: AuthRequest, res: Response) => {
+// POST /upload/content — upload file to S3
+router.post('/content', upload.single('file'), async (req: AuthRequest, res: Response) => {
   if (!req.file) {
     res.status(400).json({ error: 'No file uploaded' });
     return;
   }
 
-  const fileUrl = `/uploads/${req.file.filename}`;
-  res.json({
-    url: fileUrl,
-    originalName: req.file.originalname,
-    size: req.file.size,
-    mimeType: req.file.mimetype,
-  });
+  try {
+    const url = await uploadToS3(req.file.buffer, req.file.originalname, req.file.mimetype);
+    res.json({
+      url,
+      originalName: req.file.originalname,
+      size: req.file.size,
+      mimeType: req.file.mimetype,
+    });
+  } catch (err) {
+    console.error('S3 upload error:', err);
+    res.status(500).json({ error: 'Failed to upload file' });
+  }
 });
 
 export default router;

@@ -6,6 +6,7 @@ import { auditLog } from '../middleware/audit';
 import { fanOutNotification, createNotification } from '../services/notification.service';
 import { generateTaskSuggestions, generateStatusChangeSuggestions } from '../services/ai.service';
 import { sendTaskAssignedEmail } from '../services/email.service';
+import { deleteFromS3 } from '../lib/s3';
 
 const APP_URL = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();
 
@@ -630,7 +631,7 @@ router.delete('/:id/attachments/:attachmentId', auditLog('task', 'UPDATE'), asyn
       id: req.params.attachmentId as string,
       taskId: result.task.id,
     },
-    select: { id: true },
+    select: { id: true, url: true },
   });
   if (!attachment) {
     res.status(404).json({ error: 'Attachment not found' });
@@ -638,6 +639,11 @@ router.delete('/:id/attachments/:attachmentId', auditLog('task', 'UPDATE'), asyn
   }
 
   await prisma.taskAttachment.delete({ where: { id: attachment.id } });
+
+  if (attachment.url.includes('.amazonaws.com/')) {
+    await deleteFromS3(attachment.url);
+  }
+
   res.json({ success: true });
 });
 
