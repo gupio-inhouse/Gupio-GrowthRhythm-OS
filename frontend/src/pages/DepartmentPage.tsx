@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -51,7 +51,7 @@ type TeamMember = { id: string; joinedAt: string; user: TeamUser };
 type Team = {
   id: string; name: string; slug: string; description?: string;
   department: { id: string; name: string; slug: string };
-  manager?: TeamUser; departmentHead?: TeamUser;
+  managerUserId?: string; manager?: TeamUser; departmentHead?: TeamUser;
   members: TeamMember[]; memberCount: number;
 };
 type TaskSummary = { id: string; title: string; status: string; priority: string; dueDate?: string; assigneeUserId: string };
@@ -107,6 +107,7 @@ function ProgressBar({ value, className }: { value: number; className?: string }
 
 export default function DepartmentPage() {
   const { slug } = useParams<{ slug: string }>();
+  const navigate    = useNavigate();
   const { user }    = useAuthStore();
   const qc          = useQueryClient();
   const canManage   = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
@@ -172,6 +173,44 @@ export default function DepartmentPage() {
         {[...Array(4)].map((_, i) => <div key={i} className="h-24 rounded-xl bg-muted animate-pulse" />)}
       </div>
     );
+  }
+
+  // TEAM_MEMBERs see only their project — manager first, then regular member
+  if (user?.role === 'TEAM_MEMBER') {
+    const myTeam =
+      deptTeams.find((t) => t.managerUserId === user.id) ||
+      deptTeams.find((t) => t.members.some((m) => m.user.id === user.id));
+    if (myTeam) {
+      return (
+        <div className="p-4 sm:p-8">
+          <button
+            onClick={() => navigate('/dashboard')}
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            My Dashboard
+          </button>
+          <ProjectFullView
+            team={myTeam}
+            canManage={false}
+            deptId={dept.id}
+            onBack={() => navigate('/dashboard')}
+            hideBack
+            onUpdated={(updated) => { qc.invalidateQueries({ queryKey: ['teams'] }); }}
+            onDelete={() => {}}
+            isDeleting={false}
+            onViewMember={() => {}}
+          />
+          {memberDialog && (
+            <MemberDetailDialog
+              member={memberDialog}
+              tasks={deptTasks.filter((t) => t.assignee?.id === memberDialog.id)}
+              onClose={() => setMemberDialog(null)}
+            />
+          )}
+        </div>
+      );
+    }
   }
 
   return (
@@ -872,9 +911,9 @@ function MemberDetailDialog({ member, tasks, onClose }: {
 
 type ProjectTab = 'overview' | 'members' | 'tasks' | 'documents';
 
-function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete, isDeleting, onViewMember }: {
+function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete, isDeleting, onViewMember, hideBack }: {
   team: Team; canManage: boolean; deptId: string;
-  onBack: () => void;
+  onBack: () => void; hideBack?: boolean;
   onUpdated: (t: Team) => void; onDelete: () => void; isDeleting: boolean;
   onViewMember: (memberId: string) => void;
 }) {
@@ -895,6 +934,8 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
   const { user: authUser } = useAuthStore();
   const canDelete        = ['OWNER', 'DEPARTMENT_HEAD'].includes(authUser?.role || '');
   const canAssignManager = ['OWNER', 'DEPARTMENT_HEAD'].includes(authUser?.role || '');
+  const isProjectManager = authUser?.id === team.managerUserId;
+  const canAddMember     = canManage || isProjectManager;
 
   const { data: overview, isLoading } = useQuery<ProjectOverview>({
     queryKey: ['team-overview', team.id],
@@ -922,10 +963,14 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
 
   const stats = overview?.stats;
 
+  // Regular team members (not manager, not elevated role) see only their own tasks
+  const isRegularMember = authUser?.role === 'TEAM_MEMBER' && !isProjectManager;
   // Flatten all member tasks for the Tasks tab
-  const allProjectTasks = (overview?.memberStats ?? []).flatMap((ms) =>
-    ms.tasks.map((t) => ({ ...t, memberName: ms.user.name, memberAvatar: ms.user.avatarUrl, memberId: ms.user.id }))
-  );
+  const allProjectTasks = (overview?.memberStats ?? [])
+    .filter((ms) => !isRegularMember || ms.user.id === authUser?.id)
+    .flatMap((ms) =>
+      ms.tasks.map((t) => ({ ...t, memberName: ms.user.name, memberAvatar: ms.user.avatarUrl, memberId: ms.user.id }))
+    );
   const q = search.trim().toLowerCase();
   const filteredProjectTasks = allProjectTasks.filter((t) => {
     const matchesSearch = !q || t.title.toLowerCase().includes(q) || t.memberName.toLowerCase().includes(q);
@@ -943,12 +988,14 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
       {/* Back + header row */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <button
-            onClick={onBack}
-            className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors mb-2"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" /> Back to Projects
-          </button>
+          {!hideBack && (
+            <button
+              onClick={onBack}
+              className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors mb-2"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" /> Back to Projects
+            </button>
+          )}
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-100 shrink-0">
               <FolderKanban className="h-5 w-5 text-indigo-600" />
@@ -1136,7 +1183,7 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
         <TabsContent value="members" className="mt-5">
           <div className="flex items-center justify-between mb-4">
             <p className="text-sm font-semibold">Members ({team.memberCount})</p>
-            {canManage && (
+            {canAddMember && (
               <Button size="sm" className="gap-1.5 h-7 text-xs" onClick={() => setAddMemberOpen(true)}>
                 <UserPlus className="h-3.5 w-3.5" /> Add Member
               </Button>
@@ -1149,7 +1196,7 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
             <div className="text-center py-10 rounded-xl border border-dashed text-muted-foreground">
               <Users className="h-8 w-8 mx-auto mb-2 opacity-20" />
               <p className="text-sm">No members yet — add members to track work</p>
-              {canManage && (
+              {canAddMember && (
                 <Button size="sm" className="mt-3 gap-1.5" onClick={() => setAddMemberOpen(true)}>
                   <UserPlus className="h-3.5 w-3.5" /> Add Member
                 </Button>
@@ -1171,7 +1218,7 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
                     onToggle={() => setExpandedMember(expandedMember === ms.user.id ? null : ms.user.id)}
                     onRemove={() => removeMember.mutate(ms.user.id)}
                     removing={removeMember.isPending}
-                    canManage={canManage}
+                    canManage={canAddMember}
                     isManager={team.manager?.id === ms.user.id}
                     canAssignManager={canAssignManager}
                     onAssignManager={() => assignManager.mutate(ms.user.id)}
@@ -1341,6 +1388,7 @@ function MemberTaskRow({ ms, expanded, onToggle, onRemove, removing, canManage, 
   onTaskClick?: (id: string) => void;
 }) {
   const now = new Date();
+  const [confirmRemove, setConfirmRemove] = useState(false);
   return (
     <div className="rounded-lg border overflow-hidden">
       <div className="flex items-center gap-3 px-3 py-2.5 bg-muted/20">
@@ -1388,10 +1436,23 @@ function MemberTaskRow({ ms, expanded, onToggle, onRemove, removing, canManage, 
             </Button>
           )}
           {canManage && (
-            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-              onClick={onRemove} disabled={removing} title="Remove from project">
-              <UserMinus className="h-3.5 w-3.5" />
-            </Button>
+            confirmRemove ? (
+              <div className="flex items-center gap-1">
+                <Button size="sm" variant="destructive" className="h-7 px-2 text-xs"
+                  onClick={() => { onRemove(); setConfirmRemove(false); }} disabled={removing}>
+                  {removing ? '…' : 'Remove'}
+                </Button>
+                <Button size="sm" variant="ghost" className="h-7 px-2 text-xs"
+                  onClick={() => setConfirmRemove(false)}>
+                  Cancel
+                </Button>
+              </div>
+            ) : (
+              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                onClick={() => setConfirmRemove(true)} title="Remove from project">
+                <UserMinus className="h-3.5 w-3.5" />
+              </Button>
+            )
           )}
         </div>
       </div>
@@ -1622,10 +1683,11 @@ function EditTeamDialog({ team, deptId, onClose, onSaved }: {
 function AddMemberToTeamDialog({ team, onClose, onAdded }: {
   team: Team; onClose: () => void; onAdded: (t: Team) => void;
 }) {
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [search,      setSearch]      = useState('');
-  const [adding,      setAdding]      = useState(false);
-  const [error,       setError]       = useState('');
+  const [selectedIds,   setSelectedIds]   = useState<Set<string>>(new Set());
+  const [managerUserId, setManagerUserId] = useState('');
+  const [search,        setSearch]        = useState('');
+  const [adding,        setAdding]        = useState(false);
+  const [error,         setError]         = useState('');
 
   const { data: allUsers = [], isLoading } = useQuery<OrgUser[]>({
     queryKey: ['users-list'],
@@ -1663,9 +1725,13 @@ function AddMemberToTeamDialog({ team, onClose, onAdded }: {
       for (const userId of selectedIds) {
         lastResult = await api.post(`/teams/${team.id}/members`, { userId }).then((r) => r.data);
       }
+      if (managerUserId) {
+        lastResult = await api.patch(`/teams/${team.id}`, { managerUserId }).then((r) => r.data);
+      }
       if (lastResult) onAdded(lastResult);
       setSelectedIds(new Set());
       setSearch('');
+      setManagerUserId('');
     } catch (err: unknown) {
       const e = err as { response?: { data?: { error?: string } } };
       setError(e?.response?.data?.error ?? 'Failed to add members');
@@ -1679,7 +1745,7 @@ function AddMemberToTeamDialog({ team, onClose, onAdded }: {
     MANAGER: 'Manager', TEAM_MEMBER: 'Member', COACH_ADVISOR: 'Advisor',
   };
 
-  const reset = () => { setSelectedIds(new Set()); setSearch(''); setError(''); onClose(); };
+  const reset = () => { setSelectedIds(new Set()); setSearch(''); setError(''); setManagerUserId(''); onClose(); };
 
   return (
     <Dialog open onOpenChange={(v) => { if (!v) reset(); }}>
@@ -1771,12 +1837,37 @@ function AddMemberToTeamDialog({ team, onClose, onAdded }: {
                 {selectedUsers.map((u) => (
                   <span key={u.id} className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary text-xs px-2.5 py-1 font-medium">
                     {u.name}
-                    <button onClick={() => toggle(u.id)} className="hover:text-primary/60 transition-colors ml-0.5">
+                    <button onClick={() => { toggle(u.id); if (managerUserId === u.id) setManagerUserId(''); }} className="hover:text-primary/60 transition-colors ml-0.5">
                       <X className="h-3 w-3" />
                     </button>
                   </span>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Assign project manager — optional, only when members are selected */}
+          {selectedUsers.length > 0 && (
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium flex items-center gap-1.5">
+                <Star className="h-3 w-3 text-amber-500" />
+                Assign as Project Manager
+                <span className="text-muted-foreground font-normal">(optional)</span>
+              </Label>
+              <Select
+                value={managerUserId || '__none__'}
+                onValueChange={(v) => setManagerUserId(v === '__none__' ? '' : v)}
+              >
+                <SelectTrigger className="h-9 text-sm">
+                  <SelectValue placeholder="No manager assignment" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">No manager assignment</SelectItem>
+                  {selectedUsers.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           )}
 

@@ -136,6 +136,7 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
 
   const canEditAsManager = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
   const canContribute = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'].includes(user?.role || '');
+  const canDelete = canEditAsManager;
 
   const { data: task, isLoading } = useQuery<TaskDetail>({
     queryKey: ['task', taskId],
@@ -331,7 +332,7 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
                       <Pencil className="h-3.5 w-3.5" />
                       Edit
                     </Button>
-                    {confirmDelete ? (
+                    {canDelete && (confirmDelete ? (
                       <div className="flex items-center gap-1">
                         <Button
                           size="sm"
@@ -359,7 +360,7 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
                         <Trash2 className="h-3.5 w-3.5" />
                         Delete
                       </Button>
-                    )}
+                    ))}
                   </div>
                 )}
               </div>

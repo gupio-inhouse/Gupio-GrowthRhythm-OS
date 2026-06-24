@@ -59,8 +59,8 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
   let whereExtra: object = {};
   if (role === 'TEAM_MEMBER') {
-    // Team members see only teams they belong to
-    whereExtra = { members: { some: { userId } } };
+    // Team members see teams they belong to OR are assigned as project manager of
+    whereExtra = { OR: [{ members: { some: { userId } } }, { managerUserId: userId }] };
   } else if (role === 'DEPARTMENT_HEAD' || role === 'MANAGER') {
     const me = await prisma.user.findUnique({ where: { id: userId }, select: { departmentId: true } });
     if (me?.departmentId) whereExtra = { departmentId: me.departmentId };
@@ -104,9 +104,8 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 
 router.get(
   '/:id/overview',
-  requireRole('OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'),
   async (req: AuthRequest, res: Response) => {
-    const { orgId } = req.user!;
+    const { orgId, role, userId } = req.user!;
     const teamId = req.params['id'] as string;
 
     const team = await prisma.team.findFirst({
@@ -114,6 +113,12 @@ router.get(
       include: teamInclude,
     });
     if (!team) { res.status(404).json({ error: 'Team not found' }); return; }
+
+    const elevated = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(role);
+    const isProjectManager = team.managerUserId === userId;
+    if (!elevated && !isProjectManager) {
+      res.status(403).json({ error: 'Access denied' }); return;
+    }
 
     const memberUserIds = team.members.map((m: { userId: string }) => m.userId);
 
@@ -300,17 +305,22 @@ router.delete(
 
 router.post(
   '/:id/members',
-  requireRole('OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'),
   async (req: AuthRequest, res: Response) => {
     const { orgId, role, userId } = req.user!;
     const teamId = req.params['id'] as string;
     const memberId = (req.body as { userId?: string }).userId;
     if (!memberId) { res.status(400).json({ error: 'userId is required' }); return; }
 
-    const team = await prisma.team.findFirst({ where: { id: teamId, orgId }, select: { id: true, departmentId: true } });
+    const team = await prisma.team.findFirst({ where: { id: teamId, orgId }, select: { id: true, departmentId: true, managerUserId: true } });
     if (!team) { res.status(404).json({ error: 'Team not found' }); return; }
 
-    if (!(await assertDeptAccess(role, userId, team.departmentId))) {
+    const elevated = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(role);
+    const isProjectManager = team.managerUserId === userId;
+    if (!elevated && !isProjectManager) {
+      res.status(403).json({ error: 'Only project managers or admins can add members' }); return;
+    }
+
+    if (elevated && !(await assertDeptAccess(role, userId, team.departmentId))) {
       res.status(403).json({ error: 'You can only manage teams in your own department' }); return;
     }
 
@@ -335,16 +345,21 @@ router.post(
 
 router.delete(
   '/:id/members/:memberId',
-  requireRole('OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'),
   async (req: AuthRequest, res: Response) => {
     const { orgId, role, userId } = req.user!;
     const teamId = req.params['id'] as string;
     const memberId = req.params['memberId'] as string;
 
-    const team = await prisma.team.findFirst({ where: { id: teamId, orgId }, select: { id: true, departmentId: true } });
+    const team = await prisma.team.findFirst({ where: { id: teamId, orgId }, select: { id: true, departmentId: true, managerUserId: true } });
     if (!team) { res.status(404).json({ error: 'Team not found' }); return; }
 
-    if (!(await assertDeptAccess(role, userId, team.departmentId))) {
+    const elevated = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(role);
+    const isProjectManager = team.managerUserId === userId;
+    if (!elevated && !isProjectManager) {
+      res.status(403).json({ error: 'Only project managers or admins can remove members' }); return;
+    }
+
+    if (elevated && !(await assertDeptAccess(role, userId, team.departmentId))) {
       res.status(403).json({ error: 'You can only manage teams in your own department' }); return;
     }
 

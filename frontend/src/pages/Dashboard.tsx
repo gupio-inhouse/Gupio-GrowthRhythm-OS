@@ -755,9 +755,10 @@ export default function Dashboard() {
     enabled: !slug,
   });
 
-  const { data: managedTeams } = useQuery({
-    queryKey: ['teams', 'managed'],
-    queryFn: () => api.get('/teams/managed').then((r) => r.data),
+  const isTeamMember = user?.role === 'TEAM_MEMBER';
+  const { data: myProjectTeams } = useQuery({
+    queryKey: isTeamMember ? ['teams'] : ['teams', 'managed'],
+    queryFn: () => (isTeamMember ? api.get('/teams') : api.get('/teams/managed')).then((r) => r.data),
     enabled: !slug,
   });
 
@@ -971,14 +972,14 @@ export default function Dashboard() {
       )}
 
       {/* My Projects — shown when user is assigned as project manager on any team */}
-      {(managedTeams as { id: string; name: string; description?: string; memberCount: number; department?: { name: string; slug?: string } }[] | undefined)?.length ? (
+      {(myProjectTeams as { id: string; name: string; description?: string; memberCount: number; department?: { name: string; slug?: string } }[] | undefined)?.length ? (
         <div>
           <div className="flex items-center gap-2 mb-3">
             <FolderKanban className="h-4 w-4 text-primary" />
             <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">My Projects</h2>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {(managedTeams as { id: string; name: string; description?: string; memberCount: number; department?: { name: string; slug?: string } }[]).map((team) => (
+            {(myProjectTeams as { id: string; name: string; description?: string; memberCount: number; department?: { name: string; slug?: string } }[]).map((team) => (
               <Link
                 key={team.id}
                 to={team.department?.slug ? `/departments/${team.department.slug}` : '/team'}

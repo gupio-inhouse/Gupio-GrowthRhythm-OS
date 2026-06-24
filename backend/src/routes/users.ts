@@ -106,7 +106,16 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   };
 
   if (viewer.role === 'TEAM_MEMBER') {
-    where.id = viewer.id;
+    // Project managers can see their department's users to add members
+    const managedTeam = await prisma.team.findFirst({
+      where: { orgId: req.user!.orgId, managerUserId: viewer.id, isActive: true },
+      select: { departmentId: true },
+    });
+    if (managedTeam?.departmentId) {
+      where.departmentId = managedTeam.departmentId;
+    } else {
+      where.id = viewer.id;
+    }
   } else if (['MANAGER', 'DEPARTMENT_HEAD'].includes(viewer.role)) {
     if (!viewer.departmentId) {
       res.json([]);
