@@ -755,10 +755,13 @@ export default function Dashboard() {
     enabled: !slug,
   });
 
-  const isTeamMember = user?.role === 'TEAM_MEMBER';
+  // OWNER/COMPANY_ADMIN: show only explicitly-managed projects (teams/managed)
+  // DEPARTMENT_HEAD/MANAGER: show all projects in their dept (teams — already dept-scoped on backend)
+  // TEAM_MEMBER: show projects they're a member of or project-managing (teams)
+  const useAllDeptTeams = ['DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'].includes(user?.role || '');
   const { data: myProjectTeams } = useQuery({
-    queryKey: isTeamMember ? ['teams'] : ['teams', 'managed'],
-    queryFn: () => (isTeamMember ? api.get('/teams') : api.get('/teams/managed')).then((r) => r.data),
+    queryKey: useAllDeptTeams ? ['teams'] : ['teams', 'managed'],
+    queryFn: () => (useAllDeptTeams ? api.get('/teams') : api.get('/teams/managed')).then((r) => r.data),
     enabled: !slug,
   });
 
