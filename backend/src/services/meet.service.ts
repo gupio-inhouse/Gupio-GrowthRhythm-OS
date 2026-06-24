@@ -58,7 +58,8 @@ export async function generateMeetUrl(
   durationMinutes = 15
 ): Promise<string | null> {
   try {
-    const token = await prisma.oAuthToken.findUnique({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const token = await (prisma as any).oAuthToken.findUnique({
       where: { orgId_provider: { orgId, provider: 'google' } },
     });
 
