@@ -43,28 +43,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     return;
   }
 
-  // M7.7: add overdue learning assignments for each card member
-  const userIds = standup.cards.map((c) => c.userId);
-  const overdueAssignments = userIds.length > 0
-    ? await prisma.learningAssignment.findMany({
-        where: { userId: { in: userIds }, status: 'OVERDUE' },
-        include: { learningItem: { select: { title: true, type: true } } },
-        orderBy: { dueDate: 'asc' },
-        take: 50,
-      })
-    : [];
-
-  const overdueByUser: Record<string, Array<{ title: string; type: string; dueDate: string | null }>> = {};
-  for (const la of overdueAssignments) {
-    if (!overdueByUser[la.userId]) overdueByUser[la.userId] = [];
-    overdueByUser[la.userId].push({
-      title: la.learningItem.title,
-      type: la.learningItem.type,
-      dueDate: la.dueDate?.toISOString() ?? null,
-    });
-  }
-
-  res.json({ ...standup, overdueLearnByUser: overdueByUser });
+  res.json(standup);
 });
 
 // POST /standups — create / schedule

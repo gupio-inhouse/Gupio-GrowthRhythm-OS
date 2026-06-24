@@ -105,15 +105,14 @@ router.get(
 
     const memberUserIds = team.members.map((m: { userId: string }) => m.userId);
 
-    // Fetch all tasks for team members (no department filter — catch self-added tasks too)
+    // Only tasks explicitly created for this team (not personal/individual tasks)
     const allTasks = memberUserIds.length > 0
       ? await prisma.task.findMany({
-          where: { orgId, assigneeUserId: { in: memberUserIds } },
+          where: { orgId, teamId, assigneeUserId: { in: memberUserIds } },
           select: {
             id: true, title: true, status: true, priority: true,
             dueDate: true, createdAt: true,
             assigneeUserId: true,
-            kra: { select: { id: true, name: true } },
             department: { select: { id: true, name: true } },
           },
           orderBy: { createdAt: 'desc' },
@@ -231,8 +230,9 @@ router.patch(
     const nextDeptId = parsed.data.departmentId ?? team.departmentId;
 
     if (parsed.data.managerUserId) {
-      const mgr = await prisma.user.findFirst({ where: { id: parsed.data.managerUserId, orgId, departmentId: nextDeptId, status: 'ACTIVE' }, select: { id: true } });
-      if (!mgr) { res.status(400).json({ error: 'Manager must be an active user in the selected department' }); return; }
+      // Allow any active org user (including team members with any role)
+      const mgr = await prisma.user.findFirst({ where: { id: parsed.data.managerUserId, orgId, status: 'ACTIVE' }, select: { id: true } });
+      if (!mgr) { res.status(400).json({ error: 'Manager user not found or inactive' }); return; }
     }
 
     if (parsed.data.departmentHeadUserId) {
@@ -347,6 +347,64 @@ router.delete(
   }
 );
 
+// ── GET /teams/:id/documents ─────────────────────────────────────────────────
+
+router.get('/:id/documents', async (req: AuthRequest, res: Response) => {
+  const { orgId } = req.user!;
+  const teamId = req.params['id'] as string;
+  const team = await prisma.team.findFirst({ where: { id: teamId, orgId, isActive: true }, select: { id: true } });
+  if (!team) { res.status(404).json({ error: 'Team not found' }); return; }
+
+  const docs = await prisma.teamDocument.findMany({
+    where: { teamId, orgId },
+    include: { uploadedBy: { select: { id: true, name: true, avatarUrl: true } } },
+    orderBy: { createdAt: 'desc' },
+  });
+  res.json(docs);
+});
+
+// ── POST /teams/:id/documents  (anyone can add) ───────────────────────────────
+
+router.post('/:id/documents', async (req: AuthRequest, res: Response) => {
+  const { orgId, userId } = req.user!;
+  const teamId = req.params['id'] as string;
+
+  const bodySchema = z.object({
+    name:     z.string().min(1),
+    url:      z.string().url(),
+    fileType: z.string().optional(),
+    size:     z.number().optional(),
+  });
+  const parsed = bodySchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+
+  const team = await prisma.team.findFirst({ where: { id: teamId, orgId, isActive: true }, select: { id: true } });
+  if (!team) { res.status(404).json({ error: 'Team not found' }); return; }
+
+  const doc = await prisma.teamDocument.create({
+    data: { teamId, orgId, uploadedById: userId, ...parsed.data },
+    include: { uploadedBy: { select: { id: true, name: true, avatarUrl: true } } },
+  });
+  res.status(201).json(doc);
+});
+
+// ── DELETE /teams/:id/documents/:docId  (OWNER and DEPARTMENT_HEAD only) ─────
+
+router.delete(
+  '/:id/documents/:docId',
+  requireRole('OWNER', 'DEPARTMENT_HEAD'),
+  async (req: AuthRequest, res: Response) => {
+    const { orgId } = req.user!;
+    const { id: teamId, docId } = req.params as { id: string; docId: string };
+
+    const doc = await prisma.teamDocument.findFirst({ where: { id: docId, teamId, orgId } });
+    if (!doc) { res.status(404).json({ error: 'Document not found' }); return; }
+
+    await prisma.teamDocument.delete({ where: { id: docId } });
+    res.json({ success: true });
+  }
+);
+
 // ── POST /teams/:id/tasks  (assign task to whole team or one member) ──────────
 
 router.post(
@@ -361,7 +419,6 @@ router.post(
       description: z.string().optional(),
       priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).default('MEDIUM'),
       dueDate: z.string().optional(),
-      kraId: z.string().optional(),
       assignToUserId: z.string().optional(),
     });
 
@@ -382,7 +439,7 @@ router.post(
       res.status(403).json({ error: 'You can only assign tasks for teams in your own department' }); return;
     }
 
-    const { assignToUserId, dueDate, kraId, ...taskBase } = parsed.data;
+    const { assignToUserId, dueDate, ...taskBase } = parsed.data;
 
     // Team members can only add tasks for themselves
     const targetUserIds: string[] = role === 'TEAM_MEMBER'
@@ -403,11 +460,11 @@ router.post(
           data: {
             ...taskBase,
             orgId,
+            teamId,
             departmentId: team.departmentId,
             assigneeUserId: assigneeId,
             assignedByUserId: userId,
             ...(dueDateVal && { dueDate: dueDateVal }),
-            ...(kraId && { kraId }),
           },
           select: { id: true, title: true, assignee: { select: { id: true, name: true } } },
         })

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
@@ -6,19 +7,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { cn, kraStatusColor } from '@/lib/utils';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { cn, getInitials, formatRelative } from '@/lib/utils';
 import api from '@/api/client';
 
 const COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6'];
 
-type KRA = {
-  id: string; name: string; status: string; current: number; target: number; unit?: string;
-  department?: { id: string; name: string; slug: string };
-};
-
 type Department = {
   id: string; name: string; slug?: string;
-  _count: { tasks: number; kras: number; users: number };
+  _count: { tasks: number; users: number };
 };
 
 function LinkedCard({ to, children, className = '' }: { to: string; children: React.ReactNode; className?: string }) {
@@ -117,6 +115,7 @@ function ResourceCapacityCard() {
 
 export default function OwnerCockpit() {
   const navigate = useNavigate();
+  const [activeUsersOpen, setActiveUsersOpen] = useState(false);
   const { data, isLoading } = useQuery({
     queryKey: ['cockpit'],
     queryFn: () => api.get('/owner/cockpit').then((r) => r.data),
@@ -154,12 +153,7 @@ export default function OwnerCockpit() {
     color: COLORS[i % COLORS.length],
   }));
 
-  const kras: KRA[] = data?.kras || [];
-  const hasSetupData = (data?.departments?.length || 0) > 0 || (data?.totalUsers || 0) > 0 || goalsCount(data) > 0;
-
-  function goalsCount(payload: { kras?: unknown[] } | undefined) {
-    return payload?.kras?.length || 0;
-  }
+  const hasSetupData = (data?.departments?.length || 0) > 0 || (data?.totalUsers || 0) > 0;
 
   return (
     <div className="p-4 sm:p-8 space-y-6 sm:space-y-8">
@@ -178,12 +172,6 @@ export default function OwnerCockpit() {
           <Button asChild variant="outline">
             <Link to="/departments?create=department">Add Department</Link>
           </Button>
-          <Button asChild variant="outline">
-            <Link to="/goals?create=kra">Add KRA</Link>
-          </Button>
-          <Button asChild>
-            <Link to="/goals?create=goal">Add Goal</Link>
-          </Button>
         </div>
       </div>
 
@@ -194,7 +182,7 @@ export default function OwnerCockpit() {
             <div className="text-sm text-muted-foreground space-y-1">
               <p>1. Add a department so work has a clear home.</p>
               <p>2. Invite managers or team members into that department.</p>
-              <p>3. Create goals and KRAs so task execution can roll up into outcomes.</p>
+              <p>3. Assign tasks to start tracking execution.</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <Button asChild variant="outline">
@@ -203,9 +191,6 @@ export default function OwnerCockpit() {
               <Button asChild variant="outline">
                 <Link to="/team">Invite People</Link>
               </Button>
-              <Button asChild>
-                <Link to="/goals?create=goal">Create First Goal</Link>
-              </Button>
             </div>
           </CardContent>
         </Card>
@@ -213,8 +198,26 @@ export default function OwnerCockpit() {
 
       {/* KPI Strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {/* Active Users — clickable to see who */}
+        <Card
+          className="hover:shadow-md hover:border-primary/40 transition-all cursor-pointer"
+          onClick={() => setActiveUsersOpen(true)}
+        >
+          <CardContent className="p-5">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Active Today</p>
+                <p className="text-3xl font-bold mt-1">{data?.activeUsers || 0}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">of {data?.totalUsers || 0} members · tap to see who</p>
+              </div>
+              <div className="p-2.5 rounded-lg bg-blue-50">
+                <Users className="h-5 w-5 text-blue-500" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         {[
-          { label: 'Active Users', value: data?.activeUsers || 0, sub: `of ${data?.totalUsers || 0}`, icon: Users, color: 'text-blue-500', bg: 'bg-blue-50', to: '/team' },
           { label: 'Departments', value: data?.departments?.length || 0, sub: 'active', icon: Building2, color: 'text-purple-500', bg: 'bg-purple-50', to: '/departments' },
           { label: 'Task Health', value: `${taskHealth}%`, sub: `${data?.tasks?.done || 0} done of ${data?.tasks?.total || 0}`, icon: CheckSquare, color: 'text-green-500', bg: 'bg-green-50', to: '/tasks' },
           { label: 'Blockers', value: data?.tasks?.blocked || 0, sub: 'need resolution', icon: AlertTriangle, color: 'text-red-500', bg: 'bg-red-50', to: '/tasks?status=BLOCKED' },
@@ -236,6 +239,42 @@ export default function OwnerCockpit() {
         ))}
       </div>
 
+      {/* Active Users Dialog */}
+      <Dialog open={activeUsersOpen} onOpenChange={setActiveUsersOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="h-4 w-4 text-blue-500" />
+              Active Today ({data?.activeUsers || 0})
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-xs text-muted-foreground -mt-2">Logged in within the last 24 hours</p>
+          {(data?.activeUsersList?.length ?? 0) === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">No one has logged in today yet.</p>
+          ) : (
+            <div className="space-y-2 max-h-72 overflow-y-auto">
+              {(data?.activeUsersList ?? []).map((u: { id: string; name: string; role: string; lastLoginAt: string; department?: { name: string } }) => (
+                <div key={u.id} className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
+                  <Avatar className="h-8 w-8 shrink-0">
+                    <AvatarFallback className="bg-blue-50 text-blue-700 text-xs font-medium">
+                      {getInitials(u.name)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{u.name}</p>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {u.role.toLowerCase().replace(/_/g, ' ')}
+                      {u.department ? ` · ${u.department.name}` : ''}
+                    </p>
+                  </div>
+                  <span className="text-xs text-muted-foreground shrink-0">{formatRelative(u.lastLoginAt)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Weekly summary */}
       {weekly && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -243,7 +282,6 @@ export default function OwnerCockpit() {
             { label: 'Completed this week', value: weekly.completedThisWeek, color: 'text-green-600', to: '/tasks?status=DONE' },
             { label: 'New blockers', value: weekly.newBlockers, color: 'text-red-600', to: '/tasks?status=BLOCKED' },
             { label: 'Standups held', value: weekly.standupCount, color: 'text-blue-600', to: '/standup' },
-            { label: 'Learning completed', value: weekly.learnCompletions, color: 'text-purple-600', to: '/learning' },
           ].map(({ label, value, color, to }) => (
             <LinkedCard key={label} to={to} className="bg-muted/40">
               <CardContent className="p-4 text-center">
@@ -311,41 +349,6 @@ export default function OwnerCockpit() {
         </LinkedCard>
       </div>
 
-      {/* KRA Health Breakdown (M8.1) */}
-      {kras.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Target className="h-4 w-4 text-indigo-500" />
-              KRA Health Breakdown
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
-              {kras.map((kra) => {
-                return (
-                  <Link key={kra.id} to="/goals" className="block rounded-lg p-2 -mx-2 hover:bg-muted/50 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1 min-w-0 mr-3">
-                        <p className="text-sm font-medium truncate">{kra.name}</p>
-                        {kra.department && (
-                          <p className="text-xs text-muted-foreground">{kra.department.name}</p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <Badge className={cn('text-xs border', kraStatusColor(kra.status))}>
-                          {kra.status.replace('_', ' ')}
-                        </Badge>
-                      </div>
-                    </div>
-                  </Link>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       {/* Department Activity Snapshot */}
       <Card>
         <CardHeader>
@@ -368,7 +371,7 @@ export default function OwnerCockpit() {
                     <p className="text-xs text-muted-foreground">{dept._count.users} people · {dept._count.tasks} tasks</p>
                   </div>
                   <div className="flex-1 rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-                    {dept._count.kras} KRAs tracking execution across {dept._count.tasks} active task records
+                    {dept._count.tasks} active tasks
                   </div>
                   {dept.slug && (
                     <span

@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import prisma from '../lib/prisma';
 import { authenticate, AuthRequest, requireRole } from '../middleware/auth';
-import { generateWeeklyDigest, generateGoalSuggestions } from '../services/ai.service';
+import { generateWeeklyDigest } from '../services/ai.service';
 
 const router = Router();
 router.use(authenticate, requireRole('OWNER', 'COMPANY_ADMIN', 'SUPER_ADMIN'));
@@ -19,14 +19,17 @@ router.get('/cockpit', async (req: AuthRequest, res: Response) => {
     overdueTasks,
     blockedTasks,
     todayStandups,
-    kras,
   ] = await Promise.all([
     prisma.user.count({ where: { orgId, status: 'ACTIVE' } }),
-    prisma.user.count({ where: { orgId, status: 'ACTIVE', lastLoginAt: { gte: new Date(Date.now() - 86400000) } } }),
+    prisma.user.findMany({
+      where: { orgId, status: 'ACTIVE', lastLoginAt: { gte: new Date(Date.now() - 86400000) } },
+      select: { id: true, name: true, role: true, lastLoginAt: true, department: { select: { name: true } } },
+      orderBy: { lastLoginAt: 'desc' },
+    }),
     prisma.department.findMany({
       where: { orgId, isActive: true },
       include: {
-        _count: { select: { users: true, kras: true, tasks: true } },
+        _count: { select: { users: true, tasks: true } },
       },
     }),
     prisma.task.count({ where: { orgId } }),
@@ -50,12 +53,6 @@ router.get('/cockpit', async (req: AuthRequest, res: Response) => {
         },
       },
     }),
-    prisma.kRA.findMany({
-      where: { orgId, status: { not: 'MISSED' } },
-      include: { department: { select: { name: true } } },
-      orderBy: { updatedAt: 'desc' },
-      take: 10,
-    }),
   ]);
 
   // M8.4: standup attendance breakdown per department
@@ -73,11 +70,11 @@ router.get('/cockpit', async (req: AuthRequest, res: Response) => {
 
   res.json({
     totalUsers,
-    activeUsers,
+    activeUsers: activeUsers.length,
+    activeUsersList: activeUsers,
     departments,
     tasks: { total: totalTasks, done: doneTasks, overdue: overdueTasks, blocked: blockedTasks },
     todayStandups,
-    kras,
     standupAttendanceToday: Math.round((todayStandups.filter(s => s.status === 'COMPLETED').length / Math.max(todayStandups.length, 1)) * 100),
     standupAttendance,
   });
@@ -110,14 +107,13 @@ router.get('/cockpit/weekly-summary', async (req: AuthRequest, res: Response) =>
   const weekAgo = new Date(Date.now() - 7 * 86400000);
   const orgId = req.user!.orgId;
 
-  const [completedThisWeek, newBlockers, standupCount, learnCompletions] = await Promise.all([
+  const [completedThisWeek, newBlockers, standupCount] = await Promise.all([
     prisma.task.count({ where: { orgId, status: 'DONE', completedAt: { gte: weekAgo } } }),
     prisma.task.count({ where: { orgId, status: 'BLOCKED', createdAt: { gte: weekAgo } } }),
     prisma.standup.count({ where: { orgId, status: 'COMPLETED', scheduledAt: { gte: weekAgo } } }),
-    prisma.learningAssignment.count({ where: { user: { orgId }, status: 'COMPLETED', completedAt: { gte: weekAgo } } }),
   ]);
 
-  res.json({ completedThisWeek, newBlockers, standupCount, learnCompletions });
+  res.json({ completedThisWeek, newBlockers, standupCount });
 });
 
 // GET /owner/cockpit/weekly-digest
@@ -130,18 +126,11 @@ router.get('/cockpit/weekly-digest', async (req: AuthRequest, res: Response) => 
   }
 });
 
-// POST /owner/ai/goal-suggestions
-router.post('/ai/goal-suggestions', async (req: AuthRequest, res: Response) => {
-  const { description } = req.body;
-  const suggestions = await generateGoalSuggestions(description, req.user!.orgId);
-  res.json({ suggestions });
-});
-
 // GET /owner/data-export — full org data export (GDPR/DPDPA)
 router.get('/data-export', requireRole('OWNER', 'COMPANY_ADMIN'), async (req: AuthRequest, res: Response) => {
   const orgId = req.user!.orgId;
 
-  const [users, tasks, departments, kras, goals, standups, auditLogs] = await Promise.all([
+  const [users, tasks, departments, standups, auditLogs] = await Promise.all([
     prisma.user.findMany({
       where: { orgId },
       select: { id: true, name: true, email: true, phone: true, role: true, status: true, createdAt: true },
@@ -153,14 +142,6 @@ router.get('/data-export', requireRole('OWNER', 'COMPANY_ADMIN'), async (req: Au
     prisma.department.findMany({
       where: { orgId },
       select: { id: true, name: true, slug: true, createdAt: true },
-    }),
-    prisma.kRA.findMany({
-      where: { orgId },
-      select: { id: true, name: true, target: true, current: true, status: true },
-    }),
-    prisma.goal.findMany({
-      where: { orgId },
-      select: { id: true, title: true, type: true, status: true, dueDate: true },
     }),
     prisma.standup.findMany({
       where: { orgId },
@@ -176,7 +157,7 @@ router.get('/data-export', requireRole('OWNER', 'COMPANY_ADMIN'), async (req: Au
 
   res.setHeader('Content-Disposition', `attachment; filename="growthrhythm-export-${new Date().toISOString().split('T')[0]}.json"`);
   res.setHeader('Content-Type', 'application/json');
-  res.json({ exportedAt: new Date(), orgId, users, tasks, departments, kras, goals, standups, auditLogs });
+  res.json({ exportedAt: new Date(), orgId, users, tasks, departments, standups, auditLogs });
 });
 
 export default router;

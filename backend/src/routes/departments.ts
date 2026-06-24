@@ -57,7 +57,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     },
     include: {
       head: { select: { id: true, name: true, email: true, avatarUrl: true } },
-      _count: { select: { users: true, kras: true, tasks: true } },
+      _count: { select: { users: true, tasks: true } },
     },
     orderBy: { name: 'asc' },
   });
@@ -73,7 +73,6 @@ router.get('/:slug', async (req: AuthRequest, res: Response) => {
     include: {
       head: { select: { id: true, name: true, email: true, avatarUrl: true } },
       users: { select: { id: true, name: true, email: true, role: true, avatarUrl: true, status: true } },
-      kras: { where: { status: { not: 'MISSED' } }, orderBy: { createdAt: 'desc' } },
       _count: { select: { tasks: true, standups: true } },
     },
   });
@@ -139,7 +138,7 @@ router.patch('/:id', requireRole('OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'), a
 router.delete('/:id', requireRole('OWNER', 'COMPANY_ADMIN'), auditLog('department', 'DELETE'), async (req: AuthRequest, res: Response) => {
   const dept = await prisma.department.findUnique({
     where: { id: req.params.id as string, orgId: req.user!.orgId },
-    select: { id: true, _count: { select: { users: true, kras: true, tasks: true } } },
+    select: { id: true, _count: { select: { users: true, tasks: true } } },
   });
   if (!dept) { res.status(404).json({ error: 'Department not found' }); return; }
 
@@ -182,44 +181,16 @@ router.get('/:slug/dashboard', async (req: AuthRequest, res: Response) => {
   const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
   const todayEnd = new Date(now); todayEnd.setHours(23, 59, 59, 999);
 
-  const LEARNING_WEIGHTS: Record<string, number> = {
-    VIDEO: 1, PDF: 1, SOP: 1.5, QUIZ: 2, ASSIGNMENT: 2, ROLE_PLAY: 1.5, EXTERNAL_LINK: 0.5, COACHING_NOTE: 0.5,
-  };
-
-  const [overdueCount, blockedCount, dueTodayCount, kras, recentStandup, topBlockers, deptUsers, learningAssignments] = await Promise.all([
+  const [overdueCount, blockedCount, dueTodayCount, recentStandup, topBlockers, deptUsers] = await Promise.all([
     prisma.task.count({ where: { departmentId: dept.id, status: { notIn: ['DONE', 'CANCELLED'] }, dueDate: { lt: now } } }),
     prisma.task.count({ where: { departmentId: dept.id, status: 'BLOCKED' } }),
     prisma.task.count({ where: { departmentId: dept.id, dueDate: { gte: todayStart, lt: todayEnd }, status: { notIn: ['DONE', 'CANCELLED'] } } }),
-    prisma.kRA.findMany({ where: { departmentId: dept.id, status: { not: 'MISSED' } }, take: 8, orderBy: { updatedAt: 'desc' } }),
     prisma.standup.findFirst({ where: { departmentId: dept.id }, orderBy: { scheduledAt: 'desc' }, include: { _count: { select: { cards: true } } } }),
     prisma.task.groupBy({ by: ['blockerType'], where: { departmentId: dept.id, status: 'BLOCKED', blockerType: { not: null } }, _count: true, orderBy: { _count: { blockerType: 'desc' } }, take: 5 }),
     prisma.user.findMany({ where: { departmentId: dept.id, status: 'ACTIVE' }, select: { id: true } }),
-    prisma.learningAssignment.findMany({
-      where: { user: { departmentId: dept.id } },
-      include: { learningItem: { select: { type: true } } },
-    }),
   ]);
 
-  // M7.6: weighted learning completion score
-  let totalWeight = 0;
-  let earnedWeight = 0;
-  for (const la of learningAssignments) {
-    const w = LEARNING_WEIGHTS[la.learningItem.type] ?? 1;
-    totalWeight += w;
-    if (la.status === 'COMPLETED') {
-      const scoreMultiplier = la.score != null ? la.score / 100 : 1;
-      earnedWeight += w * scoreMultiplier;
-    }
-  }
-  const learningCompletionScore = totalWeight > 0 ? Math.round((earnedWeight / totalWeight) * 100) : null;
-  const learningStats = {
-    total: learningAssignments.length,
-    completed: learningAssignments.filter((la) => la.status === 'COMPLETED').length,
-    overdue: learningAssignments.filter((la) => la.status === 'OVERDUE').length,
-    weightedScore: learningCompletionScore,
-  };
-
-  const result = { overdueCount, blockedCount, dueTodayCount, kras, recentStandup, topBlockers, learningStats, memberCount: deptUsers.length };
+  const result = { overdueCount, blockedCount, dueTodayCount, recentStandup, topBlockers, memberCount: deptUsers.length };
   await setCache(ck, result, 30);
   res.json(result);
 });

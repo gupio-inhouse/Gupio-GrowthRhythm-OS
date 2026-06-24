@@ -1,6 +1,5 @@
 import { Router, Response } from 'express';
 import multer from 'multer';
-import path from 'path';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { uploadToS3 } from '../lib/s3';
 
@@ -10,14 +9,6 @@ router.use(authenticate);
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB
-  fileFilter: (_req, file, cb) => {
-    const allowed = /pdf|doc|docx|mp4|webm|mov|jpg|jpeg|png|gif|webp/i;
-    if (!allowed.test(path.extname(file.originalname))) {
-      cb(new Error('File type not allowed. Accepted: PDF, DOC, DOCX, MP4, WebM, MOV, images'));
-      return;
-    }
-    cb(null, true);
-  },
 });
 
 // POST /upload/content — upload file to S3

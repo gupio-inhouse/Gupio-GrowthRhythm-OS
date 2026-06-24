@@ -7,7 +7,6 @@ export type NotificationEvent =
   | 'TASK_DUE_TODAY'
   | 'TASK_OVERDUE'
   | 'STANDUP_REMINDER'
-  | 'KRA_STATUS_CHANGED'
   | 'WEEKLY_DIGEST'
   | 'BLOCKER_ESCALATED';
 
@@ -18,7 +17,6 @@ const TEMPLATES: Record<NotificationEvent, (d: Record<string, unknown>) => { tit
   TASK_DUE_TODAY: (d) => ({ title: 'Task due today', body: `"${d.taskTitle}" is due today — mark it done before EOD.` }),
   TASK_OVERDUE: (d) => ({ title: 'Task overdue', body: `"${d.taskTitle}" was due ${d.dueDate} and is still open.` }),
   STANDUP_REMINDER: (d) => ({ title: 'Standup in 15 minutes', body: `${d.departmentName} daily standup starts at ${d.time}` }),
-  KRA_STATUS_CHANGED: (d) => ({ title: 'KRA status update', body: `"${d.kraName}" is now ${d.status}` }),
   WEEKLY_DIGEST: (d) => ({ title: 'Your weekly summary', body: `Week ended: ${d.done} tasks done · ${d.blocked} blocked · ${d.standups} standups` }),
   BLOCKER_ESCALATED: (d) => ({ title: 'Blocker escalated', body: `"${d.taskTitle}" blocked for 3+ days. Needs immediate attention.` }),
 };
@@ -30,7 +28,6 @@ const EVENT_PREF_KEY: Record<NotificationEvent, string> = {
   TASK_DUE_TODAY: 'taskAssigned',
   TASK_OVERDUE: 'taskBlocked',
   STANDUP_REMINDER: 'standupReminder',
-  KRA_STATUS_CHANGED: 'kraUpdate',
   WEEKLY_DIGEST: 'weeklyDigest',
   BLOCKER_ESCALATED: 'taskBlocked',
 };

@@ -383,8 +383,6 @@ export async function sendWelcomeEmail({ to, name, orgName }: SendWelcomeEmailPa
               <ul style="margin:0 0 28px;padding-left:20px;color:#94a3b8;font-size:14px;line-height:1.8;">
                 <li>Track your daily tasks and blockers</li>
                 <li>Participate in structured standups</li>
-                <li>View your team goals and KRAs</li>
-                <li>Access your learning path</li>
               </ul>
               <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:0 0 20px;" />
               <p style="margin:0;font-size:12px;color:#475569;line-height:1.6;">

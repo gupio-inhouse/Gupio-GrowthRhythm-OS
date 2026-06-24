@@ -72,14 +72,12 @@ const createSchema = z.object({
   title: z.string().min(2),
   description: z.string().optional(),
   expectedOutcome: z.string().optional(),
-  kraId: z.string().optional(),
   departmentId: z.string().optional(),
   dependencyId: z.string().optional(),
   assigneeUserId: z.string(),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).default('MEDIUM'),
   startDate: z.string().datetime().optional(),
   dueDate: z.string().datetime().optional(),
-  isLearningTask: z.boolean().default(false),
 });
 
 const updateSchema = createSchema.partial().extend({
@@ -177,7 +175,6 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     include: {
       assignee: { select: { id: true, name: true, email: true, avatarUrl: true } },
       assignedBy: { select: { id: true, name: true } },
-      kra: { select: { id: true, name: true } },
       department: { select: { id: true, name: true, slug: true } },
       dependency: { select: { id: true, title: true, status: true } },
       _count: { select: { comments: true, attachments: true } },
@@ -202,7 +199,6 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
       assignee: { select: { id: true, name: true, email: true, avatarUrl: true } },
       assignedBy: { select: { id: true, name: true } },
       completionReviewedBy: { select: { id: true, name: true } },
-      kra: true,
       department: true,
       dependency: { select: { id: true, title: true, status: true } },
       comments: {
@@ -368,7 +364,7 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
   }
 
   if (actor.role === 'TEAM_MEMBER') {
-    const forbiddenFields = ['assigneeUserId', 'departmentId', 'kraId', 'priority', 'dependencyId', 'dueDate', 'startDate'];
+    const forbiddenFields = ['assigneeUserId', 'departmentId', 'priority', 'dependencyId', 'dueDate', 'startDate'];
     if (forbiddenFields.some((field) => field in req.body)) {
       res.status(403).json({ error: 'Team members can only update title, description, status, and blocker details on their own tasks' });
       return;
@@ -458,20 +454,9 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
     include: {
       assignee: { select: { id: true, name: true } },
       assignedBy: { select: { id: true, name: true } },
-      kra: { select: { id: true, target: true, current: true } },
       department: { select: { id: true, headUserId: true } },
     },
   });
-
-  // KRA progress rollup
-  if (data.status === 'DONE' && existingTask.status !== 'DONE' && task.kraId && task.kra) {
-    const kra = task.kra as { id: string; target: number; current: number };
-    const newCurrent = Math.min(kra.current + 1, kra.target);
-    await prisma.kRA.update({
-      where: { id: task.kraId },
-      data: { current: newCurrent, status: newCurrent >= kra.target ? 'COMPLETED' : 'ON_TRACK' },
-    });
-  }
 
   // Email new assignee when task is reassigned to someone else
   const newAssigneeId = parsed.data.assigneeUserId;
@@ -694,7 +679,6 @@ router.post('/import-csv', auditLog('task', 'CREATE'), async (req: AuthRequest, 
         priority: row.priority?.toUpperCase() || 'MEDIUM',
         assigneeUserId: row.assigneeUserId,
         departmentId: row.departmentId || undefined,
-        kraId: row.kraId || undefined,
         dueDate: row.dueDate ? new Date(row.dueDate).toISOString() : undefined,
       });
       if (!parsed.success) { results.errors.push(`Row "${row.title}": ${JSON.stringify(parsed.error.flatten().fieldErrors)}`); continue; }

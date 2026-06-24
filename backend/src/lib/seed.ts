@@ -107,62 +107,6 @@ async function seed() {
   await prisma.department.update({ where: { id: sales.id }, data: { head: { connect: { id: salesHead.id } } } });
   console.log(`✅ 6 users created`);
 
-  // Goal (ownerUserId is the DB field; use relation connect)
-  let goal = await prisma.goal.findFirst({ where: { orgId: org.id, title: 'Achieve ₹5 Cr ARR by Q4 FY2026' } });
-  if (!goal) {
-    goal = await prisma.goal.create({
-      data: {
-        title: 'Achieve ₹5 Cr ARR by Q4 FY2026',
-        description: 'Scale revenue through new enterprise accounts and product expansion',
-        type: 'COMPANY',
-        status: 'ACTIVE',
-        orgId: org.id,
-        ownerUserId: owner.id,
-        dueDate: new Date('2026-03-31'),
-      },
-    });
-  }
-  console.log(`✅ Goal: ${goal.title}`);
-
-  // KRAs — no priority field; required: target (Float), period (String), ownerUserId
-  let kra1 = await prisma.kRA.findFirst({ where: { orgId: org.id, name: 'Launch v2 API Platform' } });
-  if (!kra1) {
-    kra1 = await prisma.kRA.create({
-      data: {
-        name: 'Launch v2 API Platform',
-        description: 'Redesign and launch the API platform with 3x performance',
-        status: 'ACTIVE',
-        orgId: org.id,
-        departmentId: eng.id,
-        ownerUserId: engHead.id,
-        goalId: goal.id,
-        target: 100,
-        current: 35,
-        unit: '%',
-        period: 'Q3-Q4 FY2026',
-      },
-    });
-  }
-  let kra2 = await prisma.kRA.findFirst({ where: { orgId: org.id, name: 'Close 10 Enterprise Deals' } });
-  if (!kra2) {
-    kra2 = await prisma.kRA.create({
-      data: {
-        name: 'Close 10 Enterprise Deals',
-        description: 'Sign contracts with 10 enterprise customers',
-        status: 'ON_TRACK',
-        orgId: org.id,
-        departmentId: sales.id,
-        ownerUserId: salesHead.id,
-        goalId: goal.id,
-        target: 10,
-        current: 4,
-        unit: 'deals',
-        period: 'Q3-Q4 FY2026',
-      },
-    });
-  }
-  console.log(`✅ 2 KRAs`);
-
   // Tasks — assigneeUserId (not assigneeId), no createdById in schema
   const taskData = [
     {
@@ -170,7 +114,7 @@ async function seed() {
       status: 'IN_PROGRESS' as const, priority: 'HIGH' as const,
       orgId: org.id, departmentId: eng.id,
       assignedByUserId: engHead.id,
-      assigneeUserId: dev1.id, kraId: kra1.id,
+      assigneeUserId: dev1.id,
       dueDate: new Date(Date.now() + 3 * 86400000),
     },
     {
@@ -178,7 +122,7 @@ async function seed() {
       status: 'BLOCKED' as const, priority: 'CRITICAL' as const,
       orgId: org.id, departmentId: eng.id,
       assignedByUserId: engHead.id,
-      assigneeUserId: dev2.id, kraId: kra1.id,
+      assigneeUserId: dev2.id,
       dueDate: new Date(Date.now() + 86400000),
       blockerType: 'DEPENDENCY' as const,
     },
@@ -187,7 +131,7 @@ async function seed() {
       status: 'TODO' as const, priority: 'MEDIUM' as const,
       orgId: org.id, departmentId: eng.id,
       assignedByUserId: engHead.id,
-      assigneeUserId: dev1.id, kraId: kra1.id,
+      assigneeUserId: dev1.id,
       dueDate: new Date(Date.now() + 7 * 86400000),
     },
     {
@@ -195,7 +139,7 @@ async function seed() {
       status: 'TODO' as const, priority: 'HIGH' as const,
       orgId: org.id, departmentId: sales.id,
       assignedByUserId: salesHead.id,
-      assigneeUserId: sales1.id, kraId: kra2.id,
+      assigneeUserId: sales1.id,
       dueDate: new Date(Date.now() + 2 * 86400000),
     },
     {
@@ -203,7 +147,7 @@ async function seed() {
       status: 'IN_PROGRESS' as const, priority: 'HIGH' as const,
       orgId: org.id, departmentId: sales.id,
       assignedByUserId: salesHead.id,
-      assigneeUserId: salesHead.id, kraId: kra2.id,
+      assigneeUserId: salesHead.id,
       dueDate: new Date(Date.now() + 5 * 86400000),
     },
     {
@@ -211,7 +155,7 @@ async function seed() {
       status: 'DONE' as const, priority: 'HIGH' as const,
       orgId: org.id, departmentId: eng.id,
       assignedByUserId: engHead.id,
-      assigneeUserId: dev2.id, kraId: kra1.id,
+      assigneeUserId: dev2.id,
       dueDate: new Date(Date.now() - 3 * 86400000),
       completedAt: new Date(Date.now() - 86400000),
     },
@@ -254,34 +198,6 @@ async function seed() {
     });
   }
   console.log(`✅ Standup seeded`);
-
-  // Learning path — no createdById/targetRole/estimatedHours in schema
-  let lp = await prisma.learningPath.findFirst({ where: { orgId: org.id, title: 'Backend Engineering Excellence' } });
-  if (!lp) {
-    lp = await prisma.learningPath.create({
-      data: {
-        title: 'Backend Engineering Excellence',
-        description: 'Master API design, performance tuning, and system reliability',
-        orgId: org.id,
-        departmentId: eng.id,
-      },
-    });
-  }
-
-  const liData = [
-    { id: 'seed-li-1', title: 'REST API Design Principles', type: 'EXTERNAL_LINK' as const, contentUrl: 'https://restfulapi.net', estimatedMinutes: 45, order: 1 },
-    { id: 'seed-li-2', title: 'PostgreSQL Performance Tuning', type: 'VIDEO' as const, contentUrl: 'https://youtube.com', estimatedMinutes: 90, order: 2 },
-    { id: 'seed-li-3', title: 'Redis Caching Patterns', type: 'EXTERNAL_LINK' as const, contentUrl: 'https://redis.io/docs', estimatedMinutes: 30, order: 3 },
-  ];
-
-  for (const item of liData) {
-    await prisma.learningItem.upsert({
-      where: { id: item.id },
-      update: {},
-      create: { ...item, learningPathId: lp.id },
-    });
-  }
-  console.log(`✅ Learning path seeded`);
 
   console.log('\n🎉 Done!\n');
   console.log('Credentials (all: Password@123)');

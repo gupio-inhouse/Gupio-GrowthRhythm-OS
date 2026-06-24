@@ -30,10 +30,6 @@ export function useRealtimeUpdates() {
       qc.invalidateQueries({ queryKey: ['notifications'] });
     });
 
-    es.addEventListener('kra_updated', () => {
-      qc.invalidateQueries({ queryKey: ['kras'] });
-    });
-
     es.onerror = () => {
       // Browser auto-reconnects on SSE error; no manual retry needed
     };

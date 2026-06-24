@@ -21,7 +21,6 @@ type Task = {
   id: string; title: string; status: string; priority: string;
   dueDate?: string;
   assignee?: { id: string; name: string; avatarUrl?: string };
-  kra?: { id: string; name: string };
   department?: { id: string; name: string };
   blockerType?: string;
   _count?: { comments: number; attachments: number };
@@ -452,7 +451,6 @@ function TaskRow({ task, onStatusChange, onClick, onDeliveryClick, canExtend, on
               {task.title}
             </p>
             <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-              {task.kra && <span className="text-xs text-muted-foreground truncate max-w-[120px] sm:max-w-none">KRA: {task.kra.name}</span>}
               {task.department && <span className="text-xs text-muted-foreground">{task.department.name}</span>}
               {task.blockerType && (
                 <span className="text-xs text-red-500 font-medium">
@@ -767,7 +765,7 @@ function CsvImportDialog({ open, onClose, onImported }: {
           <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground space-y-1">
             <p className="font-medium text-foreground">Required CSV columns:</p>
             <p><code>title</code>, <code>assigneeUserId</code></p>
-            <p className="text-muted-foreground">Optional: <code>description</code>, <code>priority</code> (LOW/MEDIUM/HIGH/CRITICAL), <code>departmentId</code>, <code>kraId</code>, <code>dueDate</code></p>
+            <p className="text-muted-foreground">Optional: <code>description</code>, <code>priority</code> (LOW/MEDIUM/HIGH/CRITICAL), <code>departmentId</code>, <code>dueDate</code></p>
           </div>
 
           <div className="space-y-1.5">

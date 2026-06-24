@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Send, Calendar, User, Flag, Building2, Target, AlertTriangle, Pencil, Trash2, ImagePlus, FileText, GitPullRequest, ExternalLink, Link2 } from 'lucide-react';
+import { Send, Calendar, User, Flag, Building2, AlertTriangle, Pencil, Trash2, ImagePlus, FileText, GitPullRequest, ExternalLink, Link2 } from 'lucide-react';
 import { Sheet, SheetHeader, SheetTitle, SheetContent } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -59,7 +59,6 @@ type TaskDetail = {
   assignee: { id: string; name: string; avatarUrl?: string };
   assignedBy?: { id: string; name: string };
   completionReviewedBy?: { id: string; name: string };
-  kra?: { id: string; name: string };
   department?: { id: string; name: string };
   comments: Comment[];
   attachments: TaskAttachment[];
@@ -285,7 +284,6 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
         priority: task.priority,
         dueDate: task.dueDate,
         assignee: task.assignee,
-        kra: task.kra,
         department: task.department,
       }
     : null;
@@ -314,7 +312,7 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
         ) : (
           <>
             <SheetHeader>
-              <div className="flex items-start gap-3">
+              <div className="flex items-start gap-3 pr-8">
                 <div className="flex-1 min-w-0">
                   <SheetTitle>{task.title}</SheetTitle>
                   <div className="flex items-center gap-2 mt-2 flex-wrap">
@@ -431,14 +429,6 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
                       <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
                       <span className="text-sm text-muted-foreground w-24">Department</span>
                       <span className="text-sm">{task.department.name}</span>
-                    </div>
-                  )}
-
-                  {task.kra && (
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <Target className="h-4 w-4 text-muted-foreground shrink-0" />
-                      <span className="text-sm text-muted-foreground w-24">KRA</span>
-                      <span className="text-sm">{task.kra.name}</span>
                     </div>
                   )}
 

@@ -21,12 +21,6 @@ export const PROMPTS = {
       `You are an AI assistant for ${deptName} team. Extract key themes: accomplishments, commitments, and blockers.`,
     user: (cards: string) => `Summarise this standup in 3 bullet points. Be concise.\n\n${cards}`,
   },
-  GOAL_SUGGESTIONS: {
-    version: 'v1',
-    system: 'You are an OKR expert for Indian SMBs. Return only valid JSON.',
-    user: (description: string) =>
-      `Based on this business goal: "${description}"\n\nSuggest 3-5 KRAs (Key Result Areas) in JSON format: {"kras": ["KRA 1", "KRA 2"]}`,
-  },
   WEEKLY_DIGEST: {
     version: 'v1',
     system: 'You are a business performance coach for Indian SMBs. Be direct and actionable.',
@@ -57,12 +51,6 @@ export const PROMPTS = {
       }
       return `A task "${title}" has changed status to "${status}". Context/Blocker: ${context || 'none'}.\n\n${focus} Return JSON: {"suggestions": ["step 1", "step 2", "step 3"]}`;
     }
-  },
-  LEARNING_RECOMMEND: {
-    version: 'v1',
-    system: 'You are a learning coach for Indian SMBs. Recommend targeted skill-building based on the employee\'s role and learning gaps.',
-    user: (role: string, completed: string[], pending: string[]) =>
-      `Employee role: ${role}\nCompleted learning: ${completed.join(', ') || 'none'}\nPending/not started: ${pending.join(', ') || 'none'}\n\nSuggest up to 5 prioritized items from the pending list to tackle next, with a brief reason. Return JSON: {"recommendations": [{"title": "...", "reason": "...", "priority": "high|medium|low"}]}`,
   },
 } as const;
 
@@ -149,7 +137,7 @@ export async function deductAiCredits(orgId: string, amount = 1): Promise<boolea
       select: { id: true },
     });
     if (owners.length > 0) {
-      fanOutNotification(orgId, owners.map((u) => u.id), 'KRA_STATUS_CHANGED', {
+      fanOutNotification(orgId, owners.map((u) => u.id), 'WEEKLY_DIGEST', {
         message: `AI credits at ${Math.round(usageRatio * 100)}% — ${updated.aiCreditsTotal - updated.aiCreditsUsed} remaining`,
       }).catch(() => {});
     }
@@ -182,21 +170,6 @@ export async function generateStandupDigest(standupId: string): Promise<string> 
   return callClaude(p.user(cardSummaries), p.system(standup.department.name), 'fast', 1800);
 }
 
-export async function generateGoalSuggestions(description: string, orgId: string): Promise<string[]> {
-  const hasCredits = await deductAiCredits(orgId, 1);
-  if (!hasCredits) return [];
-
-  const p = PROMPTS.GOAL_SUGGESTIONS;
-  const text = await callClaude(p.user(description), p.system, 'fast', 3600);
-
-  try {
-    const parsed = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] ?? '{}') as { kras?: string[] };
-    return parsed.kras ?? [];
-  } catch {
-    return [];
-  }
-}
-
 export async function generateWeeklyDigest(orgId: string): Promise<string> {
   const weekAgo = new Date(Date.now() - 7 * 86400000);
 
@@ -211,52 +184,6 @@ export async function generateWeeklyDigest(orgId: string): Promise<string> {
 
   const p = PROMPTS.WEEKLY_DIGEST;
   return callClaude(p.user(doneTasks, blockedTasks, standups), p.system, 'balanced', 43200);
-}
-
-// M7.5 — AI learning recommender
-export async function generateLearningRecommendations(
-  userId: string,
-  orgId: string
-): Promise<Array<{ title: string; reason: string; priority: string }>> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { role: true },
-  });
-  if (!user) return [];
-
-  const assignments = await prisma.learningAssignment.findMany({
-    where: { userId },
-    include: { learningItem: { select: { title: true } } },
-  });
-
-  const completed = assignments
-    .filter((a) => a.status === 'COMPLETED')
-    .map((a) => a.learningItem.title);
-  const pending = assignments
-    .filter((a) => a.status !== 'COMPLETED')
-    .map((a) => a.learningItem.title);
-
-  if (pending.length === 0) return [];
-
-  const hasCredits = await deductAiCredits(orgId, 1);
-  if (!hasCredits) return [];
-
-  const p = PROMPTS.LEARNING_RECOMMEND;
-  const text = await callClaude(
-    p.user(user.role, completed, pending),
-    p.system,
-    'fast',
-    1800
-  );
-
-  try {
-    const parsed = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] ?? '{}') as {
-      recommendations?: Array<{ title: string; reason: string; priority: string }>;
-    };
-    return parsed.recommendations ?? [];
-  } catch {
-    return [];
-  }
 }
 
 // M4.7 — AI next-step suggestions for blocked tasks

@@ -1,7 +1,7 @@
 import { Link, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, CheckSquare, Users, UsersRound, Target, Zap, BookOpen,
-  Building2, Settings, LogOut, BarChart3, Shield, Plug, MessageSquare, X, ClipboardList,
+  LayoutDashboard, CheckSquare, Users, Zap,
+  Building2, Settings, LogOut, BarChart3, Shield, MessageSquare, X, ClipboardList,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
@@ -13,13 +13,9 @@ const navItems = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'] },
   { label: 'Owner Cockpit', href: '/cockpit', icon: BarChart3, roles: ['OWNER'] },
   { label: 'Tasks', href: '/tasks', icon: CheckSquare, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'] },
-  { label: 'Goals & KRAs', href: '/goals', icon: Target, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'] },
   { label: 'Standup', href: '/standup', icon: Zap, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'] },
-  { label: 'Learning', href: '/learning', icon: BookOpen, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'] },
   { label: 'Departments', href: '/departments', icon: Building2, roles: ['OWNER', 'COMPANY_ADMIN'] },
   { label: 'Team', href: '/team', icon: Users, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'] },
-  { label: 'Project Team', href: '/teams', icon: UsersRound, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'] },
-  { label: 'Integrations', href: '/integrations', icon: Plug, roles: ['OWNER', 'COMPANY_ADMIN'] },
   { label: 'Audit Log', href: '/audit-log', icon: ClipboardList, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'] },
   { label: 'App Feedback', href: '/app-feedback', icon: MessageSquare, roles: ['OWNER', 'COMPANY_ADMIN'] },
   { label: 'Settings', href: '/settings', icon: Settings, roles: ['OWNER', 'COMPANY_ADMIN'] },

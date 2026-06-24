@@ -288,7 +288,6 @@ router.get('/:id/report', async (req: AuthRequest, res: Response) => {
       blockerCount: true,
       expectedOutcome: true,
       description: true,
-      kra: { select: { id: true, name: true, status: true } },
       department: { select: { id: true, name: true, slug: true } },
       dependency: { select: { id: true, title: true, status: true } },
       _count: { select: { comments: true, attachments: true } },
@@ -323,27 +322,6 @@ router.get('/:id/report', async (req: AuthRequest, res: Response) => {
     return acc;
   }, {});
 
-  const tasksByKra = Object.values(tasks.reduce<Record<string, {
-    kraId: string;
-    kraName: string;
-    kraStatus: string;
-    total: number;
-    done: number;
-  }>>((acc, task) => {
-    if (!task.kra) return acc;
-    const existing = acc[task.kra.id] || {
-      kraId: task.kra.id,
-      kraName: task.kra.name,
-      kraStatus: task.kra.status,
-      total: 0,
-      done: 0,
-    };
-    existing.total += 1;
-    if (task.status === 'DONE') existing.done += 1;
-    acc[task.kra.id] = existing;
-    return acc;
-  }, {})).sort((a, b) => b.total - a.total);
-
   const recentTasks = tasks
     .slice()
     .sort((a, b) => {
@@ -373,7 +351,6 @@ router.get('/:id/report', async (req: AuthRequest, res: Response) => {
       HIGH: priorityCounts.HIGH || 0,
       CRITICAL: priorityCounts.CRITICAL || 0,
     },
-    tasksByKra,
     recentTasks,
   });
 });
@@ -420,7 +397,6 @@ router.get('/:id/report/export-csv', async (req: AuthRequest, res: Response) => 
       updatedAt: true,
       blockerType: true,
       blockerCount: true,
-      kra: { select: { name: true } },
       department: { select: { name: true } },
       dependency: { select: { title: true } },
     },
@@ -447,7 +423,6 @@ router.get('/:id/report/export-csv', async (req: AuthRequest, res: Response) => 
       taskTitle: task.title,
       status: task.status,
       priority: task.priority,
-      kra: task.kra?.name || '',
       dependency: task.dependency?.title || '',
       blockerType: task.blockerType || '',
       blockerCount: task.blockerCount,

@@ -340,18 +340,11 @@ export default function Standup() {
                 {activeStandup.status === 'IN_PROGRESS' && activeStandup.startedAt && (
                   <Timer startedAt={activeStandup.startedAt} limit={activeStandup.timerMinutes} />
                 )}
-                {activeStandup.meetUrl ? (
+                {activeStandup.meetUrl && (
                   <Button size="sm" asChild className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white">
                     <a href={activeStandup.meetUrl} target="_blank" rel="noopener noreferrer">
                       <Video className="h-3.5 w-3.5" />
                       Join Meeting
-                    </a>
-                  </Button>
-                ) : (
-                  <Button size="sm" variant="outline" asChild className="gap-1.5 text-muted-foreground">
-                    <a href="/integrations">
-                      <Video className="h-3.5 w-3.5" />
-                      Connect Google Meet
                     </a>
                   </Button>
                 )}
@@ -444,28 +437,17 @@ export default function Standup() {
                   })}>
                     {s.status.toLowerCase().replace('_', ' ')}
                   </Badge>
-                  {s.status !== 'COMPLETED' && (
-                    s.meetUrl ? (
-                      <a
-                        href={s.meetUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors shrink-0"
-                      >
-                        <Video className="h-3.5 w-3.5" />
-                        Join
-                      </a>
-                    ) : (
-                      <a
-                        href="/integrations"
-                        onClick={(e) => e.stopPropagation()}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border border-dashed text-muted-foreground hover:text-foreground transition-colors shrink-0"
-                      >
-                        <Video className="h-3.5 w-3.5" />
-                        Connect Google
-                      </a>
-                    )
+                  {s.status !== 'COMPLETED' && s.meetUrl && (
+                    <a
+                      href={s.meetUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors shrink-0"
+                    >
+                      <Video className="h-3.5 w-3.5" />
+                      Join
+                    </a>
                   )}
                   {canSchedule && s.status !== 'IN_PROGRESS' && (
                     confirmDeleteId === s.id ? (

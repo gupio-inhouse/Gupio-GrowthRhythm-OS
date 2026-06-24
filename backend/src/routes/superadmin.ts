@@ -27,7 +27,7 @@ router.get('/orgs/:id', async (req: AuthRequest, res: Response) => {
         where: { role: { in: ['OWNER', 'COMPANY_ADMIN'] } },
         select: { id: true, name: true, email: true, role: true, status: true, lastLoginAt: true },
       },
-      _count: { select: { users: true, departments: true, tasks: true, kras: true } },
+      _count: { select: { users: true, departments: true, tasks: true } },
     },
   });
   if (!org) { res.status(404).json({ error: 'Not found' }); return; }

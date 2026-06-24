@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
-  AlertTriangle, ArrowLeft, Building2, CheckCircle2, Clock, Download, Mail, Target,
+  AlertTriangle, ArrowLeft, Building2, CheckCircle2, Clock, Download, Mail,
 } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -23,7 +23,6 @@ type ReportTask = {
   blockerType?: string | null;
   expectedOutcome?: string | null;
   description?: string | null;
-  kra?: { id: string; name: string; status: string } | null;
   dependency?: { id: string; title: string; status: string } | null;
   _count: { comments: number; attachments: number };
 };
@@ -54,13 +53,6 @@ type IndividualReportPayload = {
     completionRate: number;
   };
   priorityCounts: Record<string, number>;
-  tasksByKra: Array<{
-    kraId: string;
-    kraName: string;
-    kraStatus: string;
-    total: number;
-    done: number;
-  }>;
   recentTasks: ReportTask[];
 };
 
@@ -119,7 +111,7 @@ export default function IndividualReport() {
     );
   }
 
-  const { user, summary, priorityCounts, tasksByKra, recentTasks } = data;
+  const { user, summary, priorityCounts, recentTasks } = data;
 
   return (
     <div className="p-4 sm:p-8 space-y-6">
@@ -174,7 +166,6 @@ export default function IndividualReport() {
           { label: 'In Progress', value: summary.inProgressTasks, sub: `${summary.todoTasks} to do`, icon: Clock, tone: 'text-blue-600 bg-blue-50' },
           { label: 'Blocked', value: summary.blockedTasks, sub: `${summary.overdueTasks} overdue`, icon: AlertTriangle, tone: 'text-red-600 bg-red-50' },
           { label: 'Due Today', value: summary.dueTodayTasks, sub: `${summary.completedThisWeek} done this week`, icon: Clock, tone: 'text-orange-600 bg-orange-50' },
-          { label: 'KRAs', value: tasksByKra.length, sub: 'linked result areas', icon: Target, tone: 'text-indigo-600 bg-indigo-50' },
         ].map(({ label, value, sub, icon: Icon, tone }) => (
           <Card key={label}>
             <CardContent className="p-5">
@@ -246,39 +237,8 @@ export default function IndividualReport() {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="lg:col-span-1">
-          <CardHeader>
-            <CardTitle className="text-base">KRA Coverage</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {tasksByKra.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No KRA-linked tasks yet.</p>
-            ) : (
-              <div className="space-y-3">
-                {tasksByKra.map((item) => {
-                  const pct = item.total > 0 ? Math.round((item.done / item.total) * 100) : 0;
-                  return (
-                    <div key={item.kraId} className="space-y-1.5 rounded-lg border p-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-medium">{item.kraName}</p>
-                          <p className="text-xs text-muted-foreground">{item.done} of {item.total} tasks done</p>
-                        </div>
-                        <Badge className="text-xs" variant="outline">
-                          {item.kraStatus.replace(/_/g, ' ')}
-                        </Badge>
-                      </div>
-                      <Progress value={pct} className="h-2" />
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="lg:col-span-2">
+      <div className="grid grid-cols-1 gap-6">
+        <Card>
           <CardHeader>
             <CardTitle className="text-base">Recent Tasks</CardTitle>
           </CardHeader>
@@ -312,7 +272,6 @@ export default function IndividualReport() {
                       </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-3 mt-3 text-xs text-muted-foreground">
-                      {task.kra && <span>KRA: {task.kra.name}</span>}
                       {task.dependency && <span>Depends on: {task.dependency.title}</span>}
                       {task.blockerType && <span>Blocker: {task.blockerType.toLowerCase().replace(/_/g, ' ')}</span>}
                       <span>{task._count.comments} comments</span>

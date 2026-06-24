@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Building2, Users, CheckSquare, Target, ArrowRight, Clock, Settings, Plus, Trash2 } from 'lucide-react';
+import { Building2, Users, CheckSquare, Clock, Settings, Plus, Trash2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -16,7 +16,7 @@ type Department = {
   id: string; name: string; slug: string;
   standupTime?: string; standupDuration?: number;
   head?: { id: string; name: string; email: string; avatarUrl?: string };
-  _count: { users: number; kras: number; tasks: number };
+  _count: { users: number; tasks: number };
 };
 
 export default function Departments() {
@@ -132,7 +132,8 @@ export default function Departments() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {departments.map((dept) => (
-            <Card key={dept.id} className="group hover:shadow-md transition-shadow">
+            <Link key={dept.id} to={`/departments/${dept.slug}`}>
+              <Card className="group hover:shadow-md hover:border-primary/40 transition-all cursor-pointer h-full">
               <CardContent className="p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-100">
@@ -141,7 +142,7 @@ export default function Departments() {
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     {canConfigure && (
                       <button
-                        onClick={() => setScheduleTarget(dept)}
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setScheduleTarget(dept); }}
                         className="text-muted-foreground hover:text-primary p-1 rounded"
                         title="Configure standup schedule"
                       >
@@ -150,19 +151,13 @@ export default function Departments() {
                     )}
                     {canCreate && (
                       <button
-                        onClick={() => { setDeleteError(''); setDeleteDeptId(dept.id); }}
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteError(''); setDeleteDeptId(dept.id); }}
                         className="text-muted-foreground hover:text-red-600 p-1 rounded"
                         title="Delete department"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
                     )}
-                    <Link
-                      to={`/dashboard/${dept.slug}`}
-                      className="text-muted-foreground hover:text-primary"
-                    >
-                      <ArrowRight className="h-4 w-4" />
-                    </Link>
                   </div>
                 </div>
 
@@ -191,16 +186,13 @@ export default function Departments() {
                     <span>{dept._count.users}</span>
                   </div>
                   <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                    <Target className="h-4 w-4" />
-                    <span>{dept._count.kras} KRAs</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
                     <CheckSquare className="h-4 w-4" />
                     <span>{dept._count.tasks} tasks</span>
                   </div>
                 </div>
               </CardContent>
-            </Card>
+              </Card>
+            </Link>
           ))}
         </div>
       )}

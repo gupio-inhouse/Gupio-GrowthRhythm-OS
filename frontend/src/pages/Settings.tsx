@@ -40,7 +40,6 @@ const notificationOptions = [
   { key: 'taskAssigned', label: 'Task Assigned to Me', description: 'When someone assigns a task to you' },
   { key: 'taskBlocked', label: 'Task Blocked', description: 'When one of your tasks gets blocked' },
   { key: 'standupReminder', label: 'Standup Reminder', description: 'Daily reminder 15 minutes before standup' },
-  { key: 'kraUpdate', label: 'KRA Status Change', description: 'When a KRA you own changes status' },
   { key: 'weeklyDigest', label: 'Weekly Digest', description: 'Sunday summary of team performance' },
   { key: 'reviewDue', label: 'Review Due', description: 'When a review is scheduled for your team' },
 ];
@@ -56,7 +55,7 @@ function SavedBanner() {
 
 const DEFAULT_NOTIF_PREFS: Record<string, boolean> = {
   taskAssigned: true, taskBlocked: true, standupReminder: true,
-  kraUpdate: false, weeklyDigest: true, reviewDue: false,
+  weeklyDigest: true, reviewDue: false,
 };
 
 function MfaSection() {
@@ -463,7 +462,7 @@ export default function Settings() {
               <CardContent className="space-y-4">
                 <div className="rounded-md border p-4 space-y-2">
                   <p className="text-sm font-medium">Export Organisation Data</p>
-                  <p className="text-xs text-muted-foreground">Download a full JSON export of all users, tasks, goals, KRAs, standups, and audit logs. This file may be used for compliance, migration, or backup purposes.</p>
+                  <p className="text-xs text-muted-foreground">Download a full JSON export of all users, tasks, standups, and audit logs. This file may be used for compliance, migration, or backup purposes.</p>
                   <a
                     href="/api/owner/data-export"
                     download

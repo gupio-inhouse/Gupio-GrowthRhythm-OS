@@ -45,13 +45,3 @@ export function statusColor(status: string) {
   return map[status] || 'text-gray-600 bg-gray-100';
 }
 
-export function kraStatusColor(status: string) {
-  const map: Record<string, string> = {
-    ACTIVE: 'text-blue-600 bg-blue-50',
-    ON_TRACK: 'text-green-600 bg-green-50',
-    AT_RISK: 'text-yellow-600 bg-yellow-50',
-    MISSED: 'text-red-600 bg-red-50',
-    COMPLETED: 'text-purple-600 bg-purple-50',
-  };
-  return map[status] || 'text-gray-600 bg-gray-100';
-}

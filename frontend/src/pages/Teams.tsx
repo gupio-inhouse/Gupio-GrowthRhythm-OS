@@ -39,7 +39,6 @@ type OrgUser = { id: string; name: string; email: string; avatarUrl?: string; ro
 type TaskSummary = {
   id: string; title: string; status: string; priority: string;
   dueDate?: string; assigneeUserId: string;
-  kra?: { id: string; name: string };
   department?: { id: string; name: string };
 };
 type MemberStat = {
@@ -567,7 +566,6 @@ function MemberTaskCard({ ms, expanded, onToggle, onRemove, removing }: {
                 <div className="flex-1 min-w-0">
                   <p className={cn('text-sm truncate', t.status === 'DONE' && 'line-through text-muted-foreground')}>{t.title}</p>
                   <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                    {t.kra && <span className="text-xs text-muted-foreground truncate max-w-[140px]">KRA: {t.kra.name}</span>}
                     {t.dueDate && (
                       <span className={cn('text-xs', overdue ? 'text-red-600 font-medium' : 'text-muted-foreground')}>
                         {overdue ? '⚠ Overdue · ' : ''}{formatDate(t.dueDate)}

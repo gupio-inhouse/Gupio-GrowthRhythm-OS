@@ -18,7 +18,6 @@ const managerSchema = z.object({
   expectedOutcome: z.string().optional(),
   assigneeUserId: z.string().min(1, 'Assignee required'),
   departmentId: z.string().optional(),
-  kraId: z.string().min(1, 'KRA is required — every task must link to a result area'),
   dependencyId: z.string().optional(),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).default('MEDIUM'),
   dueDate: z.string().optional(),
@@ -31,7 +30,6 @@ const teamMemberSchema = z.object({
   expectedOutcome: z.string().optional(),
   assigneeUserId: z.string().optional(),
   departmentId: z.string().optional(),
-  kraId: z.string().optional(),
   dependencyId: z.string().optional(),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).default('MEDIUM'),
   dueDate: z.string().optional(),
@@ -44,7 +42,6 @@ type FormData = ManagerFormData | TeamMemberFormData;
 
 type UserItem = { id: string; name: string; role: string; departmentId?: string };
 type Department = { id: string; name: string };
-type KRA = { id: string; name: string; departmentId?: string };
 type TaskItem = { id: string; title: string };
 type TeamItem = { id: string; name: string; members: { user: { id: string } }[] };
 
@@ -56,7 +53,6 @@ export type TaskToEdit = {
   priority: string;
   dueDate?: string;
   assignee: { id: string; name: string };
-  kra?: { id: string; name: string };
   department?: { id: string; name: string };
 };
 
@@ -85,12 +81,6 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
     enabled: open && !isTeamMember,
   });
 
-  const { data: kras = [] } = useQuery<KRA[]>({
-    queryKey: ['kras'],
-    queryFn: () => api.get('/kras').then((r) => r.data),
-    enabled: open,
-  });
-
   const { data: allTasks = [] } = useQuery<TaskItem[]>({
     queryKey: ['tasks-list'],
     queryFn: () => api.get('/tasks').then((r) => r.data),
@@ -111,7 +101,6 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
   const selectedDepartmentId = watch('departmentId');
   const watchedPriority = watch('priority') || 'MEDIUM';
   const watchedAssigneeId = watch('assigneeUserId') || '';
-  const watchedKraId = watch('kraId') || '';
   const watchedDependencyId = watch('dependencyId') || '';
 
   useEffect(() => {
@@ -124,7 +113,6 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
         priority: taskToEdit.priority as FormData['priority'],
         assigneeUserId: taskToEdit.assignee.id,
         departmentId: taskToEdit.department?.id ?? '',
-        kraId: taskToEdit.kra?.id ?? '',
         dueDate: taskToEdit.dueDate ? new Date(taskToEdit.dueDate).toISOString().split('T')[0] : '',
         dueTime: (() => {
           if (!taskToEdit.dueDate) return '';
@@ -167,7 +155,6 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
             expectedOutcome: data.expectedOutcome || undefined,
             assigneeUserId: isTeamMember ? user!.id : data.assigneeUserId,
             departmentId: data.departmentId || undefined,
-            kraId: data.kraId || undefined,
             dependencyId: data.dependencyId || undefined,
             priority: data.priority,
             dueDate: dueDateIso,
@@ -184,13 +171,9 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
     onClose();
   };
 
-  const effectiveDeptId = isTeamMember ? user?.departmentId : selectedDepartmentId;
   const departmentUsers = selectedDepartmentId
     ? users.filter((u) => u.departmentId === selectedDepartmentId)
     : [];
-  const departmentKras = effectiveDeptId
-    ? kras.filter((k) => k.departmentId === effectiveDeptId)
-    : kras;
 
   const assigneeTeams = watchedAssigneeId
     ? teams.filter((t) => t.members.some((m) => m.user.id === watchedAssigneeId))
@@ -235,7 +218,6 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
                   onValueChange={(v) => {
                     setValue('departmentId', v);
                     setValue('assigneeUserId', '');
-                    setValue('kraId', '');
                   }}
                 >
                   <SelectTrigger>
@@ -263,87 +245,46 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
             </div>
           )}
 
-          {/* Manager/DeptHead/Owner view: Assignee + KRA */}
+          {/* Manager/DeptHead/Owner view: Assignee */}
           {!isTeamMember && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label>Assignee *</Label>
-                <Select
-                  value={watchedAssigneeId}
-                  onValueChange={(v) => setValue('assigneeUserId', v)}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder={selectedDepartmentId ? 'Select person' : 'Select department first'} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {departmentUsers.map((u) => (
-                      <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {'assigneeUserId' in errors && errors.assigneeUserId && (
-                  <p className="text-xs text-destructive">{(errors.assigneeUserId as { message?: string }).message}</p>
-                )}
-                {assigneeTeams.length > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    Team{assigneeTeams.length > 1 ? 's' : ''}: <span className="font-medium text-foreground">{assigneeTeams.map((t) => t.name).join(', ')}</span>
-                  </p>
-                )}
-              </div>
-
-              <div className="space-y-1.5">
-                <Label>KRA *</Label>
-                <Select
-                  value={watchedKraId}
-                  onValueChange={(v) => setValue('kraId', v)}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder={selectedDepartmentId ? 'Select KRA' : 'Select department first'} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {departmentKras.map((k) => (
-                      <SelectItem key={k.id} value={k.id}>{k.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {'kraId' in errors && errors.kraId && (
-                  <p className="text-xs text-destructive">{(errors.kraId as { message?: string }).message}</p>
-                )}
-              </div>
+            <div className="space-y-1.5">
+              <Label>Assignee *</Label>
+              <Select
+                value={watchedAssigneeId}
+                onValueChange={(v) => setValue('assigneeUserId', v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={selectedDepartmentId ? 'Select person' : 'Select department first'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {departmentUsers.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {'assigneeUserId' in errors && errors.assigneeUserId && (
+                <p className="text-xs text-destructive">{(errors.assigneeUserId as { message?: string }).message}</p>
+              )}
+              {assigneeTeams.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Team{assigneeTeams.length > 1 ? 's' : ''}: <span className="font-medium text-foreground">{assigneeTeams.map((t) => t.name).join(', ')}</span>
+                </p>
+              )}
             </div>
           )}
 
-          {/* Team member view: KRA + Priority — hidden in edit mode */}
+          {/* Team member view: Priority — hidden in edit mode */}
           {isTeamMember && !isEditMode && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label>KRA (optional)</Label>
-                <Select
-                  value={watchedKraId}
-                  onValueChange={(v) => setValue('kraId', v)}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Link to a result area" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {departmentKras.map((k) => (
-                      <SelectItem key={k.id} value={k.id}>{k.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label>Priority</Label>
-                <Select value={watchedPriority} onValueChange={(v) => setValue('priority', v as FormData['priority'])}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].map((p) => (
-                      <SelectItem key={p} value={p}>{p}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+            <div className="space-y-1.5">
+              <Label>Priority</Label>
+              <Select value={watchedPriority} onValueChange={(v) => setValue('priority', v as FormData['priority'])}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].map((p) => (
+                    <SelectItem key={p} value={p}>{p}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           )}
 

@@ -33,27 +33,6 @@ enum Plan {
   ENTERPRISE
 }
 
-enum GoalType {
-  COMPANY
-  DEPARTMENT
-  TEAM
-}
-
-enum GoalStatus {
-  ACTIVE
-  COMPLETED
-  MISSED
-  CANCELLED
-}
-
-enum KRAStatus {
-  ACTIVE
-  ON_TRACK
-  AT_RISK
-  MISSED
-  COMPLETED
-}
-
 enum TaskStatus {
   TODO
   IN_PROGRESS
@@ -91,25 +70,6 @@ enum StandupCardStatus {
   PENDING
   SUBMITTED
   UPDATED
-}
-
-enum LearningItemType {
-  VIDEO
-  PDF
-  SOP
-  QUIZ
-  ASSIGNMENT
-  ROLE_PLAY
-  EXTERNAL_LINK
-  COACHING_NOTE
-}
-
-enum LearningAssignmentStatus {
-  ASSIGNED
-  IN_PROGRESS
-  COMPLETED
-  OVERDUE
-  SKIPPED
 }
 
 enum ReviewType {
@@ -154,13 +114,6 @@ enum AuditAction {
   REVOKE
 }
 
-enum SkillLevel {
-  BEGINNER
-  DEVELOPING
-  PROFICIENT
-  EXPERT
-}
-
 // ─── Core Entities ────────────────────────────────────────────────────────────
 
 model Organization {
@@ -183,21 +136,17 @@ model Organization {
   users           User[]
   departments     Department[]
   teams           Team[]
-  goals           Goal[]
-  kras            KRA[]
+  teamDocuments   TeamDocument[]
   tasks           Task[]
   standups        Standup[]
   reviews         Review[]
   magicLinks      MagicLink[]
   notifications   Notification[]
   auditLogs       AuditLog[]
-  skills          Skill[]
-  learningPaths   LearningPath[]
   industryTemplate IndustryTemplate?
   jobDescriptions JobDescription[]
   candidates      Candidate[]
   onboardingChecklists OnboardingChecklist[]
-  oauthTokens     OAuthToken[]
   appFeedback     AppFeedback[]
 
   @@map("organizations")
@@ -227,15 +176,11 @@ model User {
   manager      User?         @relation("ManagerTeam", fields: [managerId], references: [id])
   directReports User[]       @relation("ManagerTeam")
 
-  ownedGoals           Goal[]             @relation("GoalOwner")
-  ownedKRAs            KRA[]              @relation("KRAOwner")
   assignedTasks        Task[]             @relation("TaskAssignee")
   tasksAssigned        Task[]             @relation("TaskAssigner")
   tasksReviewed        Task[]             @relation("TaskReviewer")
   taskComments         TaskComment[]
   standupCards         StandupCard[]
-  learningAssignments  LearningAssignment[]
-  skillAssessments     SkillAssessment[]
   magicLinks           MagicLink[]
   notifications        Notification[]
   auditLogs            AuditLog[]
@@ -243,6 +188,7 @@ model User {
   managedTeams         Team[]             @relation("TeamManager")
   headedTeams          Team[]             @relation("TeamDeptHead")
   teamMemberships      TeamMember[]
+  uploadedDocuments    TeamDocument[]     @relation("TeamDocUploader")
   interviewScorecards  InterviewScorecard[]
   onboardingChecklists OnboardingChecklist[]
   appFeedback          AppFeedback[]
@@ -273,11 +219,8 @@ model Department {
 
   users           User[]
   teams           Team[]
-  kras            KRA[]
   tasks           Task[]
   standups        Standup[]
-  learningPaths   LearningPath[]
-  skills          Skill[]
   jobDescriptions JobDescription[]
   appFeedback     AppFeedback[]
 
@@ -298,14 +241,34 @@ model Team {
   createdAt            DateTime   @default(now()) @map("created_at")
   updatedAt            DateTime   @updatedAt @map("updated_at")
 
-  org            Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  department     Department   @relation(fields: [departmentId], references: [id])
-  manager        User?        @relation("TeamManager", fields: [managerUserId], references: [id])
-  departmentHead User?        @relation("TeamDeptHead", fields: [departmentHeadUserId], references: [id])
+  org            Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  department     Department     @relation(fields: [departmentId], references: [id])
+  manager        User?          @relation("TeamManager", fields: [managerUserId], references: [id])
+  departmentHead User?          @relation("TeamDeptHead", fields: [departmentHeadUserId], references: [id])
   members        TeamMember[]
+  documents      TeamDocument[]
+  tasks          Task[]
 
   @@unique([orgId, slug])
   @@map("teams")
+}
+
+model TeamDocument {
+  id           String   @id @default(cuid())
+  teamId       String   @map("team_id")
+  orgId        String   @map("org_id")
+  name         String
+  url          String
+  fileType     String?  @map("file_type")
+  size         Int?
+  uploadedById String   @map("uploaded_by_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  team         Team         @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  org          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  uploadedBy   User         @relation("TeamDocUploader", fields: [uploadedById], references: [id])
+
+  @@map("team_documents")
 }
 
 model TeamMember {
@@ -321,62 +284,12 @@ model TeamMember {
   @@map("team_members")
 }
 
-model Goal {
-  id          String     @id @default(cuid())
-  orgId       String     @map("org_id")
-  type        GoalType   @default(COMPANY)
-  parentGoalId String?   @map("parent_goal_id")
-  ownerUserId String     @map("owner_user_id")
-  title       String
-  description String?
-  target      Float?
-  current     Float?     @default(0)
-  unit        String?
-  status      GoalStatus @default(ACTIVE)
-  dueDate     DateTime?  @map("due_date")
-  period      String?
-  createdAt   DateTime   @default(now()) @map("created_at")
-  updatedAt   DateTime   @updatedAt @map("updated_at")
 
-  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  owner     User         @relation("GoalOwner", fields: [ownerUserId], references: [id])
-  parent    Goal?        @relation("SubGoals", fields: [parentGoalId], references: [id])
-  subGoals  Goal[]       @relation("SubGoals")
-  kras      KRA[]
-
-  @@map("goals")
-}
-
-model KRA {
-  id          String    @id @default(cuid())
-  orgId       String    @map("org_id")
-  departmentId String   @map("department_id")
-  goalId      String?   @map("goal_id")
-  name        String
-  description String?
-  target      Float
-  current     Float     @default(0)
-  unit        String?
-  ownerUserId String    @map("owner_user_id")
-  status      KRAStatus @default(ACTIVE)
-  period      String
-  missedCycles Int      @default(0) @map("missed_cycles")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
-
-  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  department Department   @relation(fields: [departmentId], references: [id])
-  goal       Goal?        @relation(fields: [goalId], references: [id])
-  owner      User         @relation("KRAOwner", fields: [ownerUserId], references: [id])
-  tasks      Task[]
-
-  @@map("kras")
-}
 
 model Task {
   id             String       @id @default(cuid())
   orgId          String       @map("org_id")
-  kraId          String?      @map("kra_id")
+  teamId         String?      @map("team_id")
   departmentId   String?      @map("department_id")
   assigneeUserId String       @map("assignee_user_id")
   assignedByUserId String?    @map("assigned_by_user_id")
@@ -396,13 +309,12 @@ model Task {
   blockerExpectedResolution DateTime? @map("blocker_expected_resolution")
   blockerCount   Int          @default(0) @map("blocker_count")
   dependencyId   String?      @map("dependency_id")
-  isLearningTask Boolean      @default(false) @map("is_learning_task")
   sourceType     String?      @map("source_type")
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
 
   org          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  kra          KRA?         @relation(fields: [kraId], references: [id])
+  team         Team?        @relation(fields: [teamId], references: [id])
   department   Department?  @relation(fields: [departmentId], references: [id])
   assignee     User         @relation("TaskAssignee", fields: [assigneeUserId], references: [id])
   assignedBy   User?        @relation("TaskAssigner", fields: [assignedByUserId], references: [id])
@@ -483,94 +395,6 @@ model StandupCard {
 
   @@unique([standupId, userId])
   @@map("standup_cards")
-}
-
-model LearningPath {
-  id           String   @id @default(cuid())
-  orgId        String   @map("org_id")
-  departmentId String?  @map("department_id")
-  roleId       String?  @map("role_id")
-  title        String
-  description  String?
-  isAiGenerated Boolean @default(false) @map("is_ai_generated")
-  isActive     Boolean  @default(true) @map("is_active")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-
-  org        Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  department Department?     @relation(fields: [departmentId], references: [id])
-  items      LearningItem[]
-
-  @@map("learning_paths")
-}
-
-model LearningItem {
-  id               String           @id @default(cuid())
-  learningPathId   String           @map("learning_path_id")
-  type             LearningItemType
-  title            String
-  description      String?
-  contentUrl       String?          @map("content_url")
-  quizJson         Json?            @map("quiz_json")
-  estimatedMinutes Int?             @map("estimated_minutes")
-  order            Int              @default(0)
-  createdAt        DateTime         @default(now()) @map("created_at")
-
-  learningPath  LearningPath         @relation(fields: [learningPathId], references: [id], onDelete: Cascade)
-  assignments   LearningAssignment[]
-
-  @@map("learning_items")
-}
-
-model LearningAssignment {
-  id             String                   @id @default(cuid())
-  learningItemId String                   @map("learning_item_id")
-  userId         String                   @map("user_id")
-  assignedBy     String                   @map("assigned_by")
-  dueDate        DateTime?                @map("due_date")
-  status         LearningAssignmentStatus @default(ASSIGNED)
-  score          Int?
-  completedAt    DateTime?                @map("completed_at")
-  notes          String?
-  createdAt      DateTime                 @default(now()) @map("created_at")
-  updatedAt      DateTime                 @updatedAt @map("updated_at")
-
-  learningItem LearningItem @relation(fields: [learningItemId], references: [id])
-  user         User         @relation(fields: [userId], references: [id])
-
-  @@map("learning_assignments")
-}
-
-model Skill {
-  id           String     @id @default(cuid())
-  orgId        String     @map("org_id")
-  departmentId String?    @map("department_id")
-  name         String
-  description  String?
-  level        SkillLevel @default(BEGINNER)
-  createdAt    DateTime   @default(now()) @map("created_at")
-
-  org          Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  department   Department?       @relation(fields: [departmentId], references: [id])
-  assessments  SkillAssessment[]
-
-  @@map("skills")
-}
-
-model SkillAssessment {
-  id           String     @id @default(cuid())
-  userId       String     @map("user_id")
-  skillId      String     @map("skill_id")
-  currentLevel SkillLevel @map("current_level")
-  targetLevel  SkillLevel @map("target_level")
-  evidence     String?
-  assessedBy   String     @map("assessed_by")
-  assessedAt   DateTime   @default(now()) @map("assessed_at")
-
-  user  User  @relation(fields: [userId], references: [id])
-  skill Skill @relation(fields: [skillId], references: [id])
-
-  @@map("skill_assessments")
 }
 
 model Review {
@@ -813,25 +637,6 @@ model AppFeedbackVote {
 
   @@unique([feedbackId, userId])
   @@map("app_feedback_votes")
-}
-
-// ─── OAuth Tokens (M11.1 / M11.2) ────────────────────────────────────────────
-
-model OAuthToken {
-  id           String    @id @default(cuid())
-  orgId        String    @map("org_id")
-  provider     String
-  accessToken  String    @map("access_token")
-  refreshToken String?   @map("refresh_token")
-  expiresAt    DateTime? @map("expires_at")
-  scope        String?
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
-
-  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-
-  @@unique([orgId, provider])
-  @@map("oauth_tokens")
 }
 
 model TaskStatusHistory {

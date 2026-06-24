@@ -39,13 +39,10 @@ const ACTION_COLORS: Record<string, string> = {
 
 const ENTITY_LABELS: Record<string, string> = {
   Task: 'Task',
-  KRA: 'KRA',
-  Goal: 'Goal',
   Department: 'Department',
   User: 'User',
   Standup: 'Standup',
   Team: 'Team',
-  LearningItem: 'Learning',
   Feedback: 'Feedback',
 };
 
@@ -72,7 +69,7 @@ function describeAction(entry: AuditEntry): string {
 }
 
 const ALL_ACTIONS = ['CREATE', 'UPDATE', 'DELETE', 'VIEW', 'LOGIN', 'LOGOUT', 'INVITE', 'REVOKE'];
-const ALL_ENTITIES = ['Task', 'KRA', 'Goal', 'Department', 'User', 'Standup', 'Team', 'LearningItem'];
+const ALL_ENTITIES = ['Task', 'Department', 'User', 'Standup', 'Team'];
 
 export default function AuditLog() {
   const user = useAuthStore((s) => s.user);

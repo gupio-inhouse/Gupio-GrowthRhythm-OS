@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { CheckSquare, AlertTriangle, Zap, TrendingUp, Users, Clock, Target, BookOpen, Calendar, X, ChevronRight, Building2, CheckCircle2, Lock, ArrowDown } from 'lucide-react';
+import { CheckSquare, AlertTriangle, Zap, TrendingUp, Users, Clock, Target, Calendar, X, ChevronRight, Building2, CheckCircle2, Lock, ArrowDown, FolderKanban } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useAuthStore } from '@/store/authStore';
-import { cn, kraStatusColor, formatDate } from '@/lib/utils';
+import { cn, formatDate, getInitials, formatRelative } from '@/lib/utils';
 import api from '@/api/client';
 
 function StatCard({ title, value, icon: Icon, color, bg, subtitle, href }: {
@@ -49,7 +51,7 @@ function departmentNameFromSlug(slug?: string) {
     .join(' ');
 }
 
-type Task = { id: string; title: string; status: string; priority: string; dueDate?: string; blockerType?: string; kra?: { name: string }; assignee?: { id: string; name: string } };
+type Task = { id: string; title: string; status: string; priority: string; dueDate?: string; blockerType?: string; assignee?: { id: string; name: string } };
 
 function TaskList({ tasks, isOverdue, isDueToday, showAssignee, onTaskClick }: {
   tasks: Task[];
@@ -101,9 +103,6 @@ function TaskList({ tasks, isOverdue, isDueToday, showAssignee, onTaskClick }: {
                 {task.assignee.name}
               </Link>
             )}
-            {task.kra && !showAssignee && (
-              <p className="text-xs text-muted-foreground truncate">KRA: {task.kra.name}</p>
-            )}
           </div>
           {isOverdue(task) && (
             <span className="shrink-0 text-xs font-semibold px-1.5 py-0.5 rounded bg-red-100 text-red-600 border border-red-200">Overdue</span>
@@ -144,20 +143,16 @@ type SetupStep = {
 const CEO_STEPS: SetupStep[] = [
   { num: 1, title: 'Create your first Department', desc: 'Departments organise your company into functional teams (e.g. Engineering, Sales).', href: '/departments', doneKey: 'hasDepts' },
   { num: 2, title: 'Invite Team Members', desc: 'Add people to your org and assign them to departments.', href: '/team', doneKey: 'hasMembers' },
-  { num: 3, title: 'Create a Company Goal', desc: 'Set the high-level outcomes your company is working toward this period.', href: '/goals?create=goal', doneKey: 'hasGoals' },
-  { num: 4, title: 'Add KRAs to your Goals', desc: 'KRAs break goals into measurable result areas owned by each department.', href: '/goals?create=kra', doneKey: 'hasKras' },
-  { num: 5, title: 'Assign the first Task', desc: 'Tasks linked to KRAs roll execution up to your company goals automatically.', href: '/tasks', doneKey: 'hasTasks' },
+  { num: 3, title: 'Assign the first Task', desc: 'Assign tasks to team members to drive execution.', href: '/tasks', doneKey: 'hasTasks' },
 ];
 
 const DEPT_HEAD_STEPS: SetupStep[] = [
-  { num: 1, title: 'Create a Department Goal', desc: 'Define what your department is working toward this quarter.', href: '/goals?create=goal', doneKey: 'hasGoals' },
-  { num: 2, title: 'Add KRAs for your Department', desc: 'KRAs make your goal measurable. Each KRA needs a target and owner.', href: '/goals?create=kra', doneKey: 'hasKras' },
-  { num: 3, title: 'Assign Tasks to your Team', desc: 'Break KRAs into actionable tasks and assign them to team members.', href: '/tasks', doneKey: 'hasTasks' },
-  { num: 4, title: 'Run a Daily Standup', desc: '15-minute daily ritual to keep your team aligned and unblocked.', href: '/standup', doneKey: 'hasStandup' },
+  { num: 1, title: 'Assign Tasks to your Team', desc: 'Assign tasks to team members and track their progress.', href: '/tasks', doneKey: 'hasTasks' },
+  { num: 2, title: 'Run a Daily Standup', desc: '15-minute daily ritual to keep your team aligned and unblocked.', href: '/standup', doneKey: 'hasStandup' },
 ];
 
 const MANAGER_STEPS: SetupStep[] = [
-  { num: 1, title: 'Assign Tasks to your Team', desc: 'Create tasks for your direct reports and link them to KRAs.', href: '/tasks', doneKey: 'hasTasks' },
+  { num: 1, title: 'Assign Tasks to your Team', desc: 'Create tasks for your direct reports.', href: '/tasks', doneKey: 'hasTasks' },
   { num: 2, title: 'Run a Daily Standup', desc: 'Schedule a 15-minute standup to track progress across your team.', href: '/standup', doneKey: 'hasStandup' },
 ];
 
@@ -166,8 +161,6 @@ type Checks = Record<string, boolean>;
 const STEP_ICONS: Record<string, React.ElementType> = {
   hasDepts: Building2,
   hasMembers: Users,
-  hasGoals: Target,
-  hasKras: TrendingUp,
   hasTasks: CheckSquare,
   hasStandup: Zap,
 };
@@ -436,12 +429,12 @@ function ResourceCapacityCard() {
 
 type DeptDashboard = {
   overdueCount: number; blockedCount: number; dueTodayCount: number;
-  kras: Array<{ id: string; name: string; status: string; current: number; target: number; unit?: string }>;
   recentStandup: { id: string; status: string; scheduledAt: string; _count: { cards: number } } | null;
   topBlockers: Array<{ blockerType: string | null; _count: number }>;
 };
 
 type DeptMember = { id: string; name: string; role: string; status: string; avatarUrl?: string };
+type TeamSummary = { id: string; name: string; description?: string; memberCount: number; manager?: { id: string; name: string }; department: { id: string; name: string; slug: string } };
 type DeptDetail = { id: string; name: string; users: DeptMember[]; _count: { tasks: number; standups: number } };
 
 function DepartmentDashboard({ slug }: { slug: string }) {
@@ -459,10 +452,11 @@ function DepartmentDashboard({ slug }: { slug: string }) {
     queryFn: () => api.get(`/departments/${slug}`).then((r) => r.data),
   });
 
-  const { data: learningStats } = useQuery<{ completionRate: number; totalAssigned: number; overdue: number }>({
-    queryKey: ['learning-dept', slug],
-    queryFn: () => api.get(`/learning/${slug}/dashboard`).then((r) => r.data),
+  const { data: allTeams = [] } = useQuery<TeamSummary[]>({
+    queryKey: ['teams'],
+    queryFn: () => api.get('/teams').then((r) => r.data),
   });
+  const deptTeams = allTeams.filter((t) => t.department.slug === slug);
 
   if (!dash) {
     return (
@@ -507,37 +501,7 @@ function DepartmentDashboard({ slug }: { slug: string }) {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Widget 4: KRA Progress */}
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Target className="h-4 w-4 text-indigo-500" />
-              KRA Progress
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {dash.kras.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-6">No KRAs set for this department</p>
-            ) : (
-              <div className="space-y-4">
-                {dash.kras.map((kra) => {
-                  return (
-                    <Link key={kra.id} to="/goals" className="block p-2 -mx-2 rounded-lg hover:bg-muted/50 transition-colors">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium truncate flex-1 mr-4">{kra.name}</span>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <Badge className={cn('text-xs border', kraStatusColor(kra.status))}>{kra.status.replace('_', ' ')}</Badge>
-                        </div>
-                      </div>
-                    </Link>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Widget 5: Team */}
+        {/* Widget 4: Team */}
         <div className="space-y-6">
           <Card>
             <CardHeader>
@@ -621,43 +585,6 @@ function DepartmentDashboard({ slug }: { slug: string }) {
           </CardContent>
         </Card>
 
-        {/* Widget 8: Learning stats */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center justify-between gap-2">
-              <span className="flex items-center gap-2">
-                <BookOpen className="h-4 w-4 text-indigo-500" />
-                Learning
-              </span>
-              {slug && <Link to={`/learning/${slug}`} className="text-xs text-indigo-600 hover:underline">View all →</Link>}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {learningStats ? (
-              <div className="space-y-3">
-                <div>
-                  <div className="flex justify-between text-sm mb-1.5">
-                    <span className="text-muted-foreground">Completion rate</span>
-                    <span className="font-medium">{learningStats.completionRate}%</span>
-                  </div>
-                  <Progress value={learningStats.completionRate} className="h-2" />
-                </div>
-                <div className="grid grid-cols-2 gap-3 text-center pt-1">
-                  <div>
-                    <p className="text-xl font-bold text-indigo-600">{learningStats.totalAssigned}</p>
-                    <p className="text-xs text-muted-foreground">Assigned</p>
-                  </div>
-                  <div>
-                    <p className="text-xl font-bold text-red-600">{learningStats.overdue}</p>
-                    <p className="text-xs text-muted-foreground">Overdue</p>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="text-center py-6 text-muted-foreground text-sm">No data</div>
-            )}
-          </CardContent>
-        </Card>
       </div>
 
       {/* Widget 9: Tasks summary */}
@@ -684,6 +611,57 @@ function DepartmentDashboard({ slug }: { slug: string }) {
           </div>
         </CardContent>
       </Card>
+
+      {/* Project Teams */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-base font-semibold flex items-center gap-2">
+            <FolderKanban className="h-4 w-4 text-indigo-500" />
+            Project Teams ({deptTeams.length})
+          </h2>
+          <Link to="/teams" className="text-xs text-primary hover:underline">Manage teams →</Link>
+        </div>
+        {deptTeams.length === 0 ? (
+          <div className="rounded-xl border border-dashed py-10 text-center text-muted-foreground">
+            <FolderKanban className="h-8 w-8 mx-auto mb-2 opacity-20" />
+            <p className="text-sm">No project teams in this department yet</p>
+            <Link to="/teams" className="text-xs text-primary hover:underline mt-1 inline-block">Create a team →</Link>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {deptTeams.map((team) => (
+              <Link key={team.id} to="/teams">
+                <Card className="hover:shadow-md hover:border-primary/40 transition-all cursor-pointer h-full">
+                  <CardContent className="p-5">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-100">
+                        <FolderKanban className="h-4 w-4 text-indigo-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-sm leading-tight">{team.name}</p>
+                        {team.description && (
+                          <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{team.description}</p>
+                        )}
+                        <div className="flex items-center gap-3 mt-2 flex-wrap">
+                          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <Users className="h-3 w-3" />
+                            {team.memberCount} member{team.memberCount !== 1 ? 's' : ''}
+                          </span>
+                          {team.manager && (
+                            <span className="text-xs text-muted-foreground">
+                              Manager: <span className="font-medium text-foreground">{team.manager.name}</span>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -705,22 +683,11 @@ export default function Dashboard() {
     queryFn: () => api.get('/owner/cockpit').then((r) => r.data),
     enabled: !slug && isCeo,
   });
+  const [activeUsersOpen, setActiveUsersOpen] = useState(false);
 
   const { data: tasks, isLoading: tasksLoading } = useQuery({
     queryKey: ['tasks', 'mine'],
     queryFn: () => api.get('/tasks').then((r) => r.data),
-    enabled: !slug,
-  });
-
-  const { data: setupGoals = [], isLoading: goalsLoading } = useQuery<{ id: string }[]>({
-    queryKey: ['goals'],
-    queryFn: () => api.get('/goals').then((r) => r.data),
-    enabled: !slug,
-  });
-
-  const { data: setupKras = [], isLoading: krasLoading } = useQuery<{ id: string }[]>({
-    queryKey: ['kras'],
-    queryFn: () => api.get('/kras').then((r) => r.data),
     enabled: !slug,
   });
 
@@ -732,13 +699,11 @@ export default function Dashboard() {
   // Don't render the guide until all relevant queries have settled — prevents the
   // "show for 200ms then vanish" flash caused by checks starting as all-false.
   const checksReady =
-    !goalsLoading && !krasLoading && !tasksLoading && (!isCeo || !cockpitLoading);
+    !tasksLoading && (!isCeo || !cockpitLoading);
 
   const setupChecks: Checks = {
     hasDepts:   (cockpit?.departments?.length  ?? 0) > 0,
     hasMembers: (cockpit?.totalUsers           ?? 0) > 1,
-    hasGoals:   setupGoals.length > 0,
-    hasKras:    setupKras.length  > 0,
     hasTasks:   (cockpit?.tasks?.total ?? allTasks.length) > 0,
     hasStandup: false,
   };
@@ -857,8 +822,25 @@ export default function Dashboard() {
       {/* CEO stat cards */}
       {cockpit && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard title="Active Users" value={cockpit.activeUsers} icon={Users} color="text-white" bg="bg-blue-500"
-            subtitle={`of ${cockpit.totalUsers} total`} href="/team" />
+          {/* Active Users — clickable to see who */}
+          <Card
+            className="hover:shadow-md hover:border-primary/40 transition-all cursor-pointer"
+            onClick={() => setActiveUsersOpen(true)}
+          >
+            <CardContent className="p-5">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Active Today</p>
+                  <p className="text-3xl font-bold mt-1">{cockpit.activeUsers}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">of {cockpit.totalUsers} total · tap to see who</p>
+                </div>
+                <div className="p-2.5 rounded-lg bg-blue-500">
+                  <Users className="h-5 w-5 text-white" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           <StatCard title="Tasks Done" value={cockpit.tasks?.done || 0} icon={CheckSquare} color="text-white" bg="bg-green-500"
             subtitle={`of ${cockpit.tasks?.total || 0} total`} href="/tasks?status=DONE" />
           <StatCard title="Overdue Tasks" value={cockpit.tasks?.overdue || 0} icon={Clock} color="text-white" bg="bg-orange-500"
@@ -867,6 +849,42 @@ export default function Dashboard() {
             href="/tasks?status=BLOCKED" />
         </div>
       )}
+
+      {/* Active Users Dialog */}
+      <Dialog open={activeUsersOpen} onOpenChange={setActiveUsersOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="h-4 w-4 text-blue-500" />
+              Active Today ({cockpit?.activeUsers || 0})
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-xs text-muted-foreground -mt-2">Logged in within the last 24 hours</p>
+          {(cockpit?.activeUsersList?.length ?? 0) === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">No one has logged in today yet.</p>
+          ) : (
+            <div className="space-y-2 max-h-72 overflow-y-auto">
+              {(cockpit?.activeUsersList ?? []).map((u: { id: string; name: string; role: string; lastLoginAt: string; department?: { name: string } }) => (
+                <div key={u.id} className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
+                  <Avatar className="h-8 w-8 shrink-0">
+                    <AvatarFallback className="bg-blue-50 text-blue-700 text-xs font-medium">
+                      {getInitials(u.name)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{u.name}</p>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {u.role.toLowerCase().replace(/_/g, ' ')}
+                      {u.department ? ` · ${u.department.name}` : ''}
+                    </p>
+                  </div>
+                  <span className="text-xs text-muted-foreground shrink-0">{formatRelative(u.lastLoginAt)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Task stats for all non-CEO roles */}
       {!isCeo && (
@@ -1004,37 +1022,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* KRA Health (owners/admins) */}
-      {cockpit?.kras && cockpit.kras.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Target className="h-4 w-4 text-indigo-500" />
-              KRA Health
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {cockpit.kras.map((kra: { id: string; name: string; status: string; current: number; target: number; department?: { name: string } }) => {
-                return (
-                  <Link key={kra.id} to="/goals" className="block p-2 -mx-2 rounded-lg hover:bg-muted/50 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1 min-w-0 mr-3">
-                        <p className="text-sm font-medium truncate">{kra.name}</p>
-                        {kra.department && <p className="text-xs text-muted-foreground">{kra.department.name}</p>}
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <Badge className={cn('text-xs border', kraStatusColor(kra.status))}>{kra.status.replace('_', ' ')}</Badge>
-                      </div>
-                    </div>
-                  </Link>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       {/* Department execution */}
       {cockpit?.departments && cockpit.departments.length > 0 && (
         <Card>
@@ -1046,7 +1033,7 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {cockpit.departments.map((dept: { id: string; name: string; slug?: string; _count: { tasks: number; kras: number; users: number } }) => (
+              {cockpit.departments.map((dept: { id: string; name: string; slug?: string; _count: { tasks: number; users: number } }) => (
                 <Link
                   key={dept.id}
                   to={dept.slug ? `/dashboard/${dept.slug}` : '#'}
@@ -1058,7 +1045,6 @@ export default function Dashboard() {
                   </div>
                   <div className="flex gap-4 text-xs text-muted-foreground">
                     <span>{dept._count.tasks} tasks</span>
-                    <span>{dept._count.kras} KRAs</span>
                   </div>
                 </Link>
               ))}
