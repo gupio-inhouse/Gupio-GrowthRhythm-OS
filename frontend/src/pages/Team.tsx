@@ -144,6 +144,13 @@ export default function Team() {
     description: '',
   });
 
+  // Pre-fill dept for scoped roles so the field is ready when the dialog opens
+  useEffect(() => {
+    if (me && ['DEPARTMENT_HEAD', 'MANAGER'].includes(me.role) && me.departmentId) {
+      setTeamForm((prev) => prev.departmentId ? prev : { ...prev, departmentId: me.departmentId! });
+    }
+  }, [me]);
+
   const canInvite = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(me?.role || '');
   const canCreateTeam = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(me?.role || '');
   const canAssignManager = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'].includes(me?.role || '');
@@ -231,8 +238,8 @@ export default function Team() {
   });
 
   const visibleDepartments =
-    me?.role === 'MANAGER'
-      ? departments.filter((department) => department.id === me.departmentId)
+    ['MANAGER', 'DEPARTMENT_HEAD'].includes(me?.role || '')
+      ? departments.filter((department) => department.id === me?.departmentId)
       : departments;
 
   useEffect(() => {
@@ -1011,6 +1018,7 @@ export default function Team() {
                 <Select
                   value={teamForm.departmentId}
                   onValueChange={(value) => setTeamForm((prev) => ({ ...prev, departmentId: value, managerUserId: '' }))}
+                  disabled={['DEPARTMENT_HEAD', 'MANAGER'].includes(me?.role || '')}
                 >
                   <SelectTrigger>
                   <SelectValue placeholder="Select department" />

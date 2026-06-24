@@ -441,6 +441,7 @@ function DepartmentDashboard({ slug }: { slug: string }) {
   const { user } = useAuthStore();
   const isManagerOrHead = ['DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
   const isCeo = ['OWNER', 'COMPANY_ADMIN'].includes(user?.role || '');
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
 
   const { data: dash } = useQuery<DeptDashboard>({
     queryKey: ['dept-dashboard', slug],
@@ -457,6 +458,7 @@ function DepartmentDashboard({ slug }: { slug: string }) {
     queryFn: () => api.get('/teams').then((r) => r.data),
   });
   const deptTeams = allTeams.filter((t) => t.department.slug === slug);
+  const selectedTeam = deptTeams.find((t) => t.id === selectedTeamId) ?? null;
 
   if (!dash) {
     return (
@@ -467,198 +469,260 @@ function DepartmentDashboard({ slug }: { slug: string }) {
   }
 
   return (
-    <div className="p-4 sm:p-8 space-y-6 sm:space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold">{dept?.name || slug} Dashboard</h1>
-        <p className="text-muted-foreground text-sm mt-0.5">Department execution overview</p>
-      </div>
-
-      {/* Widget row 1: task counts */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 gap-4">
-        <StatCard title="Overdue Tasks" value={dash.overdueCount} icon={Clock} color="text-red-500" bg="bg-red-50"
-          subtitle="Past due date" href="/tasks?status=overdue" />
-        <StatCard title="Blocked Today" value={dash.blockedCount} icon={AlertTriangle} color="text-orange-500" bg="bg-orange-50"
-          subtitle="Need resolution" href="/tasks?status=BLOCKED" />
-        <StatCard title="Due Today" value={dash.dueTodayCount} icon={Calendar} color="text-blue-500" bg="bg-blue-50"
-          subtitle="Pending tasks" href="/tasks?status=due_today" />
-      </div>
-
-      {/* Overdue alert banner */}
-      {dash.overdueCount > 0 && (
-        <div className="rounded-xl border border-red-200 bg-red-50">
-          <div className="flex items-center justify-between px-4 py-3">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-red-600 shrink-0" />
-              <span className="font-semibold text-sm text-red-800">
-                {dash.overdueCount} overdue task{dash.overdueCount > 1 ? 's' : ''} in this department need attention
-              </span>
+    <div className="flex h-full min-h-0">
+      {/* ── Left sidebar: project list ── */}
+      <div className="hidden lg:flex flex-col w-64 shrink-0 border-r bg-muted/20 overflow-y-auto">
+        <div className="px-4 py-4 border-b">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Projects</p>
+          <p className="text-xs text-muted-foreground mt-0.5">{dept?.name || slug}</p>
+        </div>
+        <div className="flex-1 p-2 space-y-1">
+          {deptTeams.length === 0 ? (
+            <div className="text-center py-8 px-2">
+              <FolderKanban className="h-6 w-6 mx-auto mb-2 opacity-20" />
+              <p className="text-xs text-muted-foreground">No projects yet</p>
+              <Link to="/teams" className="text-xs text-primary hover:underline mt-1 inline-block">Create one →</Link>
             </div>
-            <Link to="/tasks?status=overdue" className="text-xs font-medium text-red-600 hover:text-red-800 hover:underline shrink-0">
-              View tasks →
-            </Link>
-          </div>
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Widget 4: Team */}
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Users className="h-4 w-4 text-blue-500" />
-                Team ({dept?.users.length || 0})
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-1">
-                {(dept?.users || []).slice(0, 8).map((member) => (
-                  <Link key={member.id} to={`/team/${member.id}/report`} className="flex items-center gap-2 p-1.5 -mx-1.5 rounded-lg hover:bg-muted/50 transition-colors">
-                    <div className={cn('h-2 w-2 rounded-full shrink-0', member.status === 'ACTIVE' ? 'bg-green-500' : 'bg-gray-300')} />
-                    <span className="text-sm flex-1 truncate">{member.name}</span>
-                    <span className="text-xs text-muted-foreground capitalize shrink-0">{member.role.toLowerCase().replace(/_/g, ' ')}</span>
-                  </Link>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-          {(isManagerOrHead || isCeo) && <ResourceCapacityCard />}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Widget 6: Top Blockers breakdown */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-red-500" />
-              Blocker Types
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {dash.topBlockers.length === 0 ? (
-              <div className="text-center py-6 text-muted-foreground text-sm">No blockers — great!</div>
-            ) : (
-              <div className="space-y-3">
-                {dash.topBlockers.map((b) => (
-                  <div key={b.blockerType || 'null'} className="flex items-center gap-3">
-                    <div className="flex-1">
-                      <p className="text-sm capitalize">{(b.blockerType || 'unknown').toLowerCase().replace(/_/g, ' ')}</p>
-                    </div>
-                    <Badge variant="destructive" className="text-xs">{b._count}</Badge>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Widget 7: Recent standup */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Zap className="h-4 w-4 text-yellow-500" />
-              Last Standup
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {dash.recentStandup ? (
-              <div className="space-y-3">
-                <p className="text-sm text-muted-foreground">
-                  {formatDate(dash.recentStandup.scheduledAt)}
-                </p>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">{dash.recentStandup._count.cards} participants</span>
-                  <Badge className={cn('text-xs', {
-                    'bg-green-100 text-green-700': dash.recentStandup.status === 'COMPLETED',
-                    'bg-blue-100 text-blue-700': dash.recentStandup.status === 'IN_PROGRESS',
-                    'bg-gray-100 text-gray-600': dash.recentStandup.status === 'SCHEDULED',
-                  })}>
-                    {dash.recentStandup.status.replace('_', ' ')}
-                  </Badge>
+          ) : (
+            deptTeams.map((team) => (
+              <button
+                key={team.id}
+                onClick={() => setSelectedTeamId(selectedTeamId === team.id ? null : team.id)}
+                className={cn(
+                  'w-full text-left rounded-lg px-3 py-2.5 transition-all',
+                  selectedTeamId === team.id
+                    ? 'bg-primary text-primary-foreground'
+                    : 'hover:bg-muted text-foreground'
+                )}
+              >
+                <div className="flex items-center gap-2">
+                  <FolderKanban className={cn('h-3.5 w-3.5 shrink-0', selectedTeamId === team.id ? 'text-primary-foreground' : 'text-indigo-500')} />
+                  <p className="text-sm font-medium truncate">{team.name}</p>
                 </div>
-                <Link to="/standup" className="text-xs text-primary hover:underline">View standup →</Link>
-              </div>
-            ) : (
-              <div className="text-center py-6 text-muted-foreground text-sm">No standups yet</div>
-            )}
-          </CardContent>
-        </Card>
-
+                <div className={cn('flex items-center gap-1 mt-0.5 text-xs', selectedTeamId === team.id ? 'text-primary-foreground/70' : 'text-muted-foreground')}>
+                  <Users className="h-3 w-3" />
+                  {team.memberCount} member{team.memberCount !== 1 ? 's' : ''}
+                  {team.manager && <span className="truncate">· {team.manager.name}</span>}
+                </div>
+              </button>
+            ))
+          )}
+        </div>
       </div>
 
-      {/* Widget 9: Tasks summary */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <TrendingUp className="h-4 w-4 text-green-500" />
-            Task Summary
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-            {[
-              { label: 'Total Tasks', value: dept?._count.tasks || 0, color: 'text-foreground', href: '/tasks' },
-              { label: 'Overdue', value: dash.overdueCount, color: 'text-red-600', href: '/tasks?status=overdue' },
-              { label: 'Blocked', value: dash.blockedCount, color: 'text-orange-600', href: '/tasks?status=BLOCKED' },
-              { label: 'Due Today', value: dash.dueTodayCount, color: 'text-blue-600', href: '/tasks?status=due_today' },
-            ].map(({ label, value, color, href }) => (
-              <Link key={label} to={href} className="block p-4 rounded-lg bg-muted/40 hover:bg-muted/70 hover:shadow-sm transition-all">
-                <p className={cn('text-2xl font-bold', color)}>{value}</p>
-                <p className="text-xs text-muted-foreground mt-1">{label}</p>
+      {/* ── Right content ── */}
+      <div className="flex-1 overflow-y-auto">
+        {selectedTeam ? (
+          /* Project detail — links to DepartmentPage with full view */
+          <div className="p-4 sm:p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setSelectedTeamId(null)}
+                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 lg:hidden"
+              >
+                ← Back
+              </button>
+              <div className="flex items-center gap-3 flex-1">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-100 shrink-0">
+                  <FolderKanban className="h-5 w-5 text-indigo-600" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold">{selectedTeam.name}</h2>
+                  {selectedTeam.description && <p className="text-sm text-muted-foreground">{selectedTeam.description}</p>}
+                </div>
+              </div>
+              <Link
+                to={`/dashboard/${slug}?project=${selectedTeam.id}`}
+                className="text-xs text-primary hover:underline shrink-0"
+              >
+                Open full view →
               </Link>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+            </div>
 
-      {/* Project Teams */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-base font-semibold flex items-center gap-2">
-            <FolderKanban className="h-4 w-4 text-indigo-500" />
-            Project Teams ({deptTeams.length})
-          </h2>
-          <Link to="/teams" className="text-xs text-primary hover:underline">Manage teams →</Link>
-        </div>
-        {deptTeams.length === 0 ? (
-          <div className="rounded-xl border border-dashed py-10 text-center text-muted-foreground">
-            <FolderKanban className="h-8 w-8 mx-auto mb-2 opacity-20" />
-            <p className="text-sm">No project teams in this department yet</p>
-            <Link to="/teams" className="text-xs text-primary hover:underline mt-1 inline-block">Create a team →</Link>
+            {/* Team quick stats */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <div className="rounded-lg border p-4 bg-card">
+                <p className="text-2xl font-bold">{selectedTeam.memberCount}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Members</p>
+              </div>
+              {selectedTeam.manager && (
+                <div className="rounded-lg border p-4 bg-card col-span-2 sm:col-span-1">
+                  <p className="text-sm font-semibold truncate">{selectedTeam.manager.name}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Project Manager</p>
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-lg border p-4 bg-card flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">View full project details</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Members, tasks, documents and more</p>
+              </div>
+              <Link
+                to={`/dashboard/${slug}`}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+              >
+                <FolderKanban className="h-3.5 w-3.5" /> Open Department
+              </Link>
+            </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {deptTeams.map((team) => (
-              <Link key={team.id} to="/teams">
-                <Card className="hover:shadow-md hover:border-primary/40 transition-all cursor-pointer h-full">
-                  <CardContent className="p-5">
-                    <div className="flex items-start gap-3">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-100">
-                        <FolderKanban className="h-4 w-4 text-indigo-600" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-sm leading-tight">{team.name}</p>
-                        {team.description && (
-                          <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{team.description}</p>
-                        )}
-                        <div className="flex items-center gap-3 mt-2 flex-wrap">
-                          <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                            <Users className="h-3 w-3" />
-                            {team.memberCount} member{team.memberCount !== 1 ? 's' : ''}
-                          </span>
-                          {team.manager && (
-                            <span className="text-xs text-muted-foreground">
-                              Manager: <span className="font-medium text-foreground">{team.manager.name}</span>
-                            </span>
-                          )}
-                        </div>
-                      </div>
+          /* Default dashboard content */
+          <div className="p-4 sm:p-8 space-y-6">
+            <div>
+              <h1 className="text-2xl font-bold">{dept?.name || slug} Dashboard</h1>
+              <p className="text-muted-foreground text-sm mt-0.5">Department execution overview</p>
+            </div>
+
+            {/* Stat cards */}
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              <StatCard title="Overdue Tasks" value={dash.overdueCount} icon={Clock} color="text-red-500" bg="bg-red-50"
+                subtitle="Past due date" href="/tasks?status=overdue" />
+              <StatCard title="Blocked" value={dash.blockedCount} icon={AlertTriangle} color="text-orange-500" bg="bg-orange-50"
+                subtitle="Need resolution" href="/tasks?status=BLOCKED" />
+              <StatCard title="Due Today" value={dash.dueTodayCount} icon={Calendar} color="text-blue-500" bg="bg-blue-50"
+                subtitle="Pending tasks" href="/tasks?status=due_today" />
+            </div>
+
+            {/* Overdue banner */}
+            {dash.overdueCount > 0 && (
+              <div className="rounded-xl border border-red-200 bg-red-50 flex items-center justify-between px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-red-600 shrink-0" />
+                  <span className="font-semibold text-sm text-red-800">
+                    {dash.overdueCount} overdue task{dash.overdueCount > 1 ? 's' : ''} need attention
+                  </span>
+                </div>
+                <Link to="/tasks?status=overdue" className="text-xs font-medium text-red-600 hover:underline shrink-0">View →</Link>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Team */}
+              <div className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Users className="h-4 w-4 text-blue-500" />
+                      Team ({dept?.users.length || 0})
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-1">
+                      {(dept?.users || []).slice(0, 8).map((member) => (
+                        <Link key={member.id} to={`/team/${member.id}/report`} className="flex items-center gap-2 p-1.5 -mx-1.5 rounded-lg hover:bg-muted/50 transition-colors">
+                          <div className={cn('h-2 w-2 rounded-full shrink-0', member.status === 'ACTIVE' ? 'bg-green-500' : 'bg-gray-300')} />
+                          <span className="text-sm flex-1 truncate">{member.name}</span>
+                          <span className="text-xs text-muted-foreground capitalize shrink-0">{member.role.toLowerCase().replace(/_/g, ' ')}</span>
+                        </Link>
+                      ))}
                     </div>
                   </CardContent>
                 </Card>
-              </Link>
-            ))}
+                {(isManagerOrHead || isCeo) && <ResourceCapacityCard />}
+              </div>
+
+              {/* Blockers */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 text-red-500" />
+                    Blocker Types
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {dash.topBlockers.length === 0 ? (
+                    <div className="text-center py-6 text-muted-foreground text-sm">No blockers — great!</div>
+                  ) : (
+                    <div className="space-y-3">
+                      {dash.topBlockers.map((b) => (
+                        <div key={b.blockerType || 'null'} className="flex items-center gap-3">
+                          <p className="text-sm flex-1 capitalize">{(b.blockerType || 'unknown').toLowerCase().replace(/_/g, ' ')}</p>
+                          <Badge variant="destructive" className="text-xs">{b._count}</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Standup */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Zap className="h-4 w-4 text-yellow-500" />
+                    Last Standup
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {dash.recentStandup ? (
+                    <div className="space-y-3">
+                      <p className="text-sm text-muted-foreground">{formatDate(dash.recentStandup.scheduledAt)}</p>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm">{dash.recentStandup._count.cards} participants</span>
+                        <Badge className={cn('text-xs', {
+                          'bg-green-100 text-green-700': dash.recentStandup.status === 'COMPLETED',
+                          'bg-blue-100 text-blue-700': dash.recentStandup.status === 'IN_PROGRESS',
+                          'bg-gray-100 text-gray-600': dash.recentStandup.status === 'SCHEDULED',
+                        })}>
+                          {dash.recentStandup.status.replace('_', ' ')}
+                        </Badge>
+                      </div>
+                      <Link to="/standup" className="text-xs text-primary hover:underline">View standup →</Link>
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 text-muted-foreground text-sm">No standups yet</div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Task summary */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <TrendingUp className="h-4 w-4 text-green-500" />
+                  Task Summary
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                  {[
+                    { label: 'Total', value: dept?._count.tasks || 0, color: 'text-foreground', href: '/tasks' },
+                    { label: 'Overdue', value: dash.overdueCount, color: 'text-red-600', href: '/tasks?status=overdue' },
+                    { label: 'Blocked', value: dash.blockedCount, color: 'text-orange-600', href: '/tasks?status=BLOCKED' },
+                    { label: 'Due Today', value: dash.dueTodayCount, color: 'text-blue-600', href: '/tasks?status=due_today' },
+                  ].map(({ label, value, color, href }) => (
+                    <Link key={label} to={href} className="block p-4 rounded-lg bg-muted/40 hover:bg-muted/70 transition-all">
+                      <p className={cn('text-2xl font-bold', color)}>{value}</p>
+                      <p className="text-xs text-muted-foreground mt-1">{label}</p>
+                    </Link>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Mobile project list (visible below lg) */}
+            <div className="lg:hidden">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-base font-semibold flex items-center gap-2">
+                  <FolderKanban className="h-4 w-4 text-indigo-500" />
+                  Projects ({deptTeams.length})
+                </h2>
+                <Link to="/teams" className="text-xs text-primary hover:underline">Manage →</Link>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {deptTeams.map((team) => (
+                  <button key={team.id} onClick={() => setSelectedTeamId(team.id)} className="text-left rounded-xl border px-4 py-3 bg-card hover:border-primary/40 hover:shadow-sm transition-all">
+                    <div className="flex items-center gap-2">
+                      <FolderKanban className="h-4 w-4 text-indigo-500 shrink-0" />
+                      <p className="font-semibold text-sm truncate">{team.name}</p>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">{team.memberCount} member{team.memberCount !== 1 ? 's' : ''}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -688,6 +752,12 @@ export default function Dashboard() {
   const { data: tasks, isLoading: tasksLoading } = useQuery({
     queryKey: ['tasks', 'mine'],
     queryFn: () => api.get('/tasks').then((r) => r.data),
+    enabled: !slug,
+  });
+
+  const { data: managedTeams } = useQuery({
+    queryKey: ['teams', 'managed'],
+    queryFn: () => api.get('/teams/managed').then((r) => r.data),
     enabled: !slug,
   });
 
@@ -899,6 +969,44 @@ export default function Dashboard() {
             href="/tasks?status=BLOCKED" />
         </div>
       )}
+
+      {/* My Projects — shown when user is assigned as project manager on any team */}
+      {(managedTeams as { id: string; name: string; description?: string; memberCount: number; department?: { name: string; slug?: string } }[] | undefined)?.length ? (
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <FolderKanban className="h-4 w-4 text-primary" />
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">My Projects</h2>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {(managedTeams as { id: string; name: string; description?: string; memberCount: number; department?: { name: string; slug?: string } }[]).map((team) => (
+              <Link
+                key={team.id}
+                to={team.department?.slug ? `/departments/${team.department.slug}` : '/team'}
+                className="block rounded-xl border bg-card p-4 hover:shadow-md hover:border-primary/40 transition-all"
+              >
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                      <FolderKanban className="h-4 w-4 text-primary" />
+                    </div>
+                    <p className="font-semibold text-sm truncate">{team.name}</p>
+                  </div>
+                  <Badge variant="secondary" className="shrink-0 text-xs">{team.memberCount} member{team.memberCount !== 1 ? 's' : ''}</Badge>
+                </div>
+                {team.description && (
+                  <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{team.description}</p>
+                )}
+                {team.department && (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Building2 className="h-3 w-3" />
+                    {team.department.name}
+                  </p>
+                )}
+              </Link>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Tasks panel — My Tasks always shown; team tasks below for manager/head */}

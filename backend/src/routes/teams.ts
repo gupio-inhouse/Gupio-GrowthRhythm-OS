@@ -75,6 +75,18 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   res.json(teams.map(formatTeam));
 });
 
+// ── GET /teams/managed — teams where current user is the project manager ──────
+
+router.get('/managed', async (req: AuthRequest, res: Response) => {
+  const { orgId, userId } = req.user!;
+  const teams = await prisma.team.findMany({
+    where: { orgId, isActive: true, managerUserId: userId },
+    include: teamInclude,
+    orderBy: { name: 'asc' },
+  });
+  res.json(teams.map(formatTeam));
+});
+
 // ── GET /teams/:id ────────────────────────────────────────────────────────────
 
 router.get('/:id', async (req: AuthRequest, res: Response) => {
