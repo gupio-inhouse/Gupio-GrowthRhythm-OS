@@ -64,9 +64,10 @@ pipeline {
 
                     # depth 2 required so we can diff HEAD~1 vs HEAD
                     git fetch --depth 2 origin "refs/heads/$BRANCH"
-                    git checkout -B "$BRANCH" FETCH_HEAD
-                    git reset --hard FETCH_HEAD
-                    git clean -fd
+                    # Discard any generated/leftover files before checkout
+                    git reset --hard HEAD 2>/dev/null || true
+                    git clean -ffd
+                    git checkout -fB "$BRANCH" FETCH_HEAD
                     '''
                 }
 

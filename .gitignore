@@ -10,3 +10,6 @@ frontend/node_modules/
 backend/node_modules/
 backend/dist/
 frontend/dist/
+# TypeScript/Vite build artifacts — generated during build, must not be committed
+*.tsbuildinfo
+frontend/vite.config.js
