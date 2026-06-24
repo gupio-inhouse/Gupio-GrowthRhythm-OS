@@ -454,26 +454,31 @@ router.post(
 
     const team = await prisma.team.findFirst({
       where: { id: teamId, orgId },
-      select: { id: true, departmentId: true, members: { select: { userId: true } } },
+      select: { id: true, departmentId: true, managerUserId: true, members: { select: { userId: true } } },
     });
     if (!team) { res.status(404).json({ error: 'Team not found' }); return; }
 
+    const isProjectManager = team.managerUserId === userId;
+
     if (role === 'TEAM_MEMBER') {
-      // Must be a member of this team
+      // Must be a member or the project manager of this team
       const isMember = team.members.some((m: { userId: string }) => m.userId === userId);
-      if (!isMember) { res.status(403).json({ error: 'You are not a member of this team' }); return; }
+      if (!isMember && !isProjectManager) {
+        res.status(403).json({ error: 'You are not a member of this team' }); return;
+      }
     } else if (!(await assertDeptAccess(role, userId, team.departmentId))) {
       res.status(403).json({ error: 'You can only assign tasks for teams in your own department' }); return;
     }
 
     const { assignToUserId, dueDate, ...taskBase } = parsed.data;
 
-    // Team members can only add tasks for themselves
-    const targetUserIds: string[] = role === 'TEAM_MEMBER'
-      ? [userId]
-      : assignToUserId
+    // Project managers can assign to any member; regular team members only to themselves
+    const canAssignOthers = role !== 'TEAM_MEMBER' || isProjectManager;
+    const targetUserIds: string[] = canAssignOthers
+      ? assignToUserId
         ? [assignToUserId]
-        : team.members.map((m: { userId: string }) => m.userId);
+        : team.members.map((m: { userId: string }) => m.userId)
+      : [userId];
 
     if (targetUserIds.length === 0) {
       res.status(400).json({ error: 'No members to assign task to — add members first' }); return;

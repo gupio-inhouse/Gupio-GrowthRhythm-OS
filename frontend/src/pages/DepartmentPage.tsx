@@ -936,6 +936,8 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
   const canAssignManager = ['OWNER', 'DEPARTMENT_HEAD'].includes(authUser?.role || '');
   const isProjectManager = authUser?.id === team.managerUserId;
   const canAddMember     = canManage || isProjectManager;
+  const canCreateTask    = canManage || authUser?.role === 'TEAM_MEMBER';
+  const canAssignTask    = canManage || isProjectManager;
 
   const { data: overview, isLoading } = useQuery<ProjectOverview>({
     queryKey: ['team-overview', team.id],
@@ -1265,7 +1267,7 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
               </button>
             ))}
             </div>
-            {canManage && (
+            {canCreateTask && (
               <Button size="sm" className="gap-1.5 h-8 text-xs shrink-0" onClick={() => setAddTaskOpen(true)}>
                 <Plus className="h-3.5 w-3.5" /> New Task
               </Button>
@@ -1353,8 +1355,9 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
       <TaskDetailDrawer taskId={selectedTaskId} onClose={() => setSelectedTaskId(null)} />
       {addTaskOpen && (
         <AddProjectTaskDialog
-          deptId={deptId}
           teamId={team.id}
+          canAssign={canAssignTask}
+          selfId={authUser?.id ?? ''}
           members={(() => {
             const seen = new Set<string>();
             const list: TeamUser[] = [];
@@ -1902,33 +1905,29 @@ const addProjectTaskSchema = z.object({
 });
 type AddProjectTaskForm = z.infer<typeof addProjectTaskSchema>;
 
-function AddProjectTaskDialog({ deptId, teamId, members, onClose, onCreated }: {
-  deptId: string; teamId: string;
+function AddProjectTaskDialog({ teamId, members, canAssign, selfId, onClose, onCreated }: {
+  teamId: string;
   members: TeamUser[];
+  canAssign: boolean;
+  selfId: string;
   onClose: () => void;
   onCreated: () => void;
 }) {
   const { register, handleSubmit, setValue, watch, formState: { errors, isSubmitting } } = useForm<AddProjectTaskForm>({
     resolver: zodResolver(addProjectTaskSchema),
-    defaultValues: { priority: 'MEDIUM' },
+    defaultValues: { priority: 'MEDIUM', assigneeUserId: canAssign ? '' : selfId },
   });
 
   const priority = watch('priority') ?? 'MEDIUM';
   const assigneeId = watch('assigneeUserId') ?? '';
 
   const onSubmit = async (data: AddProjectTaskForm) => {
-    let dueDateIso: string | undefined;
-    if (data.dueDate) {
-      dueDateIso = new Date(`${data.dueDate}T${data.dueTime || '23:59:59'}`).toISOString();
-    }
-    await api.post('/tasks', {
+    await api.post(`/teams/${teamId}/tasks`, {
       title:           data.title,
       description:     data.description || undefined,
-      expectedOutcome: data.expectedOutcome || undefined,
-      assigneeUserId:  data.assigneeUserId,
-      departmentId:    deptId,
       priority:        data.priority,
-      dueDate:         dueDateIso,
+      dueDate:         data.dueDate || undefined,
+      assignToUserId:  canAssign ? data.assigneeUserId : selfId,
     });
     onCreated();
   };
@@ -1965,7 +1964,17 @@ function AddProjectTaskDialog({ deptId, teamId, members, onClose, onCreated }: {
           {/* Assignee */}
           <div className="space-y-1.5">
             <Label>Assign To *</Label>
-            {members.length === 0 ? (
+            {!canAssign ? (
+              <div className="flex items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2">
+                <Avatar className="h-6 w-6 shrink-0">
+                  <AvatarFallback className="text-[10px] bg-primary/10 text-primary">
+                    {getInitials(members.find(m => m.id === selfId)?.name ?? 'Me')}
+                  </AvatarFallback>
+                </Avatar>
+                <span className="text-sm">{members.find(m => m.id === selfId)?.name ?? 'Me'}</span>
+                <span className="text-xs text-muted-foreground ml-auto">(assigned to you)</span>
+              </div>
+            ) : members.length === 0 ? (
               <p className="text-xs text-muted-foreground rounded-lg border px-3 py-2.5">
                 No members in this project yet — add members first.
               </p>
@@ -1981,7 +1990,7 @@ function AddProjectTaskDialog({ deptId, teamId, members, onClose, onCreated }: {
                 </SelectContent>
               </Select>
             )}
-            {errors.assigneeUserId && (
+            {canAssign && errors.assigneeUserId && (
               <p className="text-xs text-destructive">{errors.assigneeUserId.message}</p>
             )}
           </div>
