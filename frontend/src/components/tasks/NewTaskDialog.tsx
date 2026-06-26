@@ -18,6 +18,7 @@ const managerSchema = z.object({
   expectedOutcome: z.string().optional(),
   assigneeUserId: z.string().min(1, 'Assignee required'),
   departmentId: z.string().optional(),
+  teamId: z.string().optional(),
   dependencyId: z.string().optional(),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).default('MEDIUM'),
   dueDate: z.string().optional(),
@@ -30,6 +31,7 @@ const teamMemberSchema = z.object({
   expectedOutcome: z.string().optional(),
   assigneeUserId: z.string().optional(),
   departmentId: z.string().optional(),
+  teamId: z.string().optional(),
   dependencyId: z.string().optional(),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).default('MEDIUM'),
   dueDate: z.string().optional(),
@@ -90,7 +92,7 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
   const { data: teams = [] } = useQuery<TeamItem[]>({
     queryKey: ['teams'],
     queryFn: () => api.get('/teams').then((r) => r.data),
-    enabled: open && !isTeamMember,
+    enabled: open,
   });
 
   const { register, handleSubmit, setValue, watch, reset, formState: { errors, isSubmitting } } = useForm<FormData>({
@@ -102,6 +104,7 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
   const watchedPriority = watch('priority') || 'MEDIUM';
   const watchedAssigneeId = watch('assigneeUserId') || '';
   const watchedDependencyId = watch('dependencyId') || '';
+  const watchedTeamId = watch('teamId') || '';
 
   useEffect(() => {
     if (!open) return;
@@ -155,6 +158,7 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
             expectedOutcome: data.expectedOutcome || undefined,
             assigneeUserId: isTeamMember ? user!.id : data.assigneeUserId,
             departmentId: data.departmentId || undefined,
+            teamId: data.teamId || undefined,
             dependencyId: data.dependencyId || undefined,
             priority: data.priority,
             dueDate: dueDateIso,
@@ -178,6 +182,10 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
   const assigneeTeams = watchedAssigneeId
     ? teams.filter((t) => t.members.some((m) => m.user.id === watchedAssigneeId))
     : [];
+
+  const availableTeams = !isTeamMember && watchedAssigneeId
+    ? assigneeTeams
+    : teams;
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
@@ -319,6 +327,27 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
                     .map((t) => (
                       <SelectItem key={t.id} value={t.id}>{t.title}</SelectItem>
                     ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {/* Project (optional) — shown in create mode for all roles */}
+          {!isEditMode && availableTeams.length > 0 && (
+            <div className="space-y-1.5">
+              <Label>Project <span className="text-muted-foreground font-normal">(optional)</span></Label>
+              <Select
+                value={watchedTeamId}
+                onValueChange={(v) => setValue('teamId', v === '__none__' ? '' : v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Link to a project..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">None</SelectItem>
+                  {availableTeams.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

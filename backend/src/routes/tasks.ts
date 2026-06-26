@@ -74,6 +74,7 @@ const createSchema = z.object({
   expectedOutcome: z.string().optional(),
   departmentId: z.string().optional(),
   dependencyId: z.string().optional(),
+  teamId: z.string().optional(),
   assigneeUserId: z.string(),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).default('MEDIUM'),
   startDate: z.string().datetime().optional(),
@@ -164,7 +165,12 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     if (view === 'dept' && actor.departmentId) {
       where.departmentId = actor.departmentId;
     } else {
-      where.assigneeUserId = { in: [req.user!.userId, ...actor.reportIds] };
+      // Show tasks assigned to me or direct reports, PLUS any project tasks I created
+      delete where.assigneeUserId;
+      where.OR = [
+        { assigneeUserId: { in: [req.user!.userId, ...actor.reportIds] } },
+        { assignedByUserId: req.user!.userId, teamId: { not: null } },
+      ];
     }
   } else if (req.user!.role === 'DEPARTMENT_HEAD' && actor.departmentId) {
     where.departmentId = actor.departmentId;
