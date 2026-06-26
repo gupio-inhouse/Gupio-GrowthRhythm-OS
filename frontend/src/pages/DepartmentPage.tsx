@@ -963,6 +963,14 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
     },
   });
 
+  const updateTaskStatus = useMutation({
+    mutationFn: ({ taskId, status }: { taskId: string; status: string }) =>
+      api.patch(`/tasks/${taskId}`, { status }).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['team-overview', team.id] });
+    },
+  });
+
   const stats = overview?.stats;
 
   // Regular team members (not manager, not elevated role) see only their own tasks
@@ -1319,9 +1327,24 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
                       <Badge className={cn('text-xs border hidden sm:inline-flex', priorityColor(task.priority))}>
                         {task.priority}
                       </Badge>
-                      <span className={cn('text-xs px-1.5 py-0.5 rounded-full font-medium', statusColor(task.status))}>
-                        {STATUS_LABELS[task.status] ?? task.status}
-                      </span>
+                      <Select
+                        value={task.status}
+                        onValueChange={(newStatus) => {
+                          updateTaskStatus.mutate({ taskId: task.id, status: newStatus });
+                        }}
+                      >
+                        <SelectTrigger
+                          onClick={(e) => e.stopPropagation()}
+                          className={cn('h-6 text-xs px-2 py-0 rounded-full border-0 font-medium gap-1 w-auto', statusColor(task.status))}
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent onClick={(e) => e.stopPropagation()}>
+                          {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                            <SelectItem key={value} value={value} className="text-xs">{label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
                 );
