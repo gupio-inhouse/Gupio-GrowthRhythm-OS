@@ -19,8 +19,8 @@ export const standupWorker = new Worker('standup', async (job: Job) => {
   if (job.name !== 'generate-cards') return;
 
   const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  tomorrow.setHours(9, 0, 0, 0);
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+  tomorrow.setUTCHours(3, 30, 0, 0); // 9 AM IST = 03:30 UTC
 
   const departments = await prisma.department.findMany({
     where: { isActive: true },
