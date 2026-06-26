@@ -1926,7 +1926,7 @@ function AddProjectTaskDialog({ teamId, members, canAssign, selfId, onClose, onC
       title:           data.title,
       description:     data.description || undefined,
       priority:        data.priority,
-      dueDate:         data.dueDate || undefined,
+      dueDate:         data.dueDate ? new Date(`${data.dueDate}T${data.dueTime || '23:59:59'}`).toISOString() : undefined,
       assignToUserId:  canAssign ? data.assigneeUserId : selfId,
     });
     onCreated();

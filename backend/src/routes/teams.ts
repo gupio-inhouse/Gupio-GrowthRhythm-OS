@@ -485,7 +485,7 @@ router.post(
       res.status(400).json({ error: 'No members to assign task to — add members first' }); return;
     }
 
-    const dueDateVal = dueDate ? new Date(`${dueDate}T23:59:59`) : undefined;
+    const dueDateVal = dueDate ? new Date(dueDate) : undefined;
 
     const created = await prisma.$transaction(
       targetUserIds.map((assigneeId) =>
