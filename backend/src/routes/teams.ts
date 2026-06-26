@@ -116,7 +116,8 @@ router.get(
 
     const elevated = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(role);
     const isProjectManager = team.managerUserId === userId;
-    if (!elevated && !isProjectManager) {
+    const isMember = team.members.some((m: { userId: string }) => m.userId === userId);
+    if (!elevated && !isProjectManager && !isMember) {
       res.status(403).json({ error: 'Access denied' }); return;
     }
 
