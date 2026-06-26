@@ -182,6 +182,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       assignee: { select: { id: true, name: true, email: true, avatarUrl: true } },
       assignedBy: { select: { id: true, name: true } },
       department: { select: { id: true, name: true, slug: true } },
+      team: { select: { id: true, name: true } },
       dependency: { select: { id: true, title: true, status: true } },
       _count: { select: { comments: true, attachments: true } },
     },
@@ -206,6 +207,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
       assignedBy: { select: { id: true, name: true } },
       completionReviewedBy: { select: { id: true, name: true } },
       department: true,
+      team: { select: { id: true, name: true } },
       dependency: { select: { id: true, title: true, status: true } },
       comments: {
         include: { user: { select: { id: true, name: true, avatarUrl: true } } },

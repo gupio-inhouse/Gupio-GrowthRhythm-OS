@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Building2, Users, CheckSquare, Clock, Settings, Plus, Trash2 } from 'lucide-react';
+import { Building2, Users, CheckSquare, Clock, Settings, Plus, Trash2, UserPlus, X } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { getInitials } from '@/lib/utils';
+import { cn, getInitials } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/api/client';
 
@@ -24,9 +25,14 @@ export default function Departments() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [scheduleTarget, setScheduleTarget] = useState<Department | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [createStep, setCreateStep] = useState<'dept' | 'invite'>('dept');
+  const [createdDept, setCreatedDept] = useState<{ id: string; name: string } | null>(null);
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
   const [error, setError] = useState('');
+  // invite rows state
+  type InviteRow = { name: string; email: string; role: string; status: 'idle' | 'sending' | 'sent' | 'error'; errorMsg?: string };
+  const [invites, setInvites] = useState<InviteRow[]>([{ name: '', email: '', role: 'TEAM_MEMBER', status: 'idle' }]);
   const { data: departments = [], isLoading } = useQuery<Department[]>({
     queryKey: ['departments'],
     queryFn: () => api.get('/departments').then((r) => r.data),
@@ -73,24 +79,28 @@ export default function Departments() {
       if (finalName.length < 2) throw new Error('Department name must be at least 2 characters');
       if (finalSlug.length < 2) throw new Error('Department slug must be at least 2 characters');
 
-      return api.post('/departments', {
-        name: finalName,
-        slug: finalSlug,
-      });
+      return api.post('/departments', { name: finalName, slug: finalSlug });
     },
-    onSuccess: () => {
+    onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['departments'] });
       qc.invalidateQueries({ queryKey: ['cockpit'] });
-      setCreateOpen(false);
-      setName('');
-      setSlug('');
+      setCreatedDept({ id: res.data.id, name: res.data.name });
+      setCreateStep('invite');
       setError('');
-      clearCreateParam();
     },
     onError: (err: unknown) => {
       setError(err instanceof Error ? err.message : 'Unable to create department');
     },
   });
+
+  const resetCreateDialog = () => {
+    setName('');
+    setSlug('');
+    setError('');
+    setCreateStep('dept');
+    setCreatedDept(null);
+    setInvites([{ name: '', email: '', role: 'TEAM_MEMBER', status: 'idle' }]);
+  };
 
   const handleNameChange = (value: string) => {
     setName(value);
@@ -102,7 +112,7 @@ export default function Departments() {
   const handleCreateOpen = (open: boolean) => {
     setCreateOpen(open);
     if (!open) {
-      setError('');
+      resetCreateDialog();
       clearCreateParam();
     }
   };
@@ -230,53 +240,205 @@ export default function Departments() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Building2 className="h-4 w-4 text-purple-500" />
-              Create Department
+              {createStep === 'dept' ? (
+                <><Building2 className="h-4 w-4 text-purple-500" /> Create Department</>
+              ) : (
+                <><UserPlus className="h-4 w-4 text-purple-500" /> Invite Members — {createdDept?.name}</>
+              )}
             </DialogTitle>
           </DialogHeader>
 
-          <form
-            className="space-y-4"
-            onSubmit={(e) => {
-              e.preventDefault();
-              setError('');
-              createDepartment.mutate();
-            }}
-          >
-            <div className="space-y-1.5">
-              <Label htmlFor="department-name">Department name</Label>
-              <Input
-                id="department-name"
-                value={name}
-                onChange={(e) => handleNameChange(e.target.value)}
-                placeholder="Customer Success"
-              />
-            </div>
+          {/* Step indicator */}
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className={cn('flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold', createStep === 'dept' ? 'bg-primary text-primary-foreground' : 'bg-green-500 text-white')}>
+              {createStep === 'dept' ? '1' : '✓'}
+            </span>
+            <span className={createStep === 'dept' ? 'text-foreground font-medium' : 'text-muted-foreground'}>Department</span>
+            <div className="h-px w-6 bg-border" />
+            <span className={cn('flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold', createStep === 'invite' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground')}>2</span>
+            <span className={createStep === 'invite' ? 'text-foreground font-medium' : 'text-muted-foreground'}>Invite Members</span>
+          </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="department-slug">Department slug</Label>
-              <Input
-                id="department-slug"
-                value={slug}
-                onChange={(e) => setSlug(toSlug(e.target.value))}
-                placeholder="customer-success"
-              />
-              <p className="text-xs text-muted-foreground">Used in dashboard URLs. Lowercase letters, numbers, and dashes only.</p>
-            </div>
+          {createStep === 'dept' ? (
+            <form
+              className="space-y-4"
+              onSubmit={(e) => { e.preventDefault(); setError(''); createDepartment.mutate(); }}
+            >
+              <div className="space-y-1.5">
+                <Label htmlFor="department-name">Department name</Label>
+                <Input
+                  id="department-name"
+                  value={name}
+                  onChange={(e) => handleNameChange(e.target.value)}
+                  placeholder="Customer Success"
+                />
+              </div>
 
-            {error && <p className="text-sm text-destructive">{error}</p>}
+              <div className="space-y-1.5">
+                <Label htmlFor="department-slug">Department slug</Label>
+                <Input
+                  id="department-slug"
+                  value={slug}
+                  onChange={(e) => setSlug(toSlug(e.target.value))}
+                  placeholder="customer-success"
+                />
+                <p className="text-xs text-muted-foreground">Used in dashboard URLs. Lowercase letters, numbers, and dashes only.</p>
+              </div>
 
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => handleCreateOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={createDepartment.isPending}>
-                {createDepartment.isPending ? 'Creating...' : 'Create Department'}
-              </Button>
-            </DialogFooter>
-          </form>
+              {error && <p className="text-sm text-destructive">{error}</p>}
+
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => handleCreateOpen(false)}>Cancel</Button>
+                <Button type="submit" disabled={createDepartment.isPending}>
+                  {createDepartment.isPending ? 'Creating...' : 'Next: Invite Members →'}
+                </Button>
+              </DialogFooter>
+            </form>
+          ) : (
+            <InviteMembersStep
+              deptId={createdDept!.id}
+              invites={invites}
+              setInvites={setInvites}
+              onDone={() => handleCreateOpen(false)}
+            />
+          )}
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+type InviteRow = { name: string; email: string; role: string; status: 'idle' | 'sending' | 'sent' | 'error'; errorMsg?: string };
+
+function InviteMembersStep({
+  deptId, invites, setInvites, onDone,
+}: {
+  deptId: string;
+  invites: InviteRow[];
+  setInvites: React.Dispatch<React.SetStateAction<InviteRow[]>>;
+  onDone: () => void;
+}) {
+  const [sending, setSending] = useState(false);
+
+  const update = (i: number, patch: Partial<InviteRow>) =>
+    setInvites((prev) => prev.map((row, idx) => idx === i ? { ...row, ...patch } : row));
+
+  const addRow = () =>
+    setInvites((prev) => [...prev, { name: '', email: '', role: 'TEAM_MEMBER', status: 'idle' }]);
+
+  const removeRow = (i: number) =>
+    setInvites((prev) => prev.filter((_, idx) => idx !== i));
+
+  const sendAll = async () => {
+    const pending = invites.filter((r) => r.email.trim() && r.name.trim() && r.status !== 'sent');
+    if (pending.length === 0) { onDone(); return; }
+
+    setSending(true);
+    await Promise.all(
+      invites.map(async (row, i) => {
+        if (!row.email.trim() || !row.name.trim() || row.status === 'sent') return;
+        update(i, { status: 'sending' });
+        try {
+          await api.post('/users/invite', {
+            name: row.name.trim(),
+            email: row.email.trim(),
+            role: row.role,
+            departmentId: deptId,
+          });
+          update(i, { status: 'sent' });
+        } catch (err: unknown) {
+          const e = err as { response?: { data?: { error?: string } } };
+          update(i, { status: 'error', errorMsg: e.response?.data?.error ?? 'Failed to send' });
+        }
+      })
+    );
+    setSending(false);
+  };
+
+  const allSent = invites.every((r) => r.status === 'sent' || (!r.email.trim() && !r.name.trim()));
+  const hasPending = invites.some((r) => r.email.trim() && r.name.trim() && r.status !== 'sent');
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        Add team members to this department. You can skip this and invite them later from the department page.
+      </p>
+
+      <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+        {invites.map((row, i) => (
+          <div key={i} className="flex items-start gap-2">
+            <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+              <Input
+                placeholder="Full name"
+                value={row.name}
+                disabled={row.status === 'sent'}
+                onChange={(e) => update(i, { name: e.target.value, status: 'idle' })}
+                className="h-8 text-sm"
+              />
+              <Input
+                placeholder="Email address"
+                type="email"
+                value={row.email}
+                disabled={row.status === 'sent'}
+                onChange={(e) => update(i, { email: e.target.value, status: 'idle' })}
+                className="h-8 text-sm"
+              />
+              <Select
+                value={row.role}
+                onValueChange={(v) => update(i, { role: v })}
+                disabled={row.status === 'sent'}
+              >
+                <SelectTrigger className="h-8 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="TEAM_MEMBER">Team Member</SelectItem>
+                  <SelectItem value="MANAGER">Manager</SelectItem>
+                  <SelectItem value="DEPARTMENT_HEAD">Dept Head</SelectItem>
+                  <SelectItem value="COACH_ADVISOR">Coach / Advisor</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Status indicator */}
+            <div className="shrink-0 mt-1 w-5">
+              {row.status === 'sent' && <span className="text-green-500 text-xs">✓</span>}
+              {row.status === 'sending' && <span className="text-muted-foreground text-xs">…</span>}
+              {row.status === 'error' && <span title={row.errorMsg} className="text-destructive text-xs">!</span>}
+              {row.status === 'idle' && invites.length > 1 && (
+                <button onClick={() => removeRow(i)} className="text-muted-foreground hover:text-destructive transition-colors">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+        {invites.some((r) => r.status === 'error') && (
+          <p className="text-xs text-destructive">Some invites failed — check the email addresses and try again.</p>
+        )}
+      </div>
+
+      <button
+        type="button"
+        onClick={addRow}
+        className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+      >
+        <Plus className="h-3.5 w-3.5" /> Add another member
+      </button>
+
+      <DialogFooter>
+        <Button variant="outline" onClick={onDone}>
+          {allSent ? 'Done' : 'Skip for now'}
+        </Button>
+        {hasPending && (
+          <Button onClick={sendAll} disabled={sending}>
+            {sending ? 'Sending...' : `Send Invite${invites.filter((r) => r.email.trim() && r.name.trim() && r.status !== 'sent').length > 1 ? 's' : ''}`}
+          </Button>
+        )}
+        {allSent && !hasPending && (
+          <Button onClick={onDone} className="bg-green-600 hover:bg-green-700">All Invited — Finish</Button>
+        )}
+      </DialogFooter>
     </div>
   );
 }

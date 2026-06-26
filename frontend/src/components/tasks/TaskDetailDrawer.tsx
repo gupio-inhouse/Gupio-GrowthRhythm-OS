@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Send, Calendar, User, Flag, Building2, AlertTriangle, Pencil, Trash2, ImagePlus, FileText, GitPullRequest, ExternalLink, Link2 } from 'lucide-react';
+import { Send, Calendar, User, Flag, Building2, AlertTriangle, Pencil, Trash2, ImagePlus, FileText, GitPullRequest, ExternalLink, Link2, Layers } from 'lucide-react';
 import { Sheet, SheetHeader, SheetTitle, SheetContent } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -60,6 +60,7 @@ type TaskDetail = {
   assignedBy?: { id: string; name: string };
   completionReviewedBy?: { id: string; name: string };
   department?: { id: string; name: string };
+  team?: { id: string; name: string };
   comments: Comment[];
   attachments: TaskAttachment[];
   statusHistories: TaskStatusHistory[];
@@ -430,6 +431,16 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
                       <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
                       <span className="text-sm text-muted-foreground w-24">Department</span>
                       <span className="text-sm">{task.department.name}</span>
+                    </div>
+                  )}
+
+                  {task.team && (
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <Layers className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <span className="text-sm text-muted-foreground w-24">Project</span>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200 font-medium">
+                        {task.team.name}
+                      </span>
                     </div>
                   )}
 

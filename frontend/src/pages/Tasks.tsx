@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { Plus, CheckSquare, AlertTriangle, Clock, Search, LayoutGrid, List, Upload, ImagePlus, FileText, GitPullRequest, CalendarDays, Check, X as XIcon } from 'lucide-react';
+import { Plus, CheckSquare, AlertTriangle, Clock, Search, LayoutGrid, List, Upload, ImagePlus, FileText, GitPullRequest, CalendarDays, Check, X as XIcon, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,7 @@ type Task = {
   dueDate?: string;
   assignee?: { id: string; name: string; avatarUrl?: string };
   department?: { id: string; name: string };
+  team?: { id: string; name: string };
   blockerType?: string;
   _count?: { comments: number; attachments: number };
 };
@@ -85,6 +86,9 @@ export default function Tasks() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState(() => searchParams.get('status') ?? '');
+  const [departmentFilter, setDepartmentFilter] = useState('');
+  const [memberFilter, setMemberFilter] = useState('');
+  const [page, setPage] = useState(1);
   const [view, setView] = useState<'list' | 'kanban'>('list');
   const deliveryAction = (searchParams.get('delivery') as DeliveryAction | null) ?? null;
 
@@ -157,6 +161,25 @@ export default function Tasks() {
   };
 
   const canSearchByUser = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
+  const canFilterByDept = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
+
+  const { data: departments = [] } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ['departments'],
+    queryFn: () => api.get('/departments').then((r) => r.data),
+    enabled: canFilterByDept,
+  });
+
+  const { data: allUsers = [] } = useQuery<{ id: string; name: string; departmentId?: string }[]>({
+    queryKey: ['users-list'],
+    queryFn: () => api.get('/users').then((r) => r.data),
+    enabled: canFilterByDept,
+  });
+
+  const membersInDept = departmentFilter
+    ? allUsers.filter((u) => u.departmentId === departmentFilter)
+    : allUsers;
+
+  const resetPage = () => setPage(1);
 
   const now = new Date();
   const todayMidnight = new Date(); todayMidnight.setHours(0, 0, 0, 0);
@@ -180,6 +203,8 @@ export default function Tasks() {
         const matchesAssignee = canSearchByUser && t.assignee?.name.toLowerCase().includes(q);
         if (!matchesTitle && !matchesAssignee) return false;
       }
+      if (departmentFilter && t.department?.id !== departmentFilter) return false;
+      if (memberFilter && t.assignee?.id !== memberFilter) return false;
       if (statusFilter === 'overdue') return isTaskOverdue(t);
       if (statusFilter === 'due_today') return isTaskDueToday(t);
       if (statusFilter && t.status !== statusFilter) return false;
@@ -275,21 +300,64 @@ export default function Tasks() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
-        <div className="relative w-full sm:w-64">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder={canSearchByUser ? 'Search by task or person…' : 'Search tasks…'}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder={canSearchByUser ? 'Search by task or person…' : 'Search tasks…'}
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); resetPage(); }}
+              className="pl-9"
+            />
+          </div>
+
+          {canFilterByDept && (
+            <>
+              <Select
+                value={departmentFilter || '__all__'}
+                onValueChange={(v) => {
+                  const val = v === '__all__' ? '' : v;
+                  setDepartmentFilter(val);
+                  setMemberFilter('');
+                  resetPage();
+                }}
+              >
+                <SelectTrigger className="w-full sm:w-48 h-9 text-sm">
+                  <SelectValue placeholder="All Departments" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All Departments</SelectItem>
+                  {departments.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select
+                value={memberFilter || '__all__'}
+                onValueChange={(v) => { setMemberFilter(v === '__all__' ? '' : v); resetPage(); }}
+                disabled={membersInDept.length === 0}
+              >
+                <SelectTrigger className="w-full sm:w-48 h-9 text-sm">
+                  <SelectValue placeholder={departmentFilter ? 'All Members' : 'All Members'} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All Members</SelectItem>
+                  {membersInDept.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </>
+          )}
         </div>
+
         <div className="flex gap-1.5 overflow-x-auto pb-0.5 sm:pb-0 flex-nowrap">
           {(['', 'TODO', 'IN_PROGRESS', 'BLOCKED', 'IN_REVIEW', 'DONE'] as const).map((s) => (
             <button
               key={s}
-              onClick={() => setStatusFilter(s)}
+              onClick={() => { setStatusFilter(s); resetPage(); }}
               className={cn(
                 'px-3 py-1.5 rounded-md text-xs font-medium border transition-colors whitespace-nowrap shrink-0',
                 statusFilter === s ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:bg-muted'
@@ -307,9 +375,9 @@ export default function Tasks() {
           {[...Array(5)].map((_, i) => <div key={i} className="h-16 rounded-lg bg-muted animate-pulse" />)}
         </div>
       ) : view === 'list' ? (
-        <ListView tasks={filtered} onStatusChange={handleStatusChange} onTaskClick={openTask} onDeliveryClick={openTask} canExtend={canExtend} onExtendDeadline={handleExtendDeadline} />
+        <ListView tasks={filtered} page={page} onPageChange={setPage} onStatusChange={handleStatusChange} onTaskClick={openTask} onDeliveryClick={openTask} canExtend={canExtend} onExtendDeadline={handleExtendDeadline} />
       ) : (
-        <KanbanView tasks={filtered} onStatusChange={handleStatusChange} onTaskClick={openTask} onDeliveryClick={openTask} canExtend={canExtend} onExtendDeadline={handleExtendDeadline} />
+        <KanbanView tasks={filtered} page={page} onPageChange={setPage} onStatusChange={handleStatusChange} onTaskClick={openTask} onDeliveryClick={openTask} canExtend={canExtend} onExtendDeadline={handleExtendDeadline} />
       )}
 
       {/* Dialogs / Drawers */}
@@ -353,9 +421,11 @@ export default function Tasks() {
 // ── List view ────────────────────────────────────────────────────────────────
 
 function ListView({
-  tasks, onStatusChange, onTaskClick, onDeliveryClick, canExtend, onExtendDeadline,
+  tasks, page, onPageChange, onStatusChange, onTaskClick, onDeliveryClick, canExtend, onExtendDeadline,
 }: {
   tasks: Task[];
+  page: number;
+  onPageChange: (p: number) => void;
   onStatusChange: (task: Task, status: string) => void;
   onTaskClick: (id: string, delivery?: DeliveryAction) => void;
   onDeliveryClick: (id: string, delivery: DeliveryAction) => void;
@@ -371,20 +441,25 @@ function ListView({
     );
   }
 
+  const paged = paginate(tasks, page);
+
   return (
-    <div className="space-y-2">
-      {tasks.map((task) => (
-        <TaskRow
-          key={task.id}
-          task={task}
-          onStatusChange={onStatusChange}
-          onClick={() => onTaskClick(task.id)}
-          onDeliveryClick={(delivery) => onDeliveryClick(task.id, delivery)}
-          canExtend={canExtend}
-          onExtendDeadline={onExtendDeadline}
-        />
-      ))}
-    </div>
+    <>
+      <div className="space-y-2">
+        {paged.map((task) => (
+          <TaskRow
+            key={task.id}
+            task={task}
+            onStatusChange={onStatusChange}
+            onClick={() => onTaskClick(task.id)}
+            onDeliveryClick={(delivery) => onDeliveryClick(task.id, delivery)}
+            canExtend={canExtend}
+            onExtendDeadline={onExtendDeadline}
+          />
+        ))}
+      </div>
+      <TaskPagination total={tasks.length} page={page} onPageChange={onPageChange} />
+    </>
   );
 }
 
@@ -452,6 +527,11 @@ function TaskRow({ task, onStatusChange, onClick, onDeliveryClick, canExtend, on
             </p>
             <div className="flex items-center gap-2 mt-0.5 flex-wrap">
               {task.department && <span className="text-xs text-muted-foreground">{task.department.name}</span>}
+              {task.team && (
+                <span className="text-xs px-1.5 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200 font-medium">
+                  {task.team.name}
+                </span>
+              )}
               {task.blockerType && (
                 <span className="text-xs text-red-500 font-medium">
                   ⚠ {task.blockerType.toLowerCase().replace(/_/g, ' ')}
@@ -529,10 +609,13 @@ function TaskRow({ task, onStatusChange, onClick, onDeliveryClick, canExtend, on
 
           {/* Assignee */}
           {task.assignee && (
-            <Avatar className="h-7 w-7 shrink-0">
-              <AvatarImage src={task.assignee.avatarUrl} />
-              <AvatarFallback className="text-xs bg-primary/10">{getInitials(task.assignee.name)}</AvatarFallback>
-            </Avatar>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <Avatar className="h-7 w-7">
+                <AvatarImage src={task.assignee.avatarUrl} />
+                <AvatarFallback className="text-xs bg-primary/10">{getInitials(task.assignee.name)}</AvatarFallback>
+              </Avatar>
+              <span className="text-xs text-muted-foreground hidden sm:block max-w-[100px] truncate">{task.assignee.name}</span>
+            </div>
           )}
         </div>
       </CardContent>
@@ -543,9 +626,11 @@ function TaskRow({ task, onStatusChange, onClick, onDeliveryClick, canExtend, on
 // ── Kanban view ──────────────────────────────────────────────────────────────
 
 function KanbanView({
-  tasks, onStatusChange, onTaskClick, onDeliveryClick, canExtend, onExtendDeadline,
+  tasks, page, onPageChange, onStatusChange, onTaskClick, onDeliveryClick, canExtend, onExtendDeadline,
 }: {
   tasks: Task[];
+  page: number;
+  onPageChange: (p: number) => void;
   onStatusChange: (task: Task, status: string) => void;
   onTaskClick: (id: string, delivery?: DeliveryAction) => void;
   onDeliveryClick: (id: string, delivery: DeliveryAction) => void;
@@ -553,39 +638,44 @@ function KanbanView({
   onExtendDeadline?: (taskId: string, newDate: string) => void;
 }) {
   const columns = ['TODO', 'IN_PROGRESS', 'BLOCKED', 'IN_REVIEW', 'DONE'];
+  const paged = paginate(tasks, page);
 
   return (
-    <div className="flex gap-4 overflow-x-auto pb-4">
-      {columns.map((col) => {
-        const colTasks = tasks.filter((t) => t.status === col);
-        return (
-          <div key={col} className={cn('flex-shrink-0 w-72 rounded-xl border-t-2 bg-muted/30', STATUS_COLORS[col])}>
-            <div className="p-3 border-b">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold">{STATUS_LABELS[col]}</span>
-                <Badge variant="secondary" className="text-xs">{colTasks.length}</Badge>
+    <>
+      <div className="flex gap-4 overflow-x-auto pb-4">
+        {columns.map((col) => {
+          const colTasks = paged.filter((t) => t.status === col);
+          const totalInCol = tasks.filter((t) => t.status === col).length;
+          return (
+            <div key={col} className={cn('flex-shrink-0 w-72 rounded-xl border-t-2 bg-muted/30', STATUS_COLORS[col])}>
+              <div className="p-3 border-b">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold">{STATUS_LABELS[col]}</span>
+                  <Badge variant="secondary" className="text-xs">{totalInCol}</Badge>
+                </div>
+              </div>
+              <div className="p-2 space-y-2 min-h-32">
+                {colTasks.map((task) => (
+                  <KanbanCard
+                    key={task.id}
+                    task={task}
+                    onStatusChange={onStatusChange}
+                    onClick={() => onTaskClick(task.id)}
+                    onDeliveryClick={(delivery) => onDeliveryClick(task.id, delivery)}
+                    canExtend={canExtend}
+                    onExtendDeadline={onExtendDeadline}
+                  />
+                ))}
+                {colTasks.length === 0 && (
+                  <p className="text-xs text-muted-foreground text-center py-6">No tasks</p>
+                )}
               </div>
             </div>
-            <div className="p-2 space-y-2 min-h-32">
-              {colTasks.map((task) => (
-                <KanbanCard
-                  key={task.id}
-                  task={task}
-                  onStatusChange={onStatusChange}
-                  onClick={() => onTaskClick(task.id)}
-                  onDeliveryClick={(delivery) => onDeliveryClick(task.id, delivery)}
-                  canExtend={canExtend}
-                  onExtendDeadline={onExtendDeadline}
-                />
-              ))}
-              {colTasks.length === 0 && (
-                <p className="text-xs text-muted-foreground text-center py-6">No tasks</p>
-              )}
-            </div>
-          </div>
-        );
-      })}
-    </div>
+          );
+        })}
+      </div>
+      <TaskPagination total={tasks.length} page={page} onPageChange={onPageChange} />
+    </>
   );
 }
 
@@ -624,6 +714,11 @@ function KanbanCard({ task, onStatusChange, onClick, onDeliveryClick, canExtend,
       <p className={cn('text-sm font-medium leading-snug', task.status === 'DONE' && 'line-through text-muted-foreground')}>
         {task.title}
       </p>
+      {task.team && (
+        <span className="inline-block text-[11px] px-1.5 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200 font-medium">
+          {task.team.name}
+        </span>
+      )}
       {task.blockerType && (
         <p className="text-xs text-red-500">⚠ {task.blockerType.toLowerCase().replace(/_/g, ' ')}</p>
       )}
@@ -659,10 +754,13 @@ function KanbanCard({ task, onStatusChange, onClick, onDeliveryClick, canExtend,
             )}
           </div>
           {task.assignee && (
-            <Avatar className="h-6 w-6">
-              <AvatarImage src={task.assignee.avatarUrl} />
-              <AvatarFallback className="text-xs bg-primary/10">{getInitials(task.assignee.name)}</AvatarFallback>
-            </Avatar>
+            <div className="flex items-center gap-1">
+              <Avatar className="h-6 w-6">
+                <AvatarImage src={task.assignee.avatarUrl} />
+                <AvatarFallback className="text-xs bg-primary/10">{getInitials(task.assignee.name)}</AvatarFallback>
+              </Avatar>
+              <span className="text-[11px] text-muted-foreground max-w-[80px] truncate">{task.assignee.name}</span>
+            </div>
           )}
         </div>
       </div>
@@ -690,6 +788,75 @@ function KanbanCard({ task, onStatusChange, onClick, onDeliveryClick, canExtend,
           → Move to {STATUS_LABELS[nextStatus[task.status]]}
         </button>
       )}
+    </div>
+  );
+}
+
+// ── Pagination ────────────────────────────────────────────────────────────────
+
+const PAGE_SIZE = 10;
+
+function paginate<T>(items: T[], page: number, size = PAGE_SIZE): T[] {
+  return items.slice((page - 1) * size, page * size);
+}
+
+function TaskPagination({ total, page, onPageChange }: {
+  total: number; page: number; onPageChange: (p: number) => void;
+}) {
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+  if (totalPages <= 1) return null;
+
+  const from = (page - 1) * PAGE_SIZE + 1;
+  const to   = Math.min(page * PAGE_SIZE, total);
+
+  const pages: (number | 'gap')[] = [];
+  if (totalPages <= 7) {
+    for (let i = 1; i <= totalPages; i++) pages.push(i);
+  } else {
+    pages.push(1);
+    if (page > 3)              pages.push('gap');
+    for (let i = Math.max(2, page - 1); i <= Math.min(totalPages - 1, page + 1); i++) pages.push(i);
+    if (page < totalPages - 2) pages.push('gap');
+    pages.push(totalPages);
+  }
+
+  return (
+    <div className="flex items-center justify-between mt-4 pt-3 border-t gap-4">
+      <p className="text-xs text-muted-foreground shrink-0">{from}–{to} of {total}</p>
+      <div className="flex items-center gap-1">
+        <button
+          disabled={page === 1}
+          onClick={() => onPageChange(page - 1)}
+          className="inline-flex items-center justify-center h-7 w-7 rounded-md border text-muted-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          <ChevronLeft className="h-3.5 w-3.5" />
+        </button>
+        {pages.map((p, i) =>
+          p === 'gap' ? (
+            <span key={`gap-${i}`} className="px-1 text-xs text-muted-foreground select-none">…</span>
+          ) : (
+            <button
+              key={p}
+              onClick={() => onPageChange(p as number)}
+              className={cn(
+                'inline-flex items-center justify-center h-7 min-w-[28px] px-2 rounded-md border text-xs font-medium transition-colors',
+                page === p
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'text-muted-foreground hover:bg-muted border-border'
+              )}
+            >
+              {p}
+            </button>
+          )
+        )}
+        <button
+          disabled={page === totalPages}
+          onClick={() => onPageChange(page + 1)}
+          className="inline-flex items-center justify-center h-7 w-7 rounded-md border text-muted-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          <ChevronRight className="h-3.5 w-3.5" />
+        </button>
+      </div>
     </div>
   );
 }

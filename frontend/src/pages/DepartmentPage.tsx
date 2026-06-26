@@ -45,6 +45,7 @@ type DeptTask = {
   dueDate?: string; description?: string; blockerType?: string;
   assignee?: { id: string; name: string; avatarUrl?: string };
   department?: { id: string; name: string };
+  team?: { id: string; name: string };
 };
 type TeamUser   = { id: string; name: string; email: string; role: string; avatarUrl?: string };
 type TeamMember = { id: string; joinedAt: string; user: TeamUser };
@@ -140,7 +141,8 @@ export default function DepartmentPage() {
   const [deptTasksPage,  setDeptTasksPage]  = useState(1);
   const [selectedTeam,   setSelectedTeam]   = useState<Team | null>(null);
   const [createTeamOpen, setCreateTeamOpen] = useState(false);
-  const [memberDialog,   setMemberDialog]   = useState<DeptMember | null>(null);
+  const [memberDialog,      setMemberDialog]      = useState<DeptMember | null>(null);
+  const [inviteMemberOpen,  setInviteMemberOpen]  = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
   const deleteTeam = useMutation({
@@ -261,6 +263,11 @@ export default function DepartmentPage() {
               <span className="text-xs text-muted-foreground">{label}</span>
             </button>
           ))}
+          {canManage && (
+            <Button size="sm" className="gap-1.5" onClick={() => setInviteMemberOpen(true)}>
+              <UserPlus className="h-3.5 w-3.5" /> Invite Member
+            </Button>
+          )}
         </div>
       </div>
 
@@ -623,6 +630,11 @@ export default function DepartmentPage() {
                               {task.assignee.name}
                             </button>
                           )}
+                          {task.team && (
+                            <span className="text-xs px-1.5 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200 font-medium">
+                              {task.team.name}
+                            </span>
+                          )}
                         </div>
                       </div>
 
@@ -645,11 +657,9 @@ export default function DepartmentPage() {
 
         {/* ── Members Tab ── */}
         <TabsContent value="members" className="mt-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="text-base font-semibold">Team Members ({dept.users.length})</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">Click any member to see their work</p>
-            </div>
+          <div className="mb-4">
+            <h2 className="text-base font-semibold">Team Members ({dept.users.length})</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">Click any member to see their work</p>
           </div>
 
           {dept.users.length === 0 ? (
@@ -760,6 +770,17 @@ export default function DepartmentPage() {
           member={memberDialog}
           tasks={deptTasks.filter((t) => t.assignee?.id === memberDialog.id)}
           onClose={() => setMemberDialog(null)}
+        />
+      )}
+
+      {/* ── Invite member dialog ── */}
+      {inviteMemberOpen && (
+        <InviteMemberDialog
+          deptId={dept.id}
+          onClose={() => {
+            setInviteMemberOpen(false);
+            qc.invalidateQueries({ queryKey: ['dept-detail', slug] });
+          }}
         />
       )}
 
@@ -903,6 +924,384 @@ function MemberDetailDialog({ member, tasks, onClose }: {
         </div>
       </DialogContent>
       <TaskDetailDrawer taskId={selectedTaskId} onClose={() => setSelectedTaskId(null)} />
+    </Dialog>
+  );
+}
+
+// ── Invite Member Dialog ──────────────────────────────────────────────────────
+
+function InviteMemberDialog({ deptId, onClose }: { deptId: string; onClose: () => void }) {
+  const [mode, setMode] = useState<'individual' | 'bulk'>('individual');
+  const [rows, setRows] = useState([{ name: '', email: '', role: 'TEAM_MEMBER', status: 'idle' as 'idle' | 'sending' | 'sent' | 'error', errorMsg: '' }]);
+  const [bulkText, setBulkText] = useState('');
+  const [bulkRole, setBulkRole] = useState('TEAM_MEMBER');
+  const [sending, setSending] = useState(false);
+
+  const update = (i: number, patch: Partial<typeof rows[0]>) =>
+    setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, ...patch } : r));
+
+  const addRow = () =>
+    setRows((prev) => [...prev, { name: '', email: '', role: 'TEAM_MEMBER', status: 'idle', errorMsg: '' }]);
+
+  const removeRow = (i: number) =>
+    setRows((prev) => prev.filter((_, idx) => idx !== i));
+
+  // Parse bulk text: each line is "Name, email" or just "email"
+  const parsedBulk = bulkText
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const parts = line.split(',').map((p) => p.trim());
+      if (parts.length >= 2) {
+        const email = parts[parts.length - 1];
+        const name  = parts.slice(0, parts.length - 1).join(' ');
+        return { name, email };
+      }
+      // Just an email
+      return { name: line.split('@')[0], email: line };
+    })
+    .filter((r) => r.email.includes('@'));
+
+  const applyBulk = () => {
+    if (!parsedBulk.length) return;
+    setRows(parsedBulk.map((r) => ({ name: r.name, email: r.email, role: bulkRole, status: 'idle', errorMsg: '' })));
+    setMode('individual');
+    setBulkText('');
+  };
+
+  const sendAll = async () => {
+    const pending = rows.filter((r) => r.name.trim() && r.email.trim() && r.status !== 'sent');
+    if (!pending.length) { onClose(); return; }
+    setSending(true);
+    await Promise.all(
+      rows.map(async (row, i) => {
+        if (!row.name.trim() || !row.email.trim() || row.status === 'sent') return;
+        update(i, { status: 'sending' });
+        try {
+          await api.post('/users/invite', { name: row.name.trim(), email: row.email.trim(), role: row.role, departmentId: deptId });
+          update(i, { status: 'sent' });
+        } catch (err: unknown) {
+          const e = err as { response?: { data?: { error?: string } } };
+          update(i, { status: 'error', errorMsg: e.response?.data?.error ?? 'Failed to send invite' });
+        }
+      })
+    );
+    setSending(false);
+  };
+
+  const allSent = rows.every((r) => r.status === 'sent' || (!r.name.trim() && !r.email.trim()));
+  const hasPending = rows.some((r) => r.name.trim() && r.email.trim() && r.status !== 'sent');
+  const pendingCount = rows.filter((r) => r.name.trim() && r.email.trim() && r.status !== 'sent').length;
+  const sentCount = rows.filter((r) => r.status === 'sent').length;
+
+  const roleConfig: Record<string, { label: string; color: string }> = {
+    TEAM_MEMBER:     { label: 'Team Member',   color: 'bg-blue-50 text-blue-700 border-blue-200' },
+    MANAGER:         { label: 'Manager',        color: 'bg-violet-50 text-violet-700 border-violet-200' },
+    DEPARTMENT_HEAD: { label: 'Dept Head',      color: 'bg-amber-50 text-amber-700 border-amber-200' },
+    COACH_ADVISOR:   { label: 'Coach/Advisor',  color: 'bg-teal-50 text-teal-700 border-teal-200' },
+  };
+
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="w-[calc(100vw-2rem)] max-w-xl p-0 gap-0 overflow-hidden">
+
+        {/* Header */}
+        <div className="px-6 pt-6 pb-4 border-b bg-muted/30 space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 shrink-0">
+                <UserPlus className="h-4 w-4 text-primary" />
+              </div>
+              <div>
+                <h2 className="text-base font-semibold leading-tight">Invite Members</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">Invites will be sent by email with login details</p>
+              </div>
+            </div>
+            {sentCount > 0 && (
+              <span className="text-xs font-medium px-2 py-1 rounded-full bg-green-50 text-green-700 border border-green-200 shrink-0">
+                {sentCount} sent
+              </span>
+            )}
+          </div>
+
+          {/* Mode toggle */}
+          <div className="flex items-center gap-1 bg-background rounded-lg border p-1 w-fit">
+            <button
+              onClick={() => setMode('individual')}
+              className={cn(
+                'px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                mode === 'individual' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              Individual
+            </button>
+            <button
+              onClick={() => setMode('bulk')}
+              className={cn(
+                'px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                mode === 'bulk' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              Bulk Invite
+            </button>
+          </div>
+        </div>
+
+        {/* Bulk mode */}
+        {mode === 'bulk' ? (
+          <div className="px-6 py-4 space-y-4">
+            <div className="rounded-lg bg-muted/50 border border-dashed p-3 text-xs text-muted-foreground space-y-1">
+              <p className="font-medium text-foreground">Paste one person per line:</p>
+              <p>• <span className="font-mono">Name, email@example.com</span></p>
+              <p>• <span className="font-mono">email@example.com</span> (name taken from email)</p>
+            </div>
+
+            <div className="space-y-1.5">
+              <textarea
+                className="w-full min-h-[140px] rounded-xl border bg-background px-3 py-2.5 text-sm outline-none font-mono resize-none focus:ring-2 focus:ring-primary/20 focus:border-primary placeholder:text-muted-foreground/50 transition-colors"
+                placeholder={"John Smith, john@company.com\nSarah Lee, sarah@company.com\nalice@company.com"}
+                value={bulkText}
+                onChange={(e) => setBulkText(e.target.value)}
+              />
+              {parsedBulk.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">{parsedBulk.length}</span> valid email{parsedBulk.length > 1 ? 's' : ''} detected
+                </p>
+              )}
+            </div>
+
+            {/* Role for all bulk invites */}
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Assign role to all</p>
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(roleConfig).map(([value, { label, color }]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setBulkRole(value)}
+                    className={cn(
+                      'px-2.5 py-1 rounded-full text-xs font-medium border transition-all',
+                      bulkRole === value ? color : 'bg-background text-muted-foreground border-border hover:border-primary/40 hover:text-foreground'
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Preview */}
+            {parsedBulk.length > 0 && (
+              <div className="rounded-xl border overflow-hidden">
+                <div className="bg-muted/50 px-3 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wide border-b">
+                  Preview
+                </div>
+                <div className="divide-y max-h-40 overflow-y-auto">
+                  {parsedBulk.map((r, i) => (
+                    <div key={i} className="flex items-center gap-3 px-3 py-2">
+                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-semibold">
+                        {getInitials(r.name)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{r.name}</p>
+                        <p className="text-xs text-muted-foreground truncate">{r.email}</p>
+                      </div>
+                      <span className={cn('text-xs px-2 py-0.5 rounded-full border font-medium shrink-0', roleConfig[bulkRole]?.color)}>
+                        {roleConfig[bulkRole]?.label}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+              <Button
+                size="sm"
+                disabled={parsedBulk.length === 0}
+                onClick={applyBulk}
+                className="gap-1.5"
+              >
+                <UserPlus className="h-3.5 w-3.5" />
+                Review &amp; Send {parsedBulk.length > 0 ? `(${parsedBulk.length})` : ''}
+              </Button>
+            </div>
+          </div>
+        ) : (
+        <>
+        <div className="px-6 py-4 space-y-3 max-h-[50vh] overflow-y-auto">
+          {rows.map((row, i) => {
+            const isSent    = row.status === 'sent';
+            const isError   = row.status === 'error';
+            const isSending = row.status === 'sending';
+
+            return (
+              <div
+                key={i}
+                className={cn(
+                  'relative rounded-xl border p-4 transition-all',
+                  isSent    && 'bg-green-50/60 border-green-200',
+                  isError   && 'bg-red-50/60 border-red-200',
+                  isSending && 'opacity-70 border-primary/30 bg-primary/5',
+                  !isSent && !isError && !isSending && 'bg-card border-border'
+                )}
+              >
+                <div className="flex items-start gap-3">
+                  {/* Avatar preview */}
+                  <div className={cn(
+                    'flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold transition-colors',
+                    isSent    ? 'bg-green-500 text-white'      :
+                    isError   ? 'bg-red-100 text-red-600'      :
+                    isSending ? 'bg-primary/20 text-primary'   :
+                    row.name  ? 'bg-primary/15 text-primary'   : 'bg-muted text-muted-foreground'
+                  )}>
+                    {isSent ? (
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    ) : isSending ? (
+                      <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z"/>
+                      </svg>
+                    ) : (
+                      <span>{row.name ? getInitials(row.name) : '?'}</span>
+                    )}
+                  </div>
+
+                  {/* Fields */}
+                  <div className="flex-1 min-w-0 space-y-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <input
+                        className={cn(
+                          'h-9 w-full rounded-lg border bg-background px-3 text-sm outline-none transition-colors',
+                          'placeholder:text-muted-foreground/60',
+                          'focus:ring-2 focus:ring-primary/20 focus:border-primary',
+                          'disabled:bg-muted/40 disabled:text-muted-foreground disabled:cursor-not-allowed'
+                        )}
+                        placeholder="Full name"
+                        value={row.name}
+                        disabled={isSent || isSending}
+                        onChange={(e) => update(i, { name: e.target.value, status: 'idle', errorMsg: '' })}
+                      />
+                      <input
+                        className={cn(
+                          'h-9 w-full rounded-lg border bg-background px-3 text-sm outline-none transition-colors',
+                          'placeholder:text-muted-foreground/60',
+                          'focus:ring-2 focus:ring-primary/20 focus:border-primary',
+                          'disabled:bg-muted/40 disabled:text-muted-foreground disabled:cursor-not-allowed'
+                        )}
+                        placeholder="Email address"
+                        type="email"
+                        value={row.email}
+                        disabled={isSent || isSending}
+                        onChange={(e) => update(i, { email: e.target.value, status: 'idle', errorMsg: '' })}
+                      />
+                    </div>
+
+                    {/* Role selector as pill buttons */}
+                    <div className="flex flex-wrap gap-1.5">
+                      {Object.entries(roleConfig).map(([value, { label, color }]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          disabled={isSent || isSending}
+                          onClick={() => update(i, { role: value })}
+                          className={cn(
+                            'px-2.5 py-1 rounded-full text-xs font-medium border transition-all',
+                            row.role === value
+                              ? color
+                              : 'bg-background text-muted-foreground border-border hover:border-primary/40 hover:text-foreground',
+                            (isSent || isSending) && 'cursor-not-allowed opacity-60'
+                          )}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Error message */}
+                    {isError && row.errorMsg && (
+                      <p className="text-xs text-red-600 flex items-center gap-1">
+                        <span className="font-semibold">!</span> {row.errorMsg}
+                      </p>
+                    )}
+
+                    {/* Sent confirmation */}
+                    {isSent && (
+                      <p className="text-xs text-green-700 font-medium">Invite sent to {row.email}</p>
+                    )}
+                  </div>
+
+                  {/* Remove button */}
+                  {!isSent && !isSending && rows.length > 1 && (
+                    <button
+                      onClick={() => removeRow(i)}
+                      className="shrink-0 h-6 w-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Add row — dashed slot */}
+          <button
+            type="button"
+            onClick={addRow}
+            className="w-full flex items-center justify-center gap-2 rounded-xl border border-dashed border-border py-3 text-sm text-muted-foreground hover:border-primary/50 hover:text-primary hover:bg-primary/5 transition-all"
+          >
+            <Plus className="h-4 w-4" />
+            Add another person
+          </button>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between gap-3 px-6 py-4 border-t bg-muted/20">
+          <p className="text-xs text-muted-foreground">
+            {sentCount > 0
+              ? `${sentCount} invite${sentCount > 1 ? 's' : ''} sent`
+              : 'Fill in name & email to send invites'}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={onClose}>
+              {allSent ? 'Done' : 'Cancel'}
+            </Button>
+            {hasPending && (
+              <Button size="sm" onClick={sendAll} disabled={sending} className="gap-1.5">
+                {sending ? (
+                  <>
+                    <svg className="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z"/>
+                    </svg>
+                    Sending…
+                  </>
+                ) : (
+                  <>
+                    <UserPlus className="h-3.5 w-3.5" />
+                    Send {pendingCount > 1 ? `${pendingCount} Invites` : 'Invite'}
+                  </>
+                )}
+              </Button>
+            )}
+            {!hasPending && allSent && (
+              <Button size="sm" onClick={onClose} className="gap-1.5 bg-green-600 hover:bg-green-700 text-white">
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                All Done
+              </Button>
+            )}
+          </div>
+        </div>
+        </>
+        )}
+      </DialogContent>
     </Dialog>
   );
 }
