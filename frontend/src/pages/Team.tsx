@@ -1,18 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
   UserPlus, Search, Users, Shield, Crown, Briefcase, User as UserIcon,
-  Mail, Phone, Building2, CheckCircle2, Plus, UserX, UserCheck, Pencil, Trash2, FileText, UserCog,
+  Mail, Phone, Building2, CheckCircle2, UserX, UserCheck, Pencil, Trash2, FileText,
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
@@ -21,7 +20,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { cn, getInitials } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/api/client';
@@ -43,16 +42,6 @@ type Department = {
   id: string;
   name: string;
   slug: string;
-};
-
-type Team = {
-  id: string;
-  name: string;
-  slug: string;
-  description?: string;
-  department: { id: string; name: string; slug: string };
-  manager?: { id: string; name: string; email: string; avatarUrl?: string };
-  memberCount: number;
 };
 
 const roleConfig: Record<string, { label: string; icon: React.ElementType; color: string }> = {
@@ -83,16 +72,6 @@ type InviteResult = {
   inviteLink?: string | null;
 };
 
-const teamSchema = z.object({
-  name: z.string().min(2, 'Team name must be at least 2 characters'),
-  slug: z.string().min(2, 'Team slug must be at least 2 characters'),
-  departmentId: z.string().min(1, 'Department is required'),
-  managerUserId: z.string().optional(),
-  description: z.string().optional(),
-});
-
-type TeamForm = z.infer<typeof teamSchema>;
-
 function RoleBadge({ role }: { role: string }) {
   const cfg = roleConfig[role] || { label: role, icon: UserIcon, color: 'text-gray-600 bg-gray-100' };
   const Icon = cfg.icon;
@@ -117,43 +96,20 @@ function StatusDot({ status }: { status: string }) {
 export default function Team() {
   const { user: me } = useAuthStore();
   const qc = useQueryClient();
-  const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const [deptFilter, setDeptFilter] = useState('all');
   const [roleFilter, setRoleFilter] = useState('');
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [teamOpen, setTeamOpen] = useState(false);
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [invited, setInvited] = useState(false);
   const [inviteResult, setInviteResult] = useState<InviteResult | null>(null);
-  const [teamError, setTeamError] = useState('');
-  const [editingTeamId, setEditingTeamId] = useState<string | null>(null);
-  const [confirmDeleteTeamId, setConfirmDeleteTeamId] = useState<string | null>(null);
-  const [assignManagerTeamId, setAssignManagerTeamId] = useState<string | null>(null);
-  const [assignManagerValue, setAssignManagerValue] = useState('');
   const [editMemberOpen, setEditMemberOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
   const [editMemberForm, setEditMemberForm] = useState({ name: '', role: '', departmentId: '', phone: '', managerId: '' });
   const [editMemberError, setEditMemberError] = useState('');
   const [confirmDeleteMemberId, setConfirmDeleteMemberId] = useState<string | null>(null);
-  const [teamForm, setTeamForm] = useState<TeamForm>({
-    name: '',
-    slug: '',
-    departmentId: '',
-    managerUserId: '',
-    description: '',
-  });
-
-  // Pre-fill dept for scoped roles so the field is ready when the dialog opens
-  useEffect(() => {
-    if (me && ['DEPARTMENT_HEAD', 'MANAGER'].includes(me.role) && me.departmentId) {
-      setTeamForm((prev) => prev.departmentId ? prev : { ...prev, departmentId: me.departmentId! });
-    }
-  }, [me]);
 
   const canInvite = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(me?.role || '');
-  const canCreateTeam = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(me?.role || '');
-  const canAssignManager = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'].includes(me?.role || '');
   const canBulkImport = ['OWNER', 'COMPANY_ADMIN'].includes(me?.role || '');
   const canInviteOnlyTeamMembers = me?.role === 'MANAGER';
   const canDeactivate = ['OWNER', 'COMPANY_ADMIN'].includes(me?.role || '');
@@ -187,41 +143,6 @@ export default function Team() {
     },
   });
 
-  const updateTeam = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: TeamForm }) =>
-      api.patch(`/teams/${id}`, {
-        ...data,
-        managerUserId: data.managerUserId || null,
-        description: data.description?.trim() || undefined,
-      }).then((r) => r.data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['teams'] });
-      setTeamOpen(false);
-      setEditingTeamId(null);
-      setTeamError('');
-      setTeamForm({ name: '', slug: '', departmentId: '', managerUserId: '', description: '' });
-    },
-    onError: (e: unknown) => setTeamError(e instanceof Error ? e.message : 'Unable to update team'),
-  });
-
-  const deleteTeam = useMutation({
-    mutationFn: (id: string) => api.delete(`/teams/${id}`).then((r) => r.data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['teams'] });
-      setConfirmDeleteTeamId(null);
-    },
-  });
-
-  const assignManager = useMutation({
-    mutationFn: ({ teamId, managerUserId }: { teamId: string; managerUserId: string | null }) =>
-      api.patch(`/teams/${teamId}`, { managerUserId }).then((r) => r.data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['teams'] });
-      setAssignManagerTeamId(null);
-      setAssignManagerValue('');
-    },
-  });
-
   const { data: members = [], isLoading } = useQuery<TeamMember[]>({
     queryKey: ['users'],
     queryFn: () => api.get('/users').then((r) => r.data),
@@ -231,22 +152,6 @@ export default function Team() {
     queryKey: ['departments'],
     queryFn: () => api.get('/departments').then((r) => r.data),
   });
-
-  const { data: teams = [] } = useQuery<Team[]>({
-    queryKey: ['teams'],
-    queryFn: () => api.get('/teams').then((r) => r.data),
-  });
-
-  const visibleDepartments =
-    ['MANAGER', 'DEPARTMENT_HEAD'].includes(me?.role || '')
-      ? departments.filter((department) => department.id === me?.departmentId)
-      : departments;
-
-  useEffect(() => {
-    if (searchParams.get('create') === 'team') {
-      setTeamOpen(true);
-    }
-  }, [searchParams]);
 
   const { register, handleSubmit, setValue, reset, formState: { errors } } = useForm<InviteForm>({
     resolver: zodResolver(inviteSchema),
@@ -262,44 +167,6 @@ export default function Team() {
     },
   });
 
-  const createTeam = useMutation({
-    mutationFn: async (payload: TeamForm) => {
-      const parsed = teamSchema.safeParse(payload);
-      if (!parsed.success) {
-        throw new Error(parsed.error.issues[0]?.message || 'Please check the team details');
-      }
-
-      return api.post('/teams', {
-        ...parsed.data,
-        managerUserId: parsed.data.managerUserId || undefined,
-        description: parsed.data.description?.trim() || undefined,
-      });
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['teams'] });
-      setTeamOpen(false);
-      setTeamError('');
-      setTeamForm({
-        name: '',
-        slug: '',
-        departmentId: '',
-        managerUserId: '',
-        description: '',
-      });
-      clearCreateParam();
-    },
-    onError: (error: unknown) => {
-      setTeamError(error instanceof Error ? error.message : 'Unable to create team');
-    },
-  });
-
-  const clearCreateParam = () => {
-    if (!searchParams.get('create')) return;
-    const next = new URLSearchParams(searchParams);
-    next.delete('create');
-    setSearchParams(next, { replace: true });
-  };
-
   const filtered = members.filter((m) => {
     if (search && !m.name.toLowerCase().includes(search.toLowerCase()) && !m.email.toLowerCase().includes(search.toLowerCase())) return false;
     if (deptFilter !== 'all' && m.department?.id !== deptFilter) return false;
@@ -311,37 +178,6 @@ export default function Team() {
     acc[m.role] = (acc[m.role] || 0) + 1;
     return acc;
   }, {});
-
-  const candidateManagers = members.filter((member) => {
-    if (member.status !== 'ACTIVE') return false;
-    if (!['MANAGER', 'DEPARTMENT_HEAD', 'COMPANY_ADMIN', 'OWNER'].includes(member.role)) return false;
-    // OWNER/COMPANY_ADMIN are org-wide — they can manage any team regardless of department
-    if (['OWNER', 'COMPANY_ADMIN'].includes(member.role)) return true;
-    if (teamForm.departmentId && member.department?.id !== teamForm.departmentId) return false;
-    return true;
-  });
-
-  const handleTeamOpen = (open: boolean) => {
-    setTeamOpen(open);
-    if (!open) {
-      setTeamError('');
-      setEditingTeamId(null);
-      setTeamForm({ name: '', slug: '', departmentId: '', managerUserId: '', description: '' });
-      clearCreateParam();
-    }
-  };
-
-  const openEditTeam = (team: Team) => {
-    setEditingTeamId(team.id);
-    setTeamForm({
-      name: team.name,
-      slug: team.slug,
-      departmentId: team.department.id,
-      managerUserId: team.manager?.id || '',
-      description: team.description || '',
-    });
-    setTeamOpen(true);
-  };
 
   const openEditMember = (member: TeamMember) => {
     setEditingMember(member);
@@ -363,35 +199,16 @@ export default function Team() {
     reset();
   };
 
-  const handleTeamNameChange = (value: string) => {
-    setTeamForm((prev) => {
-      const currentAutoSlug = toSlug(prev.name);
-      const nextName = value;
-      const shouldSyncSlug = !prev.slug || prev.slug === currentAutoSlug;
-      return {
-        ...prev,
-        name: nextName,
-        slug: shouldSyncSlug ? toSlug(nextName) : prev.slug,
-      };
-    });
-  };
-
   return (
     <div className="p-4 sm:p-8 space-y-4 sm:space-y-6">
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Team</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">{teams.length} teams · {members.length} members across your organization</p>
+          <p className="text-muted-foreground text-sm mt-0.5">{members.length} members across your organization</p>
         </div>
-        {(canInvite || canCreateTeam || canBulkImport) && (
+        {(canInvite || canBulkImport) && (
           <div className="flex items-center flex-wrap gap-2">
-            {canCreateTeam && (
-              <Button variant="outline" onClick={() => handleTeamOpen(true)} className="gap-2">
-                <Plus className="h-4 w-4" />
-                Create Team
-              </Button>
-            )}
             {canBulkImport && (
               <Button variant="outline" onClick={() => setBulkImportOpen(true)} className="gap-2">
                 <Users className="h-4 w-4" />
@@ -404,120 +221,6 @@ export default function Team() {
                 Invite Member
               </Button>
             )}
-          </div>
-        )}
-      </div>
-
-      <Card className="border-dashed bg-muted/20">
-        <CardContent className="p-4 flex flex-col gap-1.5 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="text-sm font-medium">How teams work today</p>
-            <p className="text-sm text-muted-foreground">
-              Teams are created inside a department and led by a manager. Member counts currently reflect that manager&apos;s active direct reports.
-            </p>
-          </div>
-          {canCreateTeam && teams.length === 0 && (
-            <Button variant="outline" onClick={() => handleTeamOpen(true)}>
-              Create your first team
-            </Button>
-          )}
-        </CardContent>
-      </Card>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {teams.map((team) => (
-          <Card key={team.id} className="hover:shadow-sm transition-shadow group">
-            <CardHeader className="pb-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <CardTitle className="text-lg">{team.name}</CardTitle>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {team.department.name} · /{team.slug}
-                  </p>
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <Badge variant="secondary">{team.memberCount} members</Badge>
-                  {canAssignManager && (
-                    <button
-                      onClick={() => {
-                        setAssignManagerTeamId(team.id);
-                        setAssignManagerValue(team.manager?.id || 'none');
-                      }}
-                      className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-primary transition-colors opacity-0 group-hover:opacity-100"
-                      title="Assign manager"
-                    >
-                      <UserCog className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                  {canCreateTeam && (
-                    <button
-                      onClick={() => openEditTeam(team)}
-                      className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors opacity-0 group-hover:opacity-100"
-                      title="Edit team"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                  {canDeleteUser && (
-                    confirmDeleteTeamId === team.id ? (
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => deleteTeam.mutate(team.id)}
-                          disabled={deleteTeam.isPending}
-                          className="text-xs px-2 py-1 rounded bg-red-500 text-white hover:bg-red-600"
-                        >
-                          {deleteTeam.isPending ? '…' : 'Delete'}
-                        </button>
-                        <button
-                          onClick={() => setConfirmDeleteTeamId(null)}
-                          className="text-xs px-2 py-1 rounded bg-muted hover:bg-muted/80"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => setConfirmDeleteTeamId(team.id)}
-                        className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
-                        title="Delete team"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    )
-                  )}
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {team.description && (
-                <p className="text-sm text-muted-foreground">{team.description}</p>
-              )}
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 min-w-0">
-                  <Avatar className="h-8 w-8">
-                    <AvatarImage src={team.manager?.avatarUrl} />
-                    <AvatarFallback className="bg-primary/10 text-primary text-xs">
-                      {getInitials(team.manager?.name || 'TM')}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium truncate">{team.manager?.name || 'Unassigned manager'}</p>
-                    <p className="text-xs text-muted-foreground truncate">{team.manager?.email || 'Assign a manager to shape this team'}</p>
-                  </div>
-                </div>
-                <span className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
-                  <Building2 className="h-3 w-3" />
-                  {team.department.name}
-                </span>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-        {teams.length === 0 && (
-          <div className="col-span-full text-center py-14 text-muted-foreground border rounded-xl bg-muted/20">
-            <Users className="h-12 w-12 mx-auto mb-4 opacity-20" />
-            <p>No teams created yet</p>
-            <p className="text-sm mt-2">Create a team, pick its department, then assign a manager so reporting starts making sense.</p>
           </div>
         )}
       </div>
@@ -971,188 +674,13 @@ export default function Team() {
           }}
         />
       )}
-
-      <Dialog open={teamOpen} onOpenChange={handleTeamOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{editingTeamId ? 'Edit Team' : 'Create Team'}</DialogTitle>
-            <DialogDescription>
-              {editingTeamId ? 'Update the team details below.' : 'Create a real team under a department and optionally assign a manager.'}
-            </DialogDescription>
-          </DialogHeader>
-
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              setTeamError('');
-              if (editingTeamId) {
-                updateTeam.mutate({ id: editingTeamId, data: teamForm });
-              } else {
-                createTeam.mutate(teamForm);
-              }
-            }}
-            className="space-y-4"
-          >
-            <div className="space-y-1.5">
-              <Label htmlFor="team-name">Team Name</Label>
-              <Input
-                id="team-name"
-                value={teamForm.name}
-                onChange={(e) => handleTeamNameChange(e.target.value)}
-                placeholder="Enterprise Sales"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="team-slug">Team Slug</Label>
-              <Input
-                id="team-slug"
-                value={teamForm.slug}
-                onChange={(e) => setTeamForm((prev) => ({ ...prev, slug: toSlug(e.target.value) }))}
-                placeholder="enterprise-sales"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Department</Label>
-                <Select
-                  value={teamForm.departmentId}
-                  onValueChange={(value) => setTeamForm((prev) => ({ ...prev, departmentId: value, managerUserId: '' }))}
-                  disabled={['DEPARTMENT_HEAD', 'MANAGER'].includes(me?.role || '')}
-                >
-                  <SelectTrigger>
-                  <SelectValue placeholder="Select department" />
-                  </SelectTrigger>
-                  <SelectContent>
-                  {visibleDepartments.map((department) => (
-                    <SelectItem key={department.id} value={department.id}>{department.name}</SelectItem>
-                  ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-            <div className="space-y-1.5">
-              <Label>Manager</Label>
-              <Select
-                value={teamForm.managerUserId || 'none'}
-                onValueChange={(value) => setTeamForm((prev) => ({ ...prev, managerUserId: value === 'none' ? '' : value }))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Optional" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No manager yet</SelectItem>
-                  {candidateManagers.map((manager) => (
-                    <SelectItem key={manager.id} value={manager.id}>
-                      {manager.name} {manager.department ? `· ${manager.department.name}` : ''}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="team-description">Description</Label>
-              <Textarea
-                id="team-description"
-                value={teamForm.description}
-                onChange={(e) => setTeamForm((prev) => ({ ...prev, description: e.target.value }))}
-                placeholder="What mission or functional scope does this team own?"
-              />
-            </div>
-
-            {teamError && <p className="text-sm text-destructive">{teamError}</p>}
-
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => handleTeamOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={createTeam.isPending || updateTeam.isPending}>
-                {editingTeamId
-                  ? (updateTeam.isPending ? 'Saving...' : 'Save Changes')
-                  : (createTeam.isPending ? 'Creating...' : 'Create Team')
-                }
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Assign Manager dialog */}
-      <Dialog
-        open={!!assignManagerTeamId}
-        onOpenChange={(open) => { if (!open) { setAssignManagerTeamId(null); setAssignManagerValue(''); } }}
-      >
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Assign Manager</DialogTitle>
-            <DialogDescription>
-              Pick a manager for this team. They will lead and be accountable for it.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <Select
-              value={assignManagerValue || 'none'}
-              onValueChange={(v) => setAssignManagerValue(v === 'none' ? '' : v)}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select a manager" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">No manager</SelectItem>
-                {members
-                  .filter((m) =>
-                    m.status === 'ACTIVE' &&
-                    ['MANAGER', 'DEPARTMENT_HEAD', 'COMPANY_ADMIN', 'OWNER'].includes(m.role)
-                  )
-                  .map((m) => (
-                    <SelectItem key={m.id} value={m.id}>
-                      <div className="flex items-center gap-2">
-                        <span>{m.name}</span>
-                        <span className="text-xs text-muted-foreground capitalize">
-                          · {m.role.toLowerCase().replace(/_/g, ' ')}
-                          {m.department ? ` · ${m.department.name}` : ''}
-                        </span>
-                      </div>
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setAssignManagerTeamId(null); setAssignManagerValue(''); }}>
-              Cancel
-            </Button>
-            <Button
-              disabled={assignManager.isPending}
-              onClick={() => {
-                if (!assignManagerTeamId) return;
-                assignManager.mutate({
-                  teamId: assignManagerTeamId,
-                  managerUserId: assignManagerValue || null,
-                });
-              }}
-            >
-              {assignManager.isPending ? 'Saving...' : 'Assign'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
-}
-
-function toSlug(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
 }
 
 // ── Bulk user import ──────────────────────────────────────────────────────────
 
 function BulkUserImportDialog({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
-  const fileRef = useState<HTMLInputElement | null>(null);
   const [fileEl, setFileEl] = useState<HTMLInputElement | null>(null);
   const [preview, setPreview] = useState<string[][]>([]);
   const [result, setResult] = useState<{ created: number; errors: string[] } | null>(null);
