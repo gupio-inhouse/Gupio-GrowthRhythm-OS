@@ -366,9 +366,9 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
                 {/* ── Meta info card ── */}
                 <div className="rounded-2xl border border-border/60 bg-white shadow-sm divide-y divide-border/40 overflow-hidden">
                   {[
-                    task.assignee && {
+                    {
                       icon: User, label: 'Assignee',
-                      content: (
+                      content: task.assignee ? (
                         <div className="flex items-center gap-2">
                           <Avatar className="h-6 w-6 ring-2 ring-white shadow-sm">
                             <AvatarImage src={task.assignee.avatarUrl} />
@@ -378,6 +378,8 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
                           </Avatar>
                           <span className="text-sm font-medium">{task.assignee.name}</span>
                         </div>
+                      ) : (
+                        <span className="text-xs px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-semibold">Unassigned</span>
                       ),
                     },
                     task.assignedBy && {

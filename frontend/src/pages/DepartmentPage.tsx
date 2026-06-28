@@ -8,7 +8,7 @@ import {
   Building2, Users, CheckSquare, AlertTriangle, Clock, Zap,
   TrendingUp, Plus, Pencil, Trash2, UserPlus, UserMinus,
   ChevronDown, ChevronUp, ChevronLeft, X, FolderKanban, ChevronRight,
-  BarChart2, ArrowLeft, ClipboardList, Filter, FileText, Link2, Upload, Star,
+  BarChart2, ArrowLeft, ClipboardList, Filter, FileText, Link2, Upload, Star, Search,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -136,14 +136,16 @@ export default function DepartmentPage() {
 
   const deptTeams = allTeams.filter((t) => t.department.slug === slug);
 
-  const [activeTab,      setActiveTab]      = useState<ActiveTab>('overview');
-  const [taskFilter,     setTaskFilter]     = useState<TaskFilter>('all');
-  const [deptTasksPage,  setDeptTasksPage]  = useState(1);
-  const [selectedTeam,   setSelectedTeam]   = useState<Team | null>(null);
-  const [createTeamOpen, setCreateTeamOpen] = useState(false);
-  const [memberDialog,      setMemberDialog]      = useState<DeptMember | null>(null);
-  const [inviteMemberOpen,  setInviteMemberOpen]  = useState(false);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [activeTab,        setActiveTab]        = useState<ActiveTab>('overview');
+  const [taskFilter,       setTaskFilter]       = useState<TaskFilter>('all');
+  const [taskSearch,       setTaskSearch]       = useState('');
+  const [taskMemberFilter, setTaskMemberFilter] = useState('');
+  const [deptTasksPage,    setDeptTasksPage]    = useState(1);
+  const [selectedTeam,     setSelectedTeam]     = useState<Team | null>(null);
+  const [createTeamOpen,   setCreateTeamOpen]   = useState(false);
+  const [memberDialog,     setMemberDialog]     = useState<DeptMember | null>(null);
+  const [inviteMemberOpen, setInviteMemberOpen] = useState(false);
+  const [selectedTaskId,   setSelectedTaskId]   = useState<string | null>(null);
 
   const deleteTeam = useMutation({
     mutationFn: (id: string) => api.delete(`/teams/${id}`),
@@ -158,7 +160,15 @@ export default function DepartmentPage() {
   };
 
   const now = new Date();
-  const filteredTasks = deptTasks.filter((t) => {
+  const preStatusTaskFiltered = deptTasks.filter((t) => {
+    if (taskSearch) {
+      const q = taskSearch.toLowerCase();
+      if (!t.title.toLowerCase().includes(q) && !(t.assignee?.name.toLowerCase().includes(q) ?? false)) return false;
+    }
+    if (taskMemberFilter && t.assignee?.id !== taskMemberFilter) return false;
+    return true;
+  });
+  const filteredTasks = preStatusTaskFiltered.filter((t) => {
     if (taskFilter === 'all')         return true;
     if (taskFilter === 'overdue')     return !!t.dueDate && new Date(t.dueDate) < now && t.status !== 'DONE' && t.status !== 'CANCELLED';
     if (taskFilter === 'blocked')     return t.status === 'BLOCKED';
@@ -716,46 +726,115 @@ export default function DepartmentPage() {
           {/* ══════════════════════════════════════════════
               Tasks Tab
           ══════════════════════════════════════════════ */}
-          <TabsContent value="tasks" className="mt-6">
-            <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-              <div>
-                <h2 className="text-base font-semibold">Department Tasks</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">{filteredTasks.length} of {deptTasks.length} tasks shown</p>
+          <TabsContent value="tasks" className="mt-6 space-y-4">
+            <div>
+              <h2 className="text-base font-semibold">Department Tasks</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">{filteredTasks.length} of {deptTasks.length} tasks shown</p>
+            </div>
+
+            {/* ── Filters ── */}
+            <div className="rounded-2xl border border-border/60 bg-white shadow-sm p-3 sm:p-4 space-y-3">
+              <div className="flex flex-col sm:flex-row gap-2">
+                {/* Search */}
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search tasks or assignees…"
+                    value={taskSearch}
+                    onChange={(e) => { setTaskSearch(e.target.value); setDeptTasksPage(1); }}
+                    className="pl-9 rounded-xl border-border/60 bg-muted/20 focus-visible:bg-white h-9 text-sm"
+                  />
+                </div>
+                {/* Member filter */}
+                <Select
+                  value={taskMemberFilter || '__all__'}
+                  onValueChange={(v) => { setTaskMemberFilter(v === '__all__' ? '' : v); setDeptTasksPage(1); }}
+                >
+                  <SelectTrigger className="w-full sm:w-44 h-9 text-sm rounded-xl border-border/60">
+                    <SelectValue placeholder="All Members" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl">
+                    <SelectItem value="__all__">All Members</SelectItem>
+                    {dept.users.map((u) => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                {(taskSearch || taskMemberFilter) && (
+                  <button
+                    onClick={() => { setTaskSearch(''); setTaskMemberFilter(''); setTaskFilter('all'); setDeptTasksPage(1); }}
+                    className="inline-flex items-center gap-1.5 h-9 rounded-xl border border-border/60 px-3 text-xs font-semibold text-muted-foreground hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-all shrink-0"
+                  >
+                    <X className="h-3.5 w-3.5" /> Clear
+                  </button>
+                )}
+              </div>
+              {/* Status filter pills */}
+              <div className="flex gap-1.5 overflow-x-auto pb-0.5 flex-nowrap">
+                {([
+                  { key: 'all',         label: 'All',         dot: '' },
+                  { key: 'overdue',     label: 'Overdue',     dot: '#ef4444' },
+                  { key: 'blocked',     label: 'Blocked',     dot: '#f97316' },
+                  { key: 'in_progress', label: 'In Progress', dot: '#3b82f6' },
+                  { key: 'in_review',   label: 'In Review',   dot: '#f59e0b' },
+                  { key: 'todo',        label: 'To Do',       dot: '#94a3b8' },
+                  { key: 'done',        label: 'Done',        dot: '#22c55e' },
+                ] as Array<{ key: TaskFilter; label: string; dot: string }>).map(({ key, label, dot }) => {
+                  const active = taskFilter === key;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => { setTaskFilter(key); setDeptTasksPage(1); }}
+                      className={cn(
+                        'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all whitespace-nowrap shrink-0',
+                        active
+                          ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
+                          : 'border-border/60 bg-white text-muted-foreground hover:border-violet-200 hover:text-violet-700 hover:bg-violet-50/50',
+                      )}
+                    >
+                      {dot ? <span className="h-2 w-2 rounded-full shrink-0" style={{ background: dot }} /> : <Filter className="h-3 w-3" />}
+                      {label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            {/* Filter pills */}
-            <div className="flex items-center gap-1.5 flex-wrap mb-4 p-1 rounded-xl bg-muted/40 w-fit">
+            {/* ── KPI stat tiles — react to search + member, not status ── */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
               {([
-                { key: 'all',         label: 'All',         count: deptTasks.length },
-                { key: 'overdue',     label: 'Overdue',     count: deptTasks.filter((t) => !!t.dueDate && new Date(t.dueDate) < now && t.status !== 'DONE' && t.status !== 'CANCELLED').length },
-                { key: 'blocked',     label: 'Blocked',     count: deptTasks.filter((t) => t.status === 'BLOCKED').length },
-                { key: 'in_progress', label: 'In Progress', count: deptTasks.filter((t) => t.status === 'IN_PROGRESS').length },
-                { key: 'in_review',   label: 'In Review',   count: deptTasks.filter((t) => t.status === 'IN_REVIEW').length },
-                { key: 'todo',        label: 'To Do',       count: deptTasks.filter((t) => t.status === 'TODO').length },
-                { key: 'done',        label: 'Done',        count: deptTasks.filter((t) => t.status === 'DONE').length },
-              ] as Array<{ key: TaskFilter; label: string; count: number }>).map(({ key, label, count }) => (
-                <button
-                  key={key}
-                  onClick={() => { setTaskFilter(key); setDeptTasksPage(1); }}
-                  className={cn(
-                    'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all',
-                    taskFilter === key
-                      ? 'bg-primary text-primary-foreground shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-background'
-                  )}
-                >
-                  {label}
-                  <span className={cn(
-                    'rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums',
-                    taskFilter === key ? 'bg-white/25 text-white' : 'bg-muted text-muted-foreground'
-                  )}>
-                    {count}
-                  </span>
-                </button>
-              ))}
+                { label: 'Total',       key: 'all',         count: preStatusTaskFiltered.length,                                                                                                                                                    icon: ClipboardList, grad: 'from-slate-500 to-gray-600',    shadow: 'hover:shadow-gray-200/60'    },
+                { label: 'Overdue',     key: 'overdue',     count: preStatusTaskFiltered.filter((t) => !!t.dueDate && new Date(t.dueDate) < now && t.status !== 'DONE' && t.status !== 'CANCELLED').length,                                          icon: Clock,         grad: 'from-red-500 to-rose-600',      shadow: 'hover:shadow-red-200/60'     },
+                { label: 'Blocked',     key: 'blocked',     count: preStatusTaskFiltered.filter((t) => t.status === 'BLOCKED').length,                                                                                                               icon: AlertTriangle, grad: 'from-orange-500 to-amber-600',  shadow: 'hover:shadow-orange-200/60'  },
+                { label: 'In Progress', key: 'in_progress', count: preStatusTaskFiltered.filter((t) => t.status === 'IN_PROGRESS' || t.status === 'IN_REVIEW').length,                                                                               icon: Zap,           grad: 'from-blue-500 to-indigo-600',   shadow: 'hover:shadow-blue-200/60'    },
+                { label: 'Done',        key: 'done',        count: preStatusTaskFiltered.filter((t) => t.status === 'DONE').length,                                                                                                                  icon: CheckSquare,   grad: 'from-emerald-500 to-teal-600',  shadow: 'hover:shadow-emerald-200/60' },
+              ] as Array<{ label: string; key: TaskFilter; count: number; icon: React.ElementType; grad: string; shadow: string }>).map(({ label, key, count, icon: Icon, grad, shadow }) => {
+                const active = taskFilter === key;
+                return (
+                  <button
+                    key={key}
+                    onClick={() => { setTaskFilter(key); setDeptTasksPage(1); }}
+                    className={cn('group text-left rounded-2xl transition-all duration-200', active ? 'scale-[1.03]' : 'hover:scale-[1.02]')}
+                  >
+                    <div className={cn(
+                      'relative overflow-hidden rounded-2xl p-4 text-white transition-all duration-200 bg-gradient-to-br shadow-md',
+                      grad, shadow,
+                      active ? 'ring-2 ring-white ring-offset-2 shadow-xl' : 'group-hover:shadow-lg',
+                    )}>
+                      <div className="absolute top-0 right-0 h-16 w-16 rounded-full bg-white/10 -translate-y-4 translate-x-4 pointer-events-none" />
+                      {active && <div className="absolute inset-0 bg-white/10" />}
+                      <div className="relative">
+                        <div className="p-1.5 rounded-lg bg-white/20 w-fit mb-2">
+                          <Icon className="h-3.5 w-3.5 text-white" />
+                        </div>
+                        <p className="text-xl sm:text-2xl font-black tabular-nums leading-none">{count}</p>
+                        <p className="text-[10px] sm:text-xs text-white/80 mt-1 font-semibold">{label}</p>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
 
+            {/* ── Task list ── */}
             {tasksLoading ? (
               <div className="space-y-2">
                 {[...Array(5)].map((_, i) => <div key={i} className="h-14 rounded-xl bg-muted animate-pulse" />)}
@@ -786,7 +865,6 @@ export default function DepartmentPage() {
                           'bg-green-500': task.status === 'DONE',
                           'bg-gray-300':  task.status === 'TODO',
                         })} />
-
                         <div className="flex-1 min-w-0">
                           <p className={cn('text-sm font-medium truncate', task.status === 'DONE' && 'line-through text-muted-foreground')}>
                             {task.title}
@@ -821,7 +899,6 @@ export default function DepartmentPage() {
                             )}
                           </div>
                         </div>
-
                         <div className="flex items-center gap-2 shrink-0">
                           <Badge className={cn('text-xs border hidden sm:inline-flex', priorityColor(task.priority))}>
                             {task.priority}
@@ -1603,9 +1680,10 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
       ms.tasks.map((t) => ({ ...t, memberName: ms.user.name, memberAvatar: ms.user.avatarUrl, memberId: ms.user.id }))
     );
   const q = search.trim().toLowerCase();
-  const filteredProjectTasks = allProjectTasks.filter((t) => {
-    const matchesSearch = !q || t.title.toLowerCase().includes(q) || t.memberName.toLowerCase().includes(q);
-    if (!matchesSearch) return false;
+  const preStatusProjectFilter = allProjectTasks.filter((t) =>
+    !q || t.title.toLowerCase().includes(q) || t.memberName.toLowerCase().includes(q)
+  );
+  const filteredProjectTasks = preStatusProjectFilter.filter((t) => {
     if (taskFilter === 'all')     return true;
     if (taskFilter === 'overdue') return !!t.dueDate && new Date(t.dueDate) < now && t.status !== 'DONE' && t.status !== 'CANCELLED';
     return t.status === taskFilter;
@@ -1864,114 +1942,165 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
         </TabsContent>
 
         {/* ── Tasks tab ── */}
-        <TabsContent value="tasks" className="mt-5">
-          {/* Header row */}
-          <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
-            <div className="flex items-center gap-2 flex-wrap flex-1">
-              <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-            {([
-              { key: 'all',         label: 'All',         count: allProjectTasks.length },
-              { key: 'overdue',     label: 'Overdue',     count: allProjectTasks.filter((t) => !!t.dueDate && new Date(t.dueDate) < now && t.status !== 'DONE' && t.status !== 'CANCELLED').length },
-              { key: 'BLOCKED',     label: 'Blocked',     count: allProjectTasks.filter((t) => t.status === 'BLOCKED').length },
-              { key: 'IN_PROGRESS', label: 'In Progress', count: allProjectTasks.filter((t) => t.status === 'IN_PROGRESS').length },
-              { key: 'IN_REVIEW',   label: 'In Review',   count: allProjectTasks.filter((t) => t.status === 'IN_REVIEW').length },
-              { key: 'TODO',        label: 'To Do',       count: allProjectTasks.filter((t) => t.status === 'TODO').length },
-              { key: 'DONE',        label: 'Done',        count: allProjectTasks.filter((t) => t.status === 'DONE').length },
-            ] as Array<{ key: string; label: string; count: number }>).map(({ key, label, count }) => (
-              <button key={key} onClick={() => { setTaskFilter(key); setTasksPage(1); }}
-                className={cn(
-                  'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium border transition-all',
-                  taskFilter === key
-                    ? 'bg-primary text-primary-foreground border-primary'
-                    : 'bg-background text-muted-foreground border-border hover:border-primary/40 hover:text-foreground'
-                )}
-              >
-                {label}
-                <span className={cn(
-                  'rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
-                  taskFilter === key ? 'bg-white/20 text-white' : 'bg-muted text-muted-foreground'
-                )}>
-                  {count}
-                </span>
-              </button>
-            ))}
-            </div>
-            {canCreateTask && (
-              <Button size="sm" className="gap-1.5 h-8 text-xs shrink-0" onClick={() => setAddTaskOpen(true)}>
-                <Plus className="h-3.5 w-3.5" /> New Task
-              </Button>
-            )}
-          </div>
+        <TabsContent value="tasks" className="mt-5 space-y-4">
 
-          {isLoading ? (
-            <div className="space-y-2">{[...Array(4)].map((_, i) => <div key={i} className="h-14 rounded-lg bg-muted animate-pulse" />)}</div>
-          ) : filteredProjectTasks.length === 0 ? (
-            <div className="text-center py-10 rounded-xl border border-dashed text-muted-foreground">
-              <CheckSquare className="h-7 w-7 mx-auto mb-2 opacity-20" />
-              <p className="text-sm">{q ? `No tasks match "${search}"` : 'No tasks match this filter'}</p>
+          {/* ── Filters + New Task ── */}
+          <div className="rounded-2xl border border-border/60 bg-white shadow-sm p-3 sm:p-4 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Filter by Status</p>
+              {canCreateTask && (
+                <button
+                  onClick={() => setAddTaskOpen(true)}
+                  className="inline-flex items-center gap-1.5 h-8 px-3 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-600 text-white text-xs font-bold hover:from-indigo-600 hover:to-violet-700 transition-all shadow-sm shrink-0"
+                >
+                  <Plus className="h-3.5 w-3.5" /> New Task
+                </button>
+              )}
             </div>
-          ) : (
-            <>
-            <div className="space-y-2">
-              {paginate(filteredProjectTasks, tasksPage).map((task) => {
-                const isOverdue = !!task.dueDate && new Date(task.dueDate) < now && task.status !== 'DONE' && task.status !== 'CANCELLED';
+            <div className="flex gap-1.5 overflow-x-auto pb-0.5 flex-nowrap">
+              {([
+                { key: 'all',         label: 'All',         dot: '' },
+                { key: 'overdue',     label: 'Overdue',     dot: '#ef4444' },
+                { key: 'BLOCKED',     label: 'Blocked',     dot: '#f97316' },
+                { key: 'IN_PROGRESS', label: 'In Progress', dot: '#3b82f6' },
+                { key: 'IN_REVIEW',   label: 'In Review',   dot: '#f59e0b' },
+                { key: 'TODO',        label: 'To Do',       dot: '#94a3b8' },
+                { key: 'DONE',        label: 'Done',        dot: '#22c55e' },
+              ] as Array<{ key: string; label: string; dot: string }>).map(({ key, label, dot }) => {
+                const active = taskFilter === key;
                 return (
-                  <div key={task.id} onClick={() => setSelectedTaskId(task.id)} className="flex items-center gap-3 rounded-lg border px-4 py-3 bg-card hover:bg-muted/30 transition-colors cursor-pointer">
-                    <div className={cn('h-2 w-2 rounded-full shrink-0', {
-                      'bg-red-500': task.status === 'BLOCKED', 'bg-blue-500': task.status === 'IN_PROGRESS',
-                      'bg-amber-400': task.status === 'IN_REVIEW', 'bg-green-500': task.status === 'DONE', 'bg-gray-300': task.status === 'TODO',
-                    })} />
-                    <div className="flex-1 min-w-0">
-                      <p className={cn('text-sm font-medium truncate', task.status === 'DONE' && 'line-through text-muted-foreground')}>
-                        {task.title}
-                      </p>
-                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                        {isOverdue && <span className="text-xs text-red-600 font-medium">⚠ Overdue</span>}
-                        {task.dueDate && (
-                          <span className={cn('text-xs', isOverdue ? 'text-red-500' : 'text-muted-foreground')}>
-                            {formatDate(task.dueDate)}
-                          </span>
-                        )}
-                        <button
-                          onClick={(e) => { e.stopPropagation(); onViewMember(task.memberId); }}
-                          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                        >
-                          <Avatar className="h-4 w-4">
-                            <AvatarImage src={task.memberAvatar} />
-                            <AvatarFallback className="text-[8px] bg-primary/10">{getInitials(task.memberName)}</AvatarFallback>
-                          </Avatar>
-                          {task.memberName}
-                        </button>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <Badge className={cn('text-xs border hidden sm:inline-flex', priorityColor(task.priority))}>
-                        {task.priority}
-                      </Badge>
-                      <Select
-                        value={task.status}
-                        onValueChange={(newStatus) => {
-                          updateTaskStatus.mutate({ taskId: task.id, status: newStatus });
-                        }}
-                      >
-                        <SelectTrigger
-                          onClick={(e) => e.stopPropagation()}
-                          className={cn('h-6 text-xs px-2 py-0 rounded-full border-0 font-medium gap-1 w-auto', statusColor(task.status))}
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent onClick={(e) => e.stopPropagation()}>
-                          {Object.entries(STATUS_LABELS).map(([value, label]) => (
-                            <SelectItem key={value} value={value} className="text-xs">{label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
+                  <button
+                    key={key}
+                    onClick={() => { setTaskFilter(key); setTasksPage(1); }}
+                    className={cn(
+                      'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all whitespace-nowrap shrink-0',
+                      active
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                        : 'border-border/60 bg-white text-muted-foreground hover:border-indigo-200 hover:text-indigo-700 hover:bg-indigo-50/50',
+                    )}
+                  >
+                    {dot ? <span className="h-2 w-2 rounded-full shrink-0" style={{ background: dot }} /> : <Filter className="h-3 w-3" />}
+                    {label}
+                  </button>
                 );
               })}
             </div>
-            <Pagination total={filteredProjectTasks.length} page={tasksPage} onPageChange={setTasksPage} />
+          </div>
+
+          {/* ── KPI stat tiles — react to search, not status ── */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            {([
+              { label: 'Total',       key: 'all',         count: preStatusProjectFilter.length,                                                                                                                                                icon: ClipboardList, grad: 'from-slate-500 to-gray-600',    shadow: 'hover:shadow-gray-200/60'    },
+              { label: 'Overdue',     key: 'overdue',     count: preStatusProjectFilter.filter((t) => !!t.dueDate && new Date(t.dueDate) < now && t.status !== 'DONE' && t.status !== 'CANCELLED').length,                                    icon: Clock,         grad: 'from-red-500 to-rose-600',      shadow: 'hover:shadow-red-200/60'     },
+              { label: 'Blocked',     key: 'BLOCKED',     count: preStatusProjectFilter.filter((t) => t.status === 'BLOCKED').length,                                                                                                         icon: AlertTriangle, grad: 'from-orange-500 to-amber-600',  shadow: 'hover:shadow-orange-200/60'  },
+              { label: 'In Progress', key: 'IN_PROGRESS', count: preStatusProjectFilter.filter((t) => t.status === 'IN_PROGRESS' || t.status === 'IN_REVIEW').length,                                                                         icon: Zap,           grad: 'from-blue-500 to-indigo-600',   shadow: 'hover:shadow-blue-200/60'    },
+              { label: 'Done',        key: 'DONE',        count: preStatusProjectFilter.filter((t) => t.status === 'DONE').length,                                                                                                            icon: CheckSquare,   grad: 'from-emerald-500 to-teal-600',  shadow: 'hover:shadow-emerald-200/60' },
+            ] as Array<{ label: string; key: string; count: number; icon: React.ElementType; grad: string; shadow: string }>).map(({ label, key, count, icon: Icon, grad, shadow }) => {
+              const active = taskFilter === key;
+              return (
+                <button
+                  key={key}
+                  onClick={() => { setTaskFilter(key); setTasksPage(1); }}
+                  className={cn('group text-left rounded-2xl transition-all duration-200', active ? 'scale-[1.03]' : 'hover:scale-[1.02]')}
+                >
+                  <div className={cn(
+                    'relative overflow-hidden rounded-2xl p-4 text-white transition-all duration-200 bg-gradient-to-br shadow-md',
+                    grad, shadow,
+                    active ? 'ring-2 ring-white ring-offset-2 shadow-xl' : 'group-hover:shadow-lg',
+                  )}>
+                    <div className="absolute top-0 right-0 h-16 w-16 rounded-full bg-white/10 -translate-y-4 translate-x-4 pointer-events-none" />
+                    {active && <div className="absolute inset-0 bg-white/10" />}
+                    <div className="relative">
+                      <div className="p-1.5 rounded-lg bg-white/20 w-fit mb-2">
+                        <Icon className="h-3.5 w-3.5 text-white" />
+                      </div>
+                      <p className="text-xl sm:text-2xl font-black tabular-nums leading-none">{count}</p>
+                      <p className="text-[10px] sm:text-xs text-white/80 mt-1 font-semibold">{label}</p>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* ── Task list ── */}
+          {isLoading ? (
+            <div className="space-y-2">{[...Array(4)].map((_, i) => <div key={i} className="h-14 rounded-xl bg-muted animate-pulse" />)}</div>
+          ) : filteredProjectTasks.length === 0 ? (
+            <div className="text-center py-10 rounded-2xl border-2 border-dashed text-muted-foreground">
+              <CheckSquare className="h-7 w-7 mx-auto mb-2 opacity-20" />
+              <p className="text-sm font-medium">{q ? `No tasks match "${search}"` : 'No tasks match this filter'}</p>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-1.5">
+                {paginate(filteredProjectTasks, tasksPage).map((task) => {
+                  const isOverdue = !!task.dueDate && new Date(task.dueDate) < now && task.status !== 'DONE' && task.status !== 'CANCELLED';
+                  return (
+                    <div
+                      key={task.id}
+                      onClick={() => setSelectedTaskId(task.id)}
+                      className={cn(
+                        'flex items-center gap-3 rounded-xl border px-4 py-3 bg-card hover:bg-muted/30 transition-colors cursor-pointer',
+                        isOverdue && 'border-red-200 bg-red-50/30 hover:bg-red-50/50'
+                      )}
+                    >
+                      <div className={cn('h-2.5 w-2.5 rounded-full shrink-0', {
+                        'bg-red-500':   task.status === 'BLOCKED',
+                        'bg-blue-500':  task.status === 'IN_PROGRESS',
+                        'bg-amber-400': task.status === 'IN_REVIEW',
+                        'bg-green-500': task.status === 'DONE',
+                        'bg-gray-300':  task.status === 'TODO',
+                      })} />
+                      <div className="flex-1 min-w-0">
+                        <p className={cn('text-sm font-medium truncate', task.status === 'DONE' && 'line-through text-muted-foreground')}>
+                          {task.title}
+                        </p>
+                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                          {isOverdue && <span className="text-xs text-red-600 font-medium">⚠ Overdue</span>}
+                          {task.dueDate && (
+                            <span className={cn('text-xs', isOverdue ? 'text-red-500' : 'text-muted-foreground')}>
+                              {formatDate(task.dueDate)}
+                            </span>
+                          )}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); onViewMember(task.memberId); }}
+                            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                          >
+                            <Avatar className="h-4 w-4">
+                              <AvatarImage src={task.memberAvatar} />
+                              <AvatarFallback className="text-[8px] bg-primary/10">{getInitials(task.memberName)}</AvatarFallback>
+                            </Avatar>
+                            {task.memberName}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Badge className={cn('text-xs border hidden sm:inline-flex', priorityColor(task.priority))}>
+                          {task.priority}
+                        </Badge>
+                        <Select
+                          value={task.status}
+                          onValueChange={(newStatus) => { updateTaskStatus.mutate({ taskId: task.id, status: newStatus }); }}
+                        >
+                          <SelectTrigger
+                            onClick={(e) => e.stopPropagation()}
+                            className={cn('h-6 text-xs px-2 py-0 rounded-full border-0 font-medium gap-1 w-auto', statusColor(task.status))}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent onClick={(e) => e.stopPropagation()}>
+                            {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                              <SelectItem key={value} value={value} className="text-xs">{label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <Pagination total={filteredProjectTasks.length} page={tasksPage} onPageChange={setTasksPage} />
             </>
           )}
         </TabsContent>

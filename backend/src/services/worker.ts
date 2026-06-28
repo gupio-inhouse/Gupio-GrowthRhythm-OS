@@ -96,6 +96,7 @@ export const escalationWorker = new Worker('escalation', async (job: Job) => {
     });
 
     for (const task of overdue) {
+      if (!task.assignee) continue;
       await fanOutNotification(
         task.assignee.orgId,
         [task.assignee.id],
@@ -122,6 +123,7 @@ export const escalationWorker = new Worker('escalation', async (job: Job) => {
     });
 
     for (const task of repeatedBlockers) {
+      if (!task.assignee) continue;
       // In-app only — no escalation to dept head/manager/CEO
       await fanOutNotification(
         task.assignee.orgId,
@@ -288,7 +290,7 @@ export const taskReminderWorker = new Worker('task-reminder', async (job: Job) =
 
     let count = 0;
     for (const task of dueToday) {
-      if (!task.dueDate) continue;
+      if (!task.dueDate || !task.assignee) continue;
 
       // Email
       sendTaskDueTodayEmail({
@@ -333,7 +335,7 @@ export const taskReminderWorker = new Worker('task-reminder', async (job: Job) =
 
   let remindedCount = 0;
   for (const task of dueSoon) {
-    if (!task.dueDate) continue;
+    if (!task.dueDate || !task.assignee) continue;
     sendTaskDueReminderEmail({
       to: task.assignee.email,
       assigneeName: task.assignee.name,
@@ -359,7 +361,7 @@ export const taskReminderWorker = new Worker('task-reminder', async (job: Job) =
 
   let overdueCount = 0;
   for (const task of overdue) {
-    if (!task.dueDate) continue;
+    if (!task.dueDate || !task.assignee) continue;
     sendTaskOverdueEmail({
       to: task.assignee.email,
       assigneeName: task.assignee.name,

@@ -37,24 +37,26 @@ function canManageDepartmentScoped(role: string) {
 }
 
 async function canViewTask(actor: NonNullable<Awaited<ReturnType<typeof getActorScope>>>, task: {
-  assigneeUserId: string;
+  assigneeUserId: string | null;
   departmentId: string | null;
 }) {
   if (['OWNER', 'COMPANY_ADMIN'].includes(actor.role)) return true;
   if (actor.role === 'TEAM_MEMBER') return task.assigneeUserId === actor.id;
   if (actor.role === 'MANAGER') {
     return task.assigneeUserId === actor.id ||
-      actor.reportIds.includes(task.assigneeUserId) ||
-      (!!actor.departmentId && task.departmentId === actor.departmentId);
+      (task.assigneeUserId !== null && actor.reportIds.includes(task.assigneeUserId)) ||
+      (!!actor.departmentId && task.departmentId === actor.departmentId) ||
+      task.assigneeUserId === null; // unassigned tasks visible to managers
   }
   if (actor.role === 'DEPARTMENT_HEAD') {
-    return !!actor.departmentId && task.departmentId === actor.departmentId;
+    return (!!actor.departmentId && task.departmentId === actor.departmentId) ||
+      task.assigneeUserId === null; // unassigned tasks visible to dept heads
   }
   return false;
 }
 
 async function canMutateTask(actor: NonNullable<Awaited<ReturnType<typeof getActorScope>>>, task: {
-  assigneeUserId: string;
+  assigneeUserId: string | null;
   departmentId: string | null;
 }) {
   if (['OWNER', 'COMPANY_ADMIN'].includes(actor.role)) return true;
@@ -75,7 +77,7 @@ const createSchema = z.object({
   departmentId: z.string().optional(),
   dependencyId: z.string().optional(),
   teamId: z.string().optional(),
-  assigneeUserId: z.string(),
+  assigneeUserId: z.string().optional(),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).default('MEDIUM'),
   startDate: z.string().datetime().optional(),
   dueDate: z.string().datetime().optional(),
@@ -135,7 +137,7 @@ async function getCompletionReviewer(taskId: string, orgId: string) {
   if (!task) return null;
 
   const reviewerId = task.assignedByUserId
-    ?? task.assignee.managerId
+    ?? task.assignee?.managerId
     ?? task.department?.headUserId
     ?? null;
 
@@ -238,6 +240,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 // POST /tasks
 router.post('/', auditLog('task', 'CREATE'), async (req: AuthRequest, res: Response) => {
   const isTeamMember = req.user!.role === 'TEAM_MEMBER';
+  const canAssignToAnyone = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(req.user!.role);
 
   if (!canManageDepartmentScoped(req.user!.role) && !isTeamMember) {
     res.status(403).json({ error: 'Forbidden' });
@@ -261,51 +264,34 @@ router.post('/', auditLog('task', 'CREATE'), async (req: AuthRequest, res: Respo
     return;
   }
 
-  const assignee = await prisma.user.findFirst({
-    where: {
-      id: parsed.data.assigneeUserId,
-      orgId: req.user!.orgId,
-      status: 'ACTIVE',
-    },
-    select: { id: true, name: true, email: true, departmentId: true, managerId: true },
-  });
-  if (!assignee) {
-    res.status(400).json({ error: 'Assignee not found' });
-    return;
-  }
-
-  if (parsed.data.departmentId && assignee.departmentId && parsed.data.departmentId !== assignee.departmentId) {
-    res.status(400).json({ error: 'Assignee must belong to the selected department' });
-    return;
-  }
-
-  if (!isTeamMember && actor.role === 'DEPARTMENT_HEAD') {
-    if (!actor.departmentId || parsed.data.departmentId !== actor.departmentId || assignee.departmentId !== actor.departmentId) {
-      res.status(403).json({ error: 'Department heads can only assign tasks within their department' });
+  // Resolve assignee (optional for elevated roles — they can leave it unassigned)
+  let assignee: { id: string; name: string; email: string; departmentId: string | null; managerId: string | null } | null = null;
+  if (parsed.data.assigneeUserId) {
+    assignee = await prisma.user.findFirst({
+      where: { id: parsed.data.assigneeUserId, orgId: req.user!.orgId, status: 'ACTIVE' },
+      select: { id: true, name: true, email: true, departmentId: true, managerId: true },
+    });
+    if (!assignee) {
+      res.status(400).json({ error: 'Assignee not found' });
       return;
     }
-  }
-
-  if (!isTeamMember && actor.role === 'MANAGER') {
-    const inOwnDept = !!actor.departmentId && parsed.data.departmentId === actor.departmentId && assignee.departmentId === actor.departmentId;
-    const assignableUser = assignee.id === actor.id || assignee.managerId === actor.id;
-    if (!inOwnDept || !assignableUser) {
-      res.status(403).json({ error: 'Managers can only assign tasks to themselves or their direct reports in their department' });
-      return;
-    }
+  } else if (!canAssignToAnyone) {
+    // Team members must always be assigned to themselves (already set above)
+    res.status(400).json({ error: 'Assignee is required' });
+    return;
   }
 
   const task = await prisma.task.create({
     data: {
       ...parsed.data,
       orgId: req.user!.orgId,
-      assignedByUserId: isTeamMember ? null : req.user!.userId,
+      assignedByUserId: req.user!.userId,
     },
     include: { assignee: { select: { id: true, name: true } } },
   });
 
-  // Notify + email assignee (fire-and-forget)
-  if (task.assigneeUserId !== req.user!.userId) {
+  // Notify + email assignee (fire-and-forget, only if assigned to someone else)
+  if (assignee && task.assigneeUserId && task.assigneeUserId !== req.user!.userId) {
     createNotification(task.assigneeUserId, 'TASK_ASSIGNED', {
       taskTitle: task.title,
       dueDate: task.dueDate?.toISOString().split('T')[0],
@@ -316,8 +302,8 @@ router.post('/', auditLog('task', 'CREATE'), async (req: AuthRequest, res: Respo
       select: { name: true },
     });
     sendTaskAssignedEmail({
-      to: assignee!.email,
-      assigneeName: assignee!.name,
+      to: assignee.email,
+      assigneeName: assignee.name,
       assignedByName: assigner?.name ?? 'Your manager',
       taskTitle: task.title,
       taskDescription: task.description,
@@ -385,38 +371,20 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
 
   const requestedStatus = parsed.data.status;
 
-  if (parsed.data.assigneeUserId || parsed.data.departmentId) {
-    const nextDepartmentId = parsed.data.departmentId ?? existingTask.departmentId ?? undefined;
-    const nextAssigneeId = parsed.data.assigneeUserId ?? existingTask.assigneeUserId;
-    const assignee = await prisma.user.findFirst({
-      where: { id: nextAssigneeId, orgId: req.user!.orgId, status: 'ACTIVE' },
-      select: { id: true, name: true, email: true, departmentId: true, managerId: true },
-    });
-    if (!assignee) {
-      res.status(400).json({ error: 'Assignee not found' });
-      return;
-    }
-
-    if (nextDepartmentId && assignee.departmentId && nextDepartmentId !== assignee.departmentId) {
-      res.status(400).json({ error: 'Assignee must belong to the selected department' });
-      return;
-    }
-
-    if (actor.role === 'DEPARTMENT_HEAD') {
-      if (!actor.departmentId || nextDepartmentId !== actor.departmentId || assignee.departmentId !== actor.departmentId) {
-        res.status(403).json({ error: 'Department heads can only manage task assignment within their department' });
+  // Validate assignee reassignment when provided
+  if ('assigneeUserId' in parsed.data && parsed.data.assigneeUserId !== undefined) {
+    if (parsed.data.assigneeUserId !== null) {
+      const assignee = await prisma.user.findFirst({
+        where: { id: parsed.data.assigneeUserId, orgId: req.user!.orgId, status: 'ACTIVE' },
+        select: { id: true, name: true, email: true, departmentId: true, managerId: true },
+      });
+      if (!assignee) {
+        res.status(400).json({ error: 'Assignee not found' });
         return;
       }
     }
-
-    if (actor.role === 'MANAGER') {
-      const inOwnDept = !!actor.departmentId && nextDepartmentId === actor.departmentId && assignee.departmentId === actor.departmentId;
-      const assignableUser = assignee.id === actor.id || assignee.managerId === actor.id;
-      if (!inOwnDept || !assignableUser) {
-        res.status(403).json({ error: 'Managers can only reassign tasks to themselves or their direct reports in their department' });
-        return;
-      }
-    }
+    // OWNER, COMPANY_ADMIN, DEPARTMENT_HEAD, MANAGER can reassign to anyone
+    // TEAM_MEMBER cannot change assignee at all (blocked above already)
   }
 
   const data: Record<string, unknown> = { ...parsed.data };
@@ -466,7 +434,7 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
     },
   });
 
-  // Email new assignee when task is reassigned to someone else
+  // Email new assignee when task is reassigned to a different person
   const newAssigneeId = parsed.data.assigneeUserId;
   if (newAssigneeId && newAssigneeId !== existingTask!.assigneeUserId && newAssigneeId !== req.user!.userId) {
     const [newAssignee, assigner] = await Promise.all([
@@ -484,24 +452,31 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
         dueDate: task.dueDate,
         appUrl: APP_URL,
       }).catch(console.error);
+      createNotification(newAssigneeId, 'TASK_ASSIGNED', {
+        taskTitle: task.title,
+        dueDate: task.dueDate?.toISOString().split('T')[0],
+      }).catch(console.error);
     }
   }
 
   // Notify on block
   if (data.status === 'BLOCKED') {
-    const notifyIds = [task.assigneeUserId];
+    const notifyIds: string[] = [];
+    if (task.assigneeUserId) notifyIds.push(task.assigneeUserId);
     if (task.department?.headUserId && task.department.headUserId !== task.assigneeUserId) {
       notifyIds.push(task.department.headUserId);
     }
-    fanOutNotification(req.user!.orgId, notifyIds, 'TASK_BLOCKED', {
-      taskTitle: task.title, blockerType: data.blockerType as string,
-    }).catch(console.error);
+    if (notifyIds.length) {
+      fanOutNotification(req.user!.orgId, notifyIds, 'TASK_BLOCKED', {
+        taskTitle: task.title, blockerType: data.blockerType as string,
+      }).catch(console.error);
+    }
   }
 
   if (shouldSubmitForReview && reviewerId) {
     createNotification(reviewerId, 'TASK_SUBMITTED_FOR_REVIEW', {
       taskTitle: task.title,
-      assigneeName: task.assignee.name,
+      assigneeName: task.assignee?.name ?? 'Someone',
       taskId: task.id,
     }).catch(console.error);
   }
