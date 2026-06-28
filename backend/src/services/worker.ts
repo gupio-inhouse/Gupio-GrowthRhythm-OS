@@ -18,10 +18,6 @@ const connection = redis;
 export const standupWorker = new Worker('standup', async (job: Job) => {
   if (job.name !== 'generate-cards') return;
 
-  const tomorrow = new Date();
-  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-  tomorrow.setUTCHours(3, 30, 0, 0); // 9 AM IST = 03:30 UTC
-
   const departments = await prisma.department.findMany({
     where: { isActive: true },
     include: {
@@ -34,6 +30,14 @@ export const standupWorker = new Worker('standup', async (job: Job) => {
   for (const dept of departments) {
     if (dept.users.length === 0) continue;
 
+    // Build tomorrow's scheduledAt using each dept's configured standupTime (IST = UTC+5:30)
+    const [sh, sm] = (dept.standupTime || '09:00').split(':').map(Number);
+    const tomorrow = new Date();
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    // Convert IST HH:MM → UTC: subtract 5h30m
+    const utcMinutes = sh * 60 + sm - 330;
+    tomorrow.setUTCHours(Math.floor(utcMinutes / 60), utcMinutes % 60, 0, 0);
+
     // Create tomorrow's standup (idempotent)
     let standup = await prisma.standup.findFirst({
       where: { departmentId: dept.id, scheduledAt: tomorrow },
@@ -43,7 +47,7 @@ export const standupWorker = new Worker('standup', async (job: Job) => {
       const meetUrl = dept.standupMeetUrl
         || await generateMeetUrl(dept.orgId, dept.slug, dept.name, tomorrow, dept.standupDuration ?? 15);
       standup = await prisma.standup.create({
-        data: { orgId: dept.orgId, departmentId: dept.id, scheduledAt: tomorrow, timerMinutes: 15, meetUrl },
+        data: { orgId: dept.orgId, departmentId: dept.id, scheduledAt: tomorrow, timerMinutes: dept.standupDuration ?? 15, meetUrl },
       });
     }
 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
@@ -171,8 +171,9 @@ export default function DepartmentPage() {
 
   if (deptLoading || !dept) {
     return (
-      <div className="p-4 sm:p-8 space-y-4">
-        {[...Array(4)].map((_, i) => <div key={i} className="h-24 rounded-xl bg-muted animate-pulse" />)}
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-violet-50/40 p-4 sm:p-8 space-y-4">
+        <div className="h-36 rounded-3xl bg-white border border-border/60 animate-pulse" />
+        {[...Array(4)].map((_, i) => <div key={i} className="h-24 rounded-2xl bg-white border border-border/60 animate-pulse" />)}
       </div>
     );
   }
@@ -216,591 +217,812 @@ export default function DepartmentPage() {
   }
 
   return (
-    <div className="p-4 sm:p-8 space-y-6">
-      {/* Breadcrumb — only external link allowed */}
-      <Link to="/departments" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
-        <ArrowLeft className="h-3.5 w-3.5" />
-        All Departments
-      </Link>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-violet-50/40">
+      <div className="p-4 sm:p-8 space-y-5 max-w-[1400px] mx-auto">
 
-      {/* Page header */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div className="space-y-2">
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-purple-100">
-              <Building2 className="h-5 w-5 text-purple-600" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold">{dept.name}</h1>
-              <p className="text-sm text-muted-foreground">Department Dashboard</p>
-            </div>
-          </div>
-          {dept.head && (
-            <div className="flex items-center gap-2 ml-14">
-              <Avatar className="h-6 w-6">
-                <AvatarImage src={dept.head.avatarUrl} />
-                <AvatarFallback className="text-xs bg-blue-100 text-blue-700">{getInitials(dept.head.name)}</AvatarFallback>
-              </Avatar>
-              <span className="text-sm text-muted-foreground">{dept.head.name}</span>
-              <RoleBadge role="DEPARTMENT_HEAD" />
-            </div>
-          )}
-        </div>
+        {/* ── Breadcrumb ── */}
+        <Link
+          to="/departments"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          All Departments
+        </Link>
 
-        <div className="flex items-center gap-3 flex-wrap">
-          {[
-            { icon: Users,        value: dept.users.length,   label: 'members',  tab: 'members'  as ActiveTab },
-            { icon: FolderKanban, value: deptTeams.length,    label: 'projects', tab: 'projects' as ActiveTab },
-            { icon: CheckSquare,  value: dept._count.tasks,   label: 'tasks',    tab: 'tasks'    as ActiveTab },
-          ].map(({ icon: Icon, value, label, tab }) => (
-            <button
-              key={label}
-              onClick={() => setActiveTab(tab)}
-              className="flex items-center gap-1.5 rounded-lg border bg-card px-3 py-2 hover:border-primary/40 hover:bg-muted/40 transition-all"
-            >
-              <Icon className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-semibold">{value}</span>
-              <span className="text-xs text-muted-foreground">{label}</span>
-            </button>
-          ))}
-          {canManage && (
-            <Button size="sm" className="gap-1.5" onClick={() => setInviteMemberOpen(true)}>
-              <UserPlus className="h-3.5 w-3.5" /> Invite Member
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* ── Tabs ── */}
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as ActiveTab)} className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="projects">
-            Projects
-            {deptTeams.length > 0 && (
-              <span className="ml-1.5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-semibold px-1.5 py-0.5">
-                {deptTeams.length}
-              </span>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="tasks">
-            Tasks
-            {deptTasks.length > 0 && (
-              <span className="ml-1.5 rounded-full bg-green-100 text-green-700 text-[10px] font-semibold px-1.5 py-0.5">
-                {deptTasks.length}
-              </span>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="members">
-            Members
-            {dept.users.length > 0 && (
-              <span className="ml-1.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-semibold px-1.5 py-0.5">
-                {dept.users.length}
-              </span>
-            )}
-          </TabsTrigger>
-        </TabsList>
-
-        {/* ── Overview Tab ── */}
-        <TabsContent value="overview" className="space-y-6 mt-6">
-          {/* Stat cards — click to open Tasks tab with filter */}
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            {[
-              { label: 'Overdue Tasks', value: dash?.overdueCount ?? 0,   icon: Clock,          color: 'text-red-500',    bg: 'bg-red-50',    filter: 'overdue'     as TaskFilter },
-              { label: 'Blocked',       value: dash?.blockedCount ?? 0,   icon: AlertTriangle,  color: 'text-orange-500', bg: 'bg-orange-50', filter: 'blocked'     as TaskFilter },
-              { label: 'Due Today',     value: dash?.dueTodayCount ?? 0,  icon: CheckSquare,    color: 'text-blue-500',   bg: 'bg-blue-50',   filter: 'in_progress' as TaskFilter },
-            ].map(({ label, value, icon: Icon, color, bg, filter }) => (
-              <button
-                key={label}
-                onClick={() => openTasksFiltered(filter)}
-                className="text-left"
-              >
-                <Card className="hover:shadow-md hover:border-primary/40 transition-all cursor-pointer">
-                  <CardContent className="p-5">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="text-sm text-muted-foreground">{label}</p>
-                        <p className="text-3xl font-bold mt-1">{value}</p>
-                        <p className="text-xs text-primary mt-1">View in Tasks →</p>
-                      </div>
-                      <div className={cn('p-2.5 rounded-lg', bg)}>
-                        <Icon className={cn('h-5 w-5', color)} />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </button>
-            ))}
-          </div>
-
-          {/* Overdue alert banner */}
-          {(dash?.overdueCount ?? 0) > 0 && (
-            <div className="rounded-xl border border-red-200 bg-red-50 flex items-center justify-between px-4 py-3">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 text-red-600 shrink-0" />
-                <span className="font-semibold text-sm text-red-800">
-                  {dash!.overdueCount} overdue task{dash!.overdueCount > 1 ? 's' : ''} need attention
-                </span>
+        {/* ── Hero Header ── */}
+        <div className="rounded-3xl border border-border/60 bg-white overflow-hidden shadow-sm">
+          {/* Gradient top bar */}
+          <div className="h-1.5 w-full bg-gradient-to-r from-violet-500 via-purple-500 to-indigo-600" />
+          <div className="p-6 flex items-start justify-between gap-4 flex-wrap">
+            {/* Left */}
+            <div className="flex items-center gap-4">
+              <div className="h-14 w-14 shrink-0 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-700 flex items-center justify-center shadow-lg shadow-violet-200/60">
+                <Building2 className="h-7 w-7 text-white" />
               </div>
-              <button
-                onClick={() => openTasksFiltered('overdue')}
-                className="text-xs font-medium text-red-600 hover:underline"
-              >
-                View tasks →
-              </button>
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Blocker types */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 text-red-500" />
-                  Blocker Types
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {!dash?.topBlockers?.length ? (
-                  <div className="text-center py-6 text-muted-foreground text-sm">No blockers — great!</div>
-                ) : (
-                  <div className="space-y-3">
-                    {dash.topBlockers.map((b) => (
-                      <button
-                        key={b.blockerType ?? 'null'}
-                        onClick={() => openTasksFiltered('blocked')}
-                        className="w-full flex items-center justify-between hover:bg-muted/40 px-2 py-1 rounded-lg transition-colors"
-                      >
-                        <p className="text-sm capitalize">{(b.blockerType ?? 'unknown').toLowerCase().replace(/_/g, ' ')}</p>
-                        <Badge variant="destructive" className="text-xs">{b._count}</Badge>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Last standup — inline, no external link */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Zap className="h-4 w-4 text-yellow-500" />
-                  Last Standup
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {dash?.recentStandup ? (
-                  <div className="space-y-3">
-                    <p className="text-sm text-muted-foreground">{formatDate(dash.recentStandup.scheduledAt)}</p>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm">{dash.recentStandup._count.cards} participants</span>
-                      <Badge className={cn('text-xs', {
-                        'bg-green-100 text-green-700': dash.recentStandup.status === 'COMPLETED',
-                        'bg-blue-100 text-blue-700':  dash.recentStandup.status === 'IN_PROGRESS',
-                        'bg-gray-100 text-gray-600':  dash.recentStandup.status === 'SCHEDULED',
-                      })}>
-                        {dash.recentStandup.status.replace('_', ' ')}
-                      </Badge>
-                    </div>
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight">{dept.name}</h1>
+                {dept.head ? (
+                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                    <Avatar className="h-5 w-5">
+                      <AvatarImage src={dept.head.avatarUrl} />
+                      <AvatarFallback className="text-[9px] bg-violet-100 text-violet-700">{getInitials(dept.head.name)}</AvatarFallback>
+                    </Avatar>
+                    <span className="text-sm text-muted-foreground">{dept.head.name}</span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200">Head</span>
                     {dept.standupTime && (
-                      <p className="text-xs text-muted-foreground flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        Daily at {dept.standupTime} · {dept.standupDuration ?? 15} min
-                      </p>
+                      <>
+                        <span className="text-muted-foreground/40">·</span>
+                        <span className="text-xs text-muted-foreground flex items-center gap-1">
+                          <Clock className="h-3 w-3" /> {dept.standupTime} · {dept.standupDuration ?? 15}m standup
+                        </span>
+                      </>
                     )}
                   </div>
                 ) : (
-                  <div className="text-center py-6 text-muted-foreground text-sm">No standups yet</div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Task summary strip */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <TrendingUp className="h-4 w-4 text-green-500" />
-                Task Summary
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-                {[
-                  { label: 'Total Tasks', value: dept._count.tasks,      color: 'text-foreground', filter: 'all'         as TaskFilter },
-                  { label: 'Overdue',     value: dash?.overdueCount ?? 0, color: 'text-red-600',    filter: 'overdue'    as TaskFilter },
-                  { label: 'Blocked',     value: dash?.blockedCount ?? 0, color: 'text-orange-600', filter: 'blocked'    as TaskFilter },
-                  { label: 'Due Today',   value: dash?.dueTodayCount ?? 0,color: 'text-blue-600',   filter: 'in_progress'as TaskFilter },
-                ].map(({ label, value, color, filter }) => (
-                  <button
-                    key={label}
-                    onClick={() => openTasksFiltered(filter)}
-                    className="block p-4 rounded-lg bg-muted/40 hover:bg-muted/70 hover:shadow-sm transition-all"
-                  >
-                    <p className={cn('text-2xl font-bold', color)}>{value}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{label}</p>
-                  </button>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* ── Projects Tab ── */}
-        <TabsContent value="projects" className="mt-6">
-          {selectedTeam ? (
-            /* ── Drill-down: full project view ── */
-            <ProjectFullView
-              team={selectedTeam}
-              canManage={canManage}
-              deptId={dept.id}
-              onBack={() => setSelectedTeam(null)}
-              onUpdated={(updated) => { qc.invalidateQueries({ queryKey: ['teams'] }); setSelectedTeam(updated); }}
-              onDelete={() => { deleteTeam.mutate(selectedTeam.id); }}
-              isDeleting={deleteTeam.isPending}
-              onViewMember={(memberId) => {
-                const found = dept.users.find((u) => u.id === memberId);
-                if (found) setMemberDialog(found);
-              }}
-            />
-          ) : (
-            /* ── Project list ── */
-            <>
-              <div className="flex items-center justify-between mb-5">
-                <div>
-                  <h2 className="text-base font-semibold">Project Teams</h2>
-                  <p className="text-xs text-muted-foreground mt-0.5">Click a project to open it</p>
-                </div>
-                {canManage && (
-                  <Button size="sm" className="gap-2" onClick={() => setCreateTeamOpen(true)}>
-                    <Plus className="h-4 w-4" /> New Project
-                  </Button>
+                  <p className="text-sm text-muted-foreground mt-1">No department head assigned</p>
                 )}
               </div>
+            </div>
 
-              {deptTeams.length === 0 ? (
-                <div className="rounded-xl border border-dashed py-16 text-center text-muted-foreground">
-                  <FolderKanban className="h-10 w-10 mx-auto mb-3 opacity-20" />
-                  <p className="text-sm font-medium">No projects yet</p>
-                  <p className="text-xs mt-1">Create your first project to start tracking work</p>
-                  {canManage && (
-                    <Button size="sm" className="mt-4 gap-2" onClick={() => setCreateTeamOpen(true)}>
-                      <Plus className="h-4 w-4" /> Create First Project
-                    </Button>
+            {/* Right: stat chips + actions */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {([
+                { icon: Users,        value: dept.users.length, label: 'Members',  tab: 'members'  as ActiveTab, grad: 'from-blue-500 to-indigo-600',   shadow: 'shadow-blue-200/60',   ring: 'ring-blue-200' },
+                { icon: FolderKanban, value: deptTeams.length,  label: 'Projects', tab: 'projects' as ActiveTab, grad: 'from-indigo-500 to-violet-600',  shadow: 'shadow-indigo-200/60', ring: 'ring-indigo-200' },
+                { icon: CheckSquare,  value: dept._count.tasks, label: 'Tasks',    tab: 'tasks'    as ActiveTab, grad: 'from-emerald-500 to-teal-600',   shadow: 'shadow-emerald-200/60',ring: 'ring-emerald-200' },
+              ] as Array<{ icon: React.ElementType; value: number; label: string; tab: ActiveTab; grad: string; shadow: string; ring: string }>).map(({ icon: Icon, value, label, tab, grad, shadow, ring }) => (
+                <button
+                  key={label}
+                  onClick={() => setActiveTab(tab)}
+                  className={cn(
+                    'flex items-center gap-2 rounded-2xl px-4 py-2.5 text-white text-sm font-bold transition-all hover:scale-[1.03] hover:shadow-lg',
+                    `bg-gradient-to-r ${grad}`,
+                    shadow,
+                    `hover:ring-2 ${ring}`,
                   )}
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {deptTeams.map((team) => (
-                    <button
-                      key={team.id}
-                      onClick={() => setSelectedTeam(team)}
-                      className="text-left group"
-                    >
-                      <Card className="hover:shadow-md hover:border-primary/40 transition-all h-full">
-                        <CardContent className="p-5">
-                          <div className="flex items-start gap-3">
-                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-100 group-hover:bg-indigo-200 transition-colors">
-                              <FolderKanban className="h-5 w-5 text-indigo-600" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center justify-between gap-2">
-                                <p className="font-semibold text-sm truncate">{team.name}</p>
-                                <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0 group-hover:text-primary transition-colors" />
-                              </div>
-                              {team.description && (
-                                <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{team.description}</p>
-                              )}
-                              <div className="flex items-center gap-3 mt-3 flex-wrap">
-                                <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                                  <Users className="h-3 w-3" />
-                                  {team.memberCount} member{team.memberCount !== 1 ? 's' : ''}
-                                </span>
-                                {team.manager && (
-                                  <span className="text-xs text-muted-foreground">
-                                    <span className="font-medium text-foreground">{team.manager.name}</span>
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </button>
-                  ))}
-                </div>
+                >
+                  <Icon className="h-4 w-4" />
+                  <span className="font-black tabular-nums">{value}</span>
+                  <span className="text-xs opacity-80 hidden sm:inline">{label}</span>
+                </button>
+              ))}
+              {canManage && (
+                <button
+                  onClick={() => setInviteMemberOpen(true)}
+                  className="flex items-center gap-1.5 h-10 px-4 rounded-2xl bg-gradient-to-r from-violet-500 to-purple-600 text-white text-sm font-bold hover:from-violet-600 hover:to-purple-700 transition-all shadow-sm shadow-violet-200/60 hover:shadow-md"
+                >
+                  <UserPlus className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Invite</span>
+                </button>
               )}
-            </>
-          )}
-        </TabsContent>
-
-        {/* ── Tasks Tab ── */}
-        <TabsContent value="tasks" className="mt-6">
-          <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-            <div>
-              <h2 className="text-base font-semibold">Department Tasks</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">{filteredTasks.length} of {deptTasks.length} tasks shown</p>
             </div>
           </div>
+        </div>
 
-          {/* Filter bar */}
-          <div className="flex items-center gap-2 flex-wrap mb-4">
-            <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+        {/* ── Urgency Banner ── */}
+        {((dash?.overdueCount ?? 0) > 0 || (dash?.blockedCount ?? 0) > 0) && (
+          <div className="flex items-center gap-3 rounded-2xl border border-red-200 bg-gradient-to-r from-red-50 to-orange-50 px-5 py-3.5 flex-wrap">
+            <div className="h-8 w-8 rounded-xl bg-red-100 flex items-center justify-center shrink-0">
+              <AlertTriangle className="h-4 w-4 text-red-600" />
+            </div>
+            <div className="flex items-center gap-4 flex-1 flex-wrap">
+              {(dash?.overdueCount ?? 0) > 0 && (
+                <button onClick={() => openTasksFiltered('overdue')} className="text-sm font-bold text-red-800 hover:underline">
+                  {dash!.overdueCount} overdue task{dash!.overdueCount > 1 ? 's' : ''}
+                </button>
+              )}
+              {(dash?.blockedCount ?? 0) > 0 && (
+                <button onClick={() => openTasksFiltered('blocked')} className="text-sm font-bold text-orange-800 hover:underline">
+                  {dash!.blockedCount} blocked
+                </button>
+              )}
+            </div>
+            <button onClick={() => openTasksFiltered('overdue')} className="text-xs font-bold text-red-600 hover:underline shrink-0">
+              View tasks →
+            </button>
+          </div>
+        )}
+
+        {/* ── Tabs ── */}
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as ActiveTab)}>
+          <div className="flex items-center gap-1 p-1 rounded-2xl bg-white border border-border/60 shadow-sm w-fit">
             {([
-              { key: 'all',         label: 'All',         count: deptTasks.length },
-              { key: 'overdue',     label: 'Overdue',     count: deptTasks.filter((t) => !!t.dueDate && new Date(t.dueDate) < now && t.status !== 'DONE' && t.status !== 'CANCELLED').length },
-              { key: 'blocked',     label: 'Blocked',     count: deptTasks.filter((t) => t.status === 'BLOCKED').length },
-              { key: 'in_progress', label: 'In Progress', count: deptTasks.filter((t) => t.status === 'IN_PROGRESS').length },
-              { key: 'in_review',   label: 'In Review',   count: deptTasks.filter((t) => t.status === 'IN_REVIEW').length },
-              { key: 'todo',        label: 'To Do',       count: deptTasks.filter((t) => t.status === 'TODO').length },
-              { key: 'done',        label: 'Done',        count: deptTasks.filter((t) => t.status === 'DONE').length },
-            ] as Array<{ key: TaskFilter; label: string; count: number }>).map(({ key, label, count }) => (
+              { value: 'overview',  label: 'Overview',  badge: null },
+              { value: 'projects',  label: 'Projects',  badge: deptTeams.length > 0 ? deptTeams.length : null,    badgeCls: 'bg-white/25 text-white' },
+              { value: 'tasks',     label: 'Tasks',     badge: deptTasks.length > 0 ? deptTasks.length : null,    badgeCls: 'bg-white/25 text-white' },
+              { value: 'members',   label: 'Members',   badge: dept.users.length > 0 ? dept.users.length : null,  badgeCls: 'bg-white/25 text-white' },
+            ] as Array<{ value: string; label: string; badge: number | null; badgeCls?: string }>).map(({ value, label, badge, badgeCls }) => (
               <button
-                key={key}
-                onClick={() => { setTaskFilter(key); setDeptTasksPage(1); }}
+                key={value}
+                onClick={() => setActiveTab(value as ActiveTab)}
                 className={cn(
-                  'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium border transition-all',
-                  taskFilter === key
-                    ? 'bg-primary text-primary-foreground border-primary'
-                    : 'bg-background text-muted-foreground border-border hover:border-primary/40 hover:text-foreground'
+                  'flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold transition-all',
+                  activeTab === value
+                    ? 'bg-gradient-to-r from-violet-500 to-purple-600 text-white shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
                 )}
               >
                 {label}
-                <span className={cn(
-                  'rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
-                  taskFilter === key ? 'bg-white/20 text-white' : 'bg-muted text-muted-foreground'
-                )}>
-                  {count}
-                </span>
+                {badge !== null && (
+                  <span className={cn(
+                    'rounded-full text-[10px] font-black px-1.5 py-0.5 leading-none',
+                    activeTab === value ? badgeCls : 'bg-muted text-muted-foreground',
+                  )}>
+                    {badge}
+                  </span>
+                )}
               </button>
             ))}
           </div>
 
-          {tasksLoading ? (
-            <div className="space-y-2">
-              {[...Array(5)].map((_, i) => <div key={i} className="h-14 rounded-lg bg-muted animate-pulse" />)}
-            </div>
-          ) : filteredTasks.length === 0 ? (
-            <div className="rounded-xl border border-dashed py-12 text-center text-muted-foreground">
-              <CheckSquare className="h-8 w-8 mx-auto mb-2 opacity-20" />
-              <p className="text-sm">No tasks match this filter</p>
-            </div>
-          ) : (
-            <>
-              <div className="space-y-2">
-                {paginate(filteredTasks, deptTasksPage).map((task) => {
-                  const isOverdue = !!task.dueDate && new Date(task.dueDate) < now && task.status !== 'DONE' && task.status !== 'CANCELLED';
-                  return (
-                    <div key={task.id} onClick={() => setSelectedTaskId(task.id)} className="flex items-center gap-3 rounded-lg border px-4 py-3 bg-card hover:bg-muted/30 transition-colors cursor-pointer">
-                      {/* Status dot */}
-                      <div className={cn('h-2 w-2 rounded-full shrink-0', {
-                        'bg-red-500':    task.status === 'BLOCKED',
-                        'bg-blue-500':   task.status === 'IN_PROGRESS',
-                        'bg-amber-400':  task.status === 'IN_REVIEW',
-                        'bg-green-500':  task.status === 'DONE',
-                        'bg-gray-300':   task.status === 'TODO',
-                      })} />
+          {/* ══════════════════════════════════════════════
+              Overview Tab
+          ══════════════════════════════════════════════ */}
+          <TabsContent value="overview" className="mt-6 space-y-5">
 
-                      <div className="flex-1 min-w-0">
-                        <p className={cn('text-sm font-medium truncate', task.status === 'DONE' && 'line-through text-muted-foreground')}>
-                          {task.title}
-                        </p>
-                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                          {isOverdue && (
-                            <span className="text-xs text-red-600 font-medium">⚠ Overdue</span>
-                          )}
-                          {task.dueDate && (
-                            <span className={cn('text-xs', isOverdue ? 'text-red-500' : 'text-muted-foreground')}>
-                              {formatDate(task.dueDate)}
-                            </span>
-                          )}
-                          {task.assignee && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                const found = dept.users.find((u) => u.id === task.assignee!.id);
-                                if (found) setMemberDialog(found);
-                              }}
-                              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                            >
-                              <Avatar className="h-4 w-4">
-                                <AvatarImage src={task.assignee.avatarUrl} />
-                                <AvatarFallback className="text-[8px] bg-primary/10">{getInitials(task.assignee.name)}</AvatarFallback>
-                              </Avatar>
-                              {task.assignee.name}
-                            </button>
-                          )}
-                          {task.team && (
-                            <span className="text-xs px-1.5 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200 font-medium">
-                              {task.team.name}
-                            </span>
-                          )}
-                        </div>
+            {/* KPI row */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              {([
+                { label: 'Total Tasks', value: dept._count.tasks,       icon: ClipboardList, grad: 'from-slate-600 to-gray-700',    shadow: 'shadow-gray-300/60',   filter: 'all'         as TaskFilter },
+                { label: 'Overdue',     value: dash?.overdueCount  ?? 0, icon: Clock,         grad: 'from-red-500 to-rose-600',      shadow: 'shadow-red-200/60',    filter: 'overdue'     as TaskFilter },
+                { label: 'Blocked',     value: dash?.blockedCount  ?? 0, icon: AlertTriangle, grad: 'from-orange-500 to-amber-600',  shadow: 'shadow-orange-200/60', filter: 'blocked'     as TaskFilter },
+                { label: 'Due Today',   value: dash?.dueTodayCount ?? 0, icon: Zap,           grad: 'from-blue-500 to-indigo-600',   shadow: 'shadow-blue-200/60',   filter: 'in_progress' as TaskFilter },
+              ] as Array<{ label: string; value: number; icon: React.ElementType; grad: string; shadow: string; filter: TaskFilter }>).map(({ label, value, icon: Icon, grad, shadow, filter }) => (
+                <button key={label} onClick={() => openTasksFiltered(filter)} className="text-left group">
+                  <div className={cn(
+                    'rounded-2xl p-5 text-white transition-all hover:scale-[1.03] hover:shadow-xl cursor-pointer',
+                    `bg-gradient-to-br ${grad}`,
+                    shadow,
+                  )}>
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="h-9 w-9 rounded-xl bg-white/20 flex items-center justify-center">
+                        <Icon className="h-4 w-4 text-white" />
                       </div>
-
-                      <div className="flex items-center gap-2 shrink-0">
-                        <Badge className={cn('text-xs border hidden sm:inline-flex', priorityColor(task.priority))}>
-                          {task.priority}
-                        </Badge>
-                        <span className={cn('text-xs px-1.5 py-0.5 rounded-full font-medium', statusColor(task.status))}>
-                          {STATUS_LABELS[task.status] ?? task.status}
-                        </span>
-                      </div>
+                      <span className="text-[10px] font-bold opacity-70 group-hover:opacity-100 transition-opacity">View →</span>
                     </div>
-                  );
-                })}
+                    <p className="text-3xl font-black tabular-nums">{value}</p>
+                    <p className="text-xs font-semibold opacity-80 mt-1">{label}</p>
+                    {/* Shimmer orb */}
+                    <div className="absolute top-3 right-3 h-16 w-16 rounded-full bg-white/10 blur-xl pointer-events-none" />
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            {/* Analytics row */}
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
+
+              {/* Blocker breakdown — wider */}
+              <div className="lg:col-span-3 rounded-2xl border border-border/60 bg-white overflow-hidden">
+                <div className="px-5 pt-5 pb-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center shadow-sm shadow-orange-200/60">
+                      <AlertTriangle className="h-4 w-4 text-white" />
+                    </div>
+                    <span className="text-sm font-bold">Blocker Breakdown</span>
+                  </div>
+                  {(dash?.blockedCount ?? 0) > 0 && (
+                    <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-red-100 text-red-700 border border-red-200">{dash!.blockedCount} blocked</span>
+                  )}
+                </div>
+                <div className="px-5 pb-5">
+                  {!dash?.topBlockers?.length ? (
+                    <div className="flex flex-col items-center justify-center py-10 text-muted-foreground gap-2">
+                      <div className="h-12 w-12 rounded-2xl bg-emerald-50 flex items-center justify-center">
+                        <CheckSquare className="h-6 w-6 text-emerald-400" />
+                      </div>
+                      <p className="text-sm font-semibold text-emerald-700">No blockers — great work!</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 mt-1">
+                      {dash.topBlockers.map((b) => {
+                        const maxCount = Math.max(...dash.topBlockers.map((x) => x._count));
+                        const pct = maxCount > 0 ? Math.round((b._count / maxCount) * 100) : 0;
+                        return (
+                          <button
+                            key={b.blockerType ?? 'null'}
+                            onClick={() => openTasksFiltered('blocked')}
+                            className="w-full text-left group/row"
+                          >
+                            <div className="flex items-center justify-between mb-1.5">
+                              <p className="text-sm font-semibold capitalize">
+                                {(b.blockerType ?? 'Unknown').toLowerCase().replace(/_/g, ' ')}
+                              </p>
+                              <span className="text-xs font-bold text-orange-700 bg-orange-100 px-2 py-0.5 rounded-full border border-orange-200">
+                                {b._count}
+                              </span>
+                            </div>
+                            <div className="w-full h-2.5 rounded-full bg-muted overflow-hidden">
+                              <div
+                                className="h-full rounded-full bg-gradient-to-r from-orange-400 to-red-500 group-hover/row:from-orange-500 group-hover/row:to-red-600 transition-all"
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
-              <Pagination total={filteredTasks.length} page={deptTasksPage} onPageChange={setDeptTasksPage} />
-            </>
-          )}
-        </TabsContent>
 
-        {/* ── Members Tab ── */}
-        <TabsContent value="members" className="mt-6">
-          <div className="mb-4">
-            <h2 className="text-base font-semibold">Team Members ({dept.users.length})</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">Click any member to see their work</p>
-          </div>
-
-          {dept.users.length === 0 ? (
-            <div className="rounded-xl border border-dashed py-12 text-center text-muted-foreground">
-              <Users className="h-10 w-10 mx-auto mb-3 opacity-20" />
-              <p className="text-sm">No members assigned yet</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {dept.users.map((member) => {
-                const memberTasks = deptTasks.filter((t) => t.assignee?.id === member.id);
-                const doneTasks   = memberTasks.filter((t) => t.status === 'DONE').length;
-                const overdueCt   = memberTasks.filter((t) => !!t.dueDate && new Date(t.dueDate) < now && t.status !== 'DONE' && t.status !== 'CANCELLED').length;
-                const rate        = memberTasks.length > 0 ? Math.round((doneTasks / memberTasks.length) * 100) : 0;
-                return (
-                  <button
-                    key={member.id}
-                    onClick={() => setMemberDialog(member)}
-                    className="text-left"
-                  >
-                    <Card className="hover:shadow-md hover:border-primary/40 transition-all cursor-pointer">
-                      <CardContent className="p-4">
-                        <div className="flex items-center gap-3">
-                          <div className="relative shrink-0">
-                            <Avatar className="h-10 w-10">
-                              <AvatarImage src={member.avatarUrl} />
-                              <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">
-                                {getInitials(member.name)}
-                              </AvatarFallback>
-                            </Avatar>
-                            <span className={cn(
-                              'absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background',
-                              member.status === 'ACTIVE' ? 'bg-green-500' : 'bg-gray-300'
-                            )} />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold truncate">{member.name}</p>
-                            <div className="mt-0.5"><RoleBadge role={member.role} /></div>
-                            {memberTasks.length > 0 && (
-                              <div className="flex items-center gap-2 mt-1.5">
-                                <ProgressBar value={rate} className="flex-1 max-w-[80px]" />
-                                <span className="text-xs text-muted-foreground">{doneTasks}/{memberTasks.length}</span>
-                                {overdueCt > 0 && (
-                                  <span className="text-xs text-red-500 font-medium">⚠{overdueCt}</span>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                          <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+              {/* Right column: standup + members */}
+              <div className="lg:col-span-2 flex flex-col gap-4">
+                {/* Last standup */}
+                <div className="flex-1 rounded-2xl border border-border/60 bg-white overflow-hidden">
+                  <div className={cn('h-1 w-full', dash?.recentStandup
+                    ? dash.recentStandup.status === 'COMPLETED' ? 'bg-gradient-to-r from-emerald-400 to-green-500'
+                    : dash.recentStandup.status === 'IN_PROGRESS' ? 'bg-gradient-to-r from-blue-400 to-indigo-500'
+                    : 'bg-gradient-to-r from-slate-300 to-gray-400'
+                    : 'bg-gradient-to-r from-slate-200 to-gray-300'
+                  )} />
+                  <div className="px-5 pt-4 pb-5">
+                    <div className="flex items-center gap-2.5 mb-4">
+                      <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-sm shadow-amber-200/60">
+                        <Zap className="h-4 w-4 text-white" />
+                      </div>
+                      <span className="text-sm font-bold">Last Standup</span>
+                    </div>
+                    {dash?.recentStandup ? (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs text-muted-foreground">{formatDate(dash.recentStandup.scheduledAt)}</p>
+                          <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full border', {
+                            'bg-emerald-50 text-emerald-700 border-emerald-200': dash.recentStandup.status === 'COMPLETED',
+                            'bg-blue-50 text-blue-700 border-blue-200':          dash.recentStandup.status === 'IN_PROGRESS',
+                            'bg-slate-50 text-slate-600 border-slate-200':        dash.recentStandup.status === 'SCHEDULED',
+                          })}>
+                            {dash.recentStandup.status.replace('_', ' ')}
+                          </span>
                         </div>
-                      </CardContent>
-                    </Card>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Project membership breakdown */}
-          {deptTeams.length > 0 && (
-            <div className="mt-8">
-              <h3 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">Project Membership</h3>
-              <div className="space-y-3">
-                {deptTeams.map((team) => (
-                  <div key={team.id} className="rounded-xl border p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        <FolderKanban className="h-4 w-4 text-indigo-500" />
-                        <span className="text-sm font-semibold">{team.name}</span>
-                        {team.manager && (
-                          <span className="text-xs text-muted-foreground">· {team.manager.name}</span>
+                        <div>
+                          <span className="text-4xl font-black tabular-nums">{dash.recentStandup._count.cards}</span>
+                          <span className="text-sm text-muted-foreground ml-2">participants</span>
+                        </div>
+                        {dept.standupTime && (
+                          <p className="text-xs text-muted-foreground flex items-center gap-1.5 pt-3 border-t border-border/60">
+                            <Clock className="h-3 w-3" />
+                            Daily at {dept.standupTime} · {dept.standupDuration ?? 15} min
+                          </p>
                         )}
                       </div>
-                      <Badge variant="outline" className="text-xs">{team.memberCount} members</Badge>
-                    </div>
-                    {team.members.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">No members assigned</p>
                     ) : (
-                      <div className="flex flex-wrap gap-2">
-                        {team.members.map((m) => {
-                          const deptUser = dept.users.find((u) => u.id === m.user.id);
-                          return (
-                            <button
-                              key={m.user.id}
-                              onClick={() => deptUser && setMemberDialog(deptUser)}
-                              className="flex items-center gap-1.5 rounded-lg border bg-muted/30 px-2.5 py-1.5 hover:bg-muted/60 hover:border-primary/40 transition-colors"
-                            >
-                              <Avatar className="h-5 w-5">
-                                <AvatarFallback className="text-[10px] bg-primary/10">{getInitials(m.user.name)}</AvatarFallback>
-                              </Avatar>
-                              <span className="text-xs font-medium">{m.user.name}</span>
-                            </button>
-                          );
-                        })}
+                      <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-2">
+                        <Zap className="h-8 w-8 opacity-20" />
+                        <p className="text-sm">No standups yet</p>
                       </div>
                     )}
                   </div>
-                ))}
+                </div>
+
+                {/* Members summary */}
+                <div className="rounded-2xl border border-border/60 bg-white p-5">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Team Members</p>
+                      <p className="text-4xl font-black tabular-nums mt-1">{dept.users.length}</p>
+                    </div>
+                    <div className="flex -space-x-2">
+                      {dept.users.slice(0, 5).map((u, idx) => {
+                        const colors = ['bg-violet-100 text-violet-700','bg-blue-100 text-blue-700','bg-emerald-100 text-emerald-700','bg-amber-100 text-amber-700','bg-rose-100 text-rose-700'];
+                        return (
+                          <Avatar key={u.id} className="h-9 w-9 border-2 border-white ring-0">
+                            <AvatarImage src={u.avatarUrl} />
+                            <AvatarFallback className={cn('text-[10px] font-bold', colors[idx % colors.length])}>
+                              {getInitials(u.name)}
+                            </AvatarFallback>
+                          </Avatar>
+                        );
+                      })}
+                      {dept.users.length > 5 && (
+                        <div className="h-9 w-9 rounded-full border-2 border-white bg-muted flex items-center justify-center text-[10px] font-bold text-muted-foreground">
+                          +{dept.users.length - 5}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setActiveTab('members')}
+                    className="mt-4 text-xs font-bold text-violet-600 hover:text-violet-700 hover:underline"
+                  >
+                    View all members →
+                  </button>
+                </div>
               </div>
             </div>
-          )}
-        </TabsContent>
-      </Tabs>
+          </TabsContent>
 
-      {/* ── Member detail dialog ── */}
-      {memberDialog && (
-        <MemberDetailDialog
-          member={memberDialog}
-          tasks={deptTasks.filter((t) => t.assignee?.id === memberDialog.id)}
-          onClose={() => setMemberDialog(null)}
-        />
-      )}
+          {/* ══════════════════════════════════════════════
+              Projects Tab
+          ══════════════════════════════════════════════ */}
+          <TabsContent value="projects" className="mt-6">
+            {selectedTeam ? (
+              <ProjectFullView
+                team={selectedTeam}
+                canManage={canManage}
+                deptId={dept.id}
+                onBack={() => setSelectedTeam(null)}
+                onUpdated={(updated) => { qc.invalidateQueries({ queryKey: ['teams'] }); setSelectedTeam(updated); }}
+                onDelete={() => { deleteTeam.mutate(selectedTeam.id); }}
+                isDeleting={deleteTeam.isPending}
+                onViewMember={(memberId) => {
+                  const found = dept.users.find((u) => u.id === memberId);
+                  if (found) setMemberDialog(found);
+                }}
+              />
+            ) : (
+              <>
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <h2 className="text-base font-semibold">Projects</h2>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {deptTeams.length} project{deptTeams.length !== 1 ? 's' : ''} · click to open
+                    </p>
+                  </div>
+                  {canManage && (
+                    <Button size="sm" className="gap-2" onClick={() => setCreateTeamOpen(true)}>
+                      <Plus className="h-4 w-4" /> New Project
+                    </Button>
+                  )}
+                </div>
 
-      {/* ── Invite member dialog ── */}
-      {inviteMemberOpen && (
-        <InviteMemberDialog
-          deptId={dept.id}
-          onClose={() => {
-            setInviteMemberOpen(false);
-            qc.invalidateQueries({ queryKey: ['dept-detail', slug] });
-          }}
-        />
-      )}
+                {deptTeams.length === 0 ? (
+                  <div className="rounded-2xl border-2 border-dashed py-20 text-center text-muted-foreground">
+                    <div className="h-14 w-14 rounded-2xl bg-indigo-50 flex items-center justify-center mx-auto mb-4">
+                      <FolderKanban className="h-7 w-7 text-indigo-300" />
+                    </div>
+                    <p className="font-semibold text-base">No projects yet</p>
+                    <p className="text-sm mt-1 max-w-xs mx-auto">Create your first project to start tracking work within this department</p>
+                    {canManage && (
+                      <Button size="sm" className="mt-5 gap-2" onClick={() => setCreateTeamOpen(true)}>
+                        <Plus className="h-4 w-4" /> Create First Project
+                      </Button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {deptTeams.map((team) => {
+                      const teamMemberIds = new Set(team.members.map((m) => m.user.id));
+                      const teamTasks = deptTasks.filter((t) => t.assignee?.id && teamMemberIds.has(t.assignee.id));
+                      const doneCt    = teamTasks.filter((t) => t.status === 'DONE').length;
+                      const overdueCt = teamTasks.filter((t) => !!t.dueDate && new Date(t.dueDate) < now && t.status !== 'DONE' && t.status !== 'CANCELLED').length;
+                      const blockedCt = teamTasks.filter((t) => t.status === 'BLOCKED').length;
+                      const ipCt      = teamTasks.filter((t) => t.status === 'IN_PROGRESS').length;
+                      const pct       = teamTasks.length > 0 ? Math.round((doneCt / teamTasks.length) * 100) : -1;
+                      const pctColor  = pct >= 75 ? 'bg-green-500' : pct >= 40 ? 'bg-blue-500' : 'bg-amber-500';
+                      const pctText   = pct >= 75 ? 'text-green-700' : pct >= 40 ? 'text-blue-700' : 'text-amber-700';
 
-      {/* ── Task detail drawer ── */}
-      <TaskDetailDrawer taskId={selectedTaskId} onClose={() => setSelectedTaskId(null)} />
+                      return (
+                        <button
+                          key={team.id}
+                          onClick={() => setSelectedTeam(team)}
+                          className="text-left group"
+                        >
+                          <Card className="h-full border-border/60 hover:border-primary/40 hover:shadow-lg transition-all duration-200 overflow-hidden">
+                            {/* Accent stripe */}
+                            <div className="h-1 w-full bg-gradient-to-r from-indigo-400 to-violet-500" />
+                            <CardContent className="p-5">
 
-      {/* Create project dialog */}
-      {canManage && createTeamOpen && (
-        <CreateTeamDialog
-          deptId={dept.id}
-          deptName={dept.name}
-          deptUsers={dept.users}
-          onClose={() => setCreateTeamOpen(false)}
-          onSaved={(team) => {
-            qc.invalidateQueries({ queryKey: ['teams'] });
-            setSelectedTeam(team);
-            setCreateTeamOpen(false);
-          }}
-        />
-      )}
+                              {/* Header */}
+                              <div className="flex items-start gap-3 mb-4">
+                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-100 group-hover:bg-indigo-200 transition-colors">
+                                  <FolderKanban className="h-5 w-5 text-indigo-600" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <p className="font-semibold text-sm leading-snug line-clamp-1">{team.name}</p>
+                                    <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5 group-hover:text-primary transition-colors" />
+                                  </div>
+                                  {team.description && (
+                                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{team.description}</p>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Progress bar */}
+                              {pct >= 0 ? (
+                                <div className="mb-4">
+                                  <div className="flex items-center justify-between mb-1.5">
+                                    <span className="text-xs text-muted-foreground">{doneCt}/{teamTasks.length} tasks done</span>
+                                    <span className={cn('text-xs font-bold', pctText)}>{pct}%</span>
+                                  </div>
+                                  <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+                                    <div className={cn('h-full rounded-full transition-all', pctColor)} style={{ width: `${pct}%` }} />
+                                  </div>
+                                  {/* Mini status strip */}
+                                  {teamTasks.length > 0 && (
+                                    <div className="flex h-1 w-full rounded-full overflow-hidden gap-px mt-1.5">
+                                      {[
+                                        { count: doneCt,                                                       color: 'bg-green-400' },
+                                        { count: ipCt,                                                         color: 'bg-blue-400' },
+                                        { count: teamTasks.filter((t) => t.status === 'IN_REVIEW').length,     color: 'bg-amber-400' },
+                                        { count: blockedCt,                                                    color: 'bg-red-400' },
+                                        { count: teamTasks.filter((t) => t.status === 'TODO').length,          color: 'bg-gray-300' },
+                                      ].filter((s) => s.count > 0).map((s, i) => (
+                                        <div
+                                          key={i}
+                                          className={cn('h-full', s.color)}
+                                          style={{ width: `${Math.round((s.count / teamTasks.length) * 100)}%` }}
+                                        />
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="mb-4 rounded-lg border border-dashed py-2 text-center">
+                                  <p className="text-xs text-muted-foreground">No tasks yet</p>
+                                </div>
+                              )}
+
+                              {/* Alert badges */}
+                              {(overdueCt > 0 || blockedCt > 0) && (
+                                <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+                                  {overdueCt > 0 && (
+                                    <span className="inline-flex items-center gap-1 text-xs text-red-700 bg-red-50 border border-red-100 rounded-full px-2 py-0.5 font-medium">
+                                      <Clock className="h-2.5 w-2.5" /> {overdueCt} overdue
+                                    </span>
+                                  )}
+                                  {blockedCt > 0 && (
+                                    <span className="inline-flex items-center gap-1 text-xs text-orange-700 bg-orange-50 border border-orange-100 rounded-full px-2 py-0.5 font-medium">
+                                      <AlertTriangle className="h-2.5 w-2.5" /> {blockedCt} blocked
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Footer: manager + avatar stack */}
+                              <div className="flex items-center justify-between pt-3 border-t border-border/60">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  {team.manager ? (
+                                    <>
+                                      <Avatar className="h-5 w-5 shrink-0">
+                                        <AvatarImage src={team.manager.avatarUrl} />
+                                        <AvatarFallback className="text-[9px] bg-teal-100 text-teal-700">{getInitials(team.manager.name)}</AvatarFallback>
+                                      </Avatar>
+                                      <span className="text-xs text-muted-foreground truncate">{team.manager.name}</span>
+                                    </>
+                                  ) : (
+                                    <span className="text-xs text-muted-foreground italic">No manager</span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <div className="flex -space-x-1.5">
+                                    {team.members.slice(0, 4).map((m) => (
+                                      <Avatar key={m.user.id} className="h-6 w-6 border-2 border-background">
+                                        <AvatarImage src={m.user.avatarUrl} />
+                                        <AvatarFallback className="text-[9px] bg-primary/10 text-primary">{getInitials(m.user.name)}</AvatarFallback>
+                                      </Avatar>
+                                    ))}
+                                    {team.memberCount > 4 && (
+                                      <div className="h-6 w-6 rounded-full border-2 border-background bg-muted flex items-center justify-center text-[9px] font-bold text-muted-foreground">
+                                        +{team.memberCount - 4}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <span className="text-xs text-muted-foreground">{team.memberCount}</span>
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            )}
+          </TabsContent>
+
+          {/* ══════════════════════════════════════════════
+              Tasks Tab
+          ══════════════════════════════════════════════ */}
+          <TabsContent value="tasks" className="mt-6">
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+              <div>
+                <h2 className="text-base font-semibold">Department Tasks</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">{filteredTasks.length} of {deptTasks.length} tasks shown</p>
+              </div>
+            </div>
+
+            {/* Filter pills */}
+            <div className="flex items-center gap-1.5 flex-wrap mb-4 p-1 rounded-xl bg-muted/40 w-fit">
+              {([
+                { key: 'all',         label: 'All',         count: deptTasks.length },
+                { key: 'overdue',     label: 'Overdue',     count: deptTasks.filter((t) => !!t.dueDate && new Date(t.dueDate) < now && t.status !== 'DONE' && t.status !== 'CANCELLED').length },
+                { key: 'blocked',     label: 'Blocked',     count: deptTasks.filter((t) => t.status === 'BLOCKED').length },
+                { key: 'in_progress', label: 'In Progress', count: deptTasks.filter((t) => t.status === 'IN_PROGRESS').length },
+                { key: 'in_review',   label: 'In Review',   count: deptTasks.filter((t) => t.status === 'IN_REVIEW').length },
+                { key: 'todo',        label: 'To Do',       count: deptTasks.filter((t) => t.status === 'TODO').length },
+                { key: 'done',        label: 'Done',        count: deptTasks.filter((t) => t.status === 'DONE').length },
+              ] as Array<{ key: TaskFilter; label: string; count: number }>).map(({ key, label, count }) => (
+                <button
+                  key={key}
+                  onClick={() => { setTaskFilter(key); setDeptTasksPage(1); }}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all',
+                    taskFilter === key
+                      ? 'bg-primary text-primary-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-background'
+                  )}
+                >
+                  {label}
+                  <span className={cn(
+                    'rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums',
+                    taskFilter === key ? 'bg-white/25 text-white' : 'bg-muted text-muted-foreground'
+                  )}>
+                    {count}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {tasksLoading ? (
+              <div className="space-y-2">
+                {[...Array(5)].map((_, i) => <div key={i} className="h-14 rounded-xl bg-muted animate-pulse" />)}
+              </div>
+            ) : filteredTasks.length === 0 ? (
+              <div className="rounded-2xl border-2 border-dashed py-16 text-center text-muted-foreground">
+                <CheckSquare className="h-8 w-8 mx-auto mb-2 opacity-20" />
+                <p className="text-sm font-medium">No tasks match this filter</p>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-1.5">
+                  {paginate(filteredTasks, deptTasksPage).map((task) => {
+                    const isOverdue = !!task.dueDate && new Date(task.dueDate) < now && task.status !== 'DONE' && task.status !== 'CANCELLED';
+                    return (
+                      <div
+                        key={task.id}
+                        onClick={() => setSelectedTaskId(task.id)}
+                        className={cn(
+                          'flex items-center gap-3 rounded-xl border px-4 py-3 bg-card hover:bg-muted/30 transition-colors cursor-pointer group',
+                          isOverdue && 'border-red-200 bg-red-50/30 hover:bg-red-50/50'
+                        )}
+                      >
+                        <div className={cn('h-2.5 w-2.5 rounded-full shrink-0', {
+                          'bg-red-500':   task.status === 'BLOCKED',
+                          'bg-blue-500':  task.status === 'IN_PROGRESS',
+                          'bg-amber-400': task.status === 'IN_REVIEW',
+                          'bg-green-500': task.status === 'DONE',
+                          'bg-gray-300':  task.status === 'TODO',
+                        })} />
+
+                        <div className="flex-1 min-w-0">
+                          <p className={cn('text-sm font-medium truncate', task.status === 'DONE' && 'line-through text-muted-foreground')}>
+                            {task.title}
+                          </p>
+                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                            {isOverdue && <span className="text-xs text-red-600 font-semibold">⚠ Overdue</span>}
+                            {task.dueDate && (
+                              <span className={cn('text-xs', isOverdue ? 'text-red-500' : 'text-muted-foreground')}>
+                                {formatDate(task.dueDate)}
+                              </span>
+                            )}
+                            {task.assignee && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const found = dept.users.find((u) => u.id === task.assignee!.id);
+                                  if (found) setMemberDialog(found);
+                                }}
+                                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                              >
+                                <Avatar className="h-4 w-4">
+                                  <AvatarImage src={task.assignee.avatarUrl} />
+                                  <AvatarFallback className="text-[8px] bg-primary/10">{getInitials(task.assignee.name)}</AvatarFallback>
+                                </Avatar>
+                                {task.assignee.name}
+                              </button>
+                            )}
+                            {task.team && (
+                              <span className="text-xs px-1.5 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200 font-medium">
+                                {task.team.name}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Badge className={cn('text-xs border hidden sm:inline-flex', priorityColor(task.priority))}>
+                            {task.priority}
+                          </Badge>
+                          <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', statusColor(task.status))}>
+                            {STATUS_LABELS[task.status] ?? task.status}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <Pagination total={filteredTasks.length} page={deptTasksPage} onPageChange={setDeptTasksPage} />
+              </>
+            )}
+          </TabsContent>
+
+          {/* ══════════════════════════════════════════════
+              Members Tab
+          ══════════════════════════════════════════════ */}
+          <TabsContent value="members" className="mt-6">
+            <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+              <div>
+                <h2 className="text-base font-semibold">Members <span className="text-muted-foreground font-normal">({dept.users.length})</span></h2>
+                <p className="text-xs text-muted-foreground mt-0.5">Click any member to see their task details</p>
+              </div>
+              {canManage && (
+                <Button size="sm" className="gap-1.5" onClick={() => setInviteMemberOpen(true)}>
+                  <UserPlus className="h-3.5 w-3.5" /> Invite Member
+                </Button>
+              )}
+            </div>
+
+            {dept.users.length === 0 ? (
+              <div className="rounded-2xl border-2 border-dashed py-16 text-center text-muted-foreground">
+                <Users className="h-10 w-10 mx-auto mb-3 opacity-20" />
+                <p className="font-medium">No members assigned yet</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                {dept.users.map((member) => {
+                  const mTasks   = deptTasks.filter((t) => t.assignee?.id === member.id);
+                  const doneCt   = mTasks.filter((t) => t.status === 'DONE').length;
+                  const ipCt     = mTasks.filter((t) => t.status === 'IN_PROGRESS').length;
+                  const blockedCt= mTasks.filter((t) => t.status === 'BLOCKED').length;
+                  const overdueCt= mTasks.filter((t) => !!t.dueDate && new Date(t.dueDate) < now && t.status !== 'DONE' && t.status !== 'CANCELLED').length;
+                  const rate     = mTasks.length > 0 ? Math.round((doneCt / mTasks.length) * 100) : -1;
+                  const rateColor= rate >= 75 ? 'text-green-700' : rate >= 40 ? 'text-blue-700' : 'text-amber-700';
+                  const barColor = rate >= 75 ? 'bg-green-500' : rate >= 40 ? 'bg-blue-500' : 'bg-amber-500';
+
+                  const avatarColors = ['from-violet-400 to-purple-500','from-blue-400 to-indigo-500','from-emerald-400 to-teal-500','from-amber-400 to-orange-500','from-rose-400 to-pink-500','from-cyan-400 to-sky-500'];
+                  let nameHash = 0;
+                  for (let i = 0; i < member.name.length; i++) nameHash = member.name.charCodeAt(i) + ((nameHash << 5) - nameHash);
+                  const avatarGrad = avatarColors[Math.abs(nameHash) % avatarColors.length];
+
+                  return (
+                    <button key={member.id} onClick={() => setMemberDialog(member)} className="text-left group">
+                      <div className="rounded-2xl border border-border/60 bg-white overflow-hidden hover:shadow-lg hover:border-violet-200/60 hover:scale-[1.01] transition-all duration-200">
+                        {/* Gradient top accent based on completion */}
+                        <div className={cn('h-1 w-full', rate >= 75 ? 'bg-gradient-to-r from-emerald-400 to-green-500' : rate >= 40 ? 'bg-gradient-to-r from-blue-400 to-indigo-500' : rate >= 0 ? 'bg-gradient-to-r from-amber-400 to-orange-500' : 'bg-gradient-to-r from-slate-200 to-gray-300')} />
+
+                        <div className="p-4">
+                          {/* Identity row */}
+                          <div className="flex items-center gap-3 mb-3">
+                            <div className="relative shrink-0">
+                              <div className={cn('h-11 w-11 rounded-2xl bg-gradient-to-br flex items-center justify-center shadow-sm text-white font-bold text-sm', avatarGrad)}>
+                                {getInitials(member.name)}
+                              </div>
+                              <span className={cn(
+                                'absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white',
+                                member.status === 'ACTIVE' ? 'bg-emerald-500' : 'bg-gray-300'
+                              )} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-bold truncate group-hover:text-violet-700 transition-colors">{member.name}</p>
+                              <RoleBadge role={member.role} />
+                            </div>
+                            <ChevronRight className="h-4 w-4 text-muted-foreground/30 shrink-0 group-hover:text-violet-500 transition-colors" />
+                          </div>
+
+                          {/* Task stats */}
+                          <div className="space-y-2 pt-3 border-t border-border/60">
+                            {mTasks.length > 0 ? (
+                              <>
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs text-muted-foreground">{doneCt} / {mTasks.length} done</span>
+                                  <span className={cn('text-xs font-bold', rateColor)}>{rate}%</span>
+                                </div>
+                                <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+                                  <div className={cn('h-full rounded-full transition-all', barColor)} style={{ width: `${rate}%` }} />
+                                </div>
+                                <div className="grid grid-cols-4 gap-1 text-center pt-0.5">
+                                  {[
+                                    { label: 'Todo',   count: mTasks.filter((t) => t.status === 'TODO').length, color: 'text-slate-600',  bg: 'bg-slate-50' },
+                                    { label: 'Active', count: ipCt,                                              color: 'text-blue-600',   bg: 'bg-blue-50' },
+                                    { label: 'Block',  count: blockedCt,                                         color: 'text-red-600',    bg: 'bg-red-50' },
+                                    { label: 'Overdue',count: overdueCt,                                         color: overdueCt > 0 ? 'text-red-700 font-bold' : 'text-muted-foreground', bg: overdueCt > 0 ? 'bg-red-50' : 'bg-muted/40' },
+                                  ].map((s) => (
+                                    <div key={s.label} className={cn('rounded-xl py-1.5', s.bg)}>
+                                      <p className={cn('text-sm font-bold tabular-nums leading-none', s.color)}>{s.count}</p>
+                                      <p className="text-[9px] text-muted-foreground mt-0.5 leading-none">{s.label}</p>
+                                    </div>
+                                  ))}
+                                </div>
+                              </>
+                            ) : (
+                              <p className="text-xs text-muted-foreground py-1 italic">No tasks assigned</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Project membership */}
+            {deptTeams.length > 0 && (
+              <div className="mt-10">
+                <h3 className="text-sm font-semibold mb-4 text-muted-foreground uppercase tracking-widest">
+                  Project Membership
+                </h3>
+                <div className="space-y-3">
+                  {deptTeams.map((team) => (
+                    <Card key={team.id} className="border-border/60">
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <div className="h-7 w-7 rounded-lg bg-indigo-100 flex items-center justify-center shrink-0">
+                              <FolderKanban className="h-3.5 w-3.5 text-indigo-600" />
+                            </div>
+                            <span className="text-sm font-semibold">{team.name}</span>
+                            {team.manager && (
+                              <span className="text-xs text-muted-foreground">· {team.manager.name}</span>
+                            )}
+                          </div>
+                          <Badge variant="outline" className="text-xs shrink-0">{team.memberCount} members</Badge>
+                        </div>
+                        {team.members.length === 0 ? (
+                          <p className="text-xs text-muted-foreground">No members assigned</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-2">
+                            {team.members.map((m) => {
+                              const deptUser = dept.users.find((u) => u.id === m.user.id);
+                              return (
+                                <button
+                                  key={m.user.id}
+                                  onClick={() => deptUser && setMemberDialog(deptUser)}
+                                  className="flex items-center gap-1.5 rounded-lg border bg-muted/30 px-2.5 py-1.5 hover:bg-muted/60 hover:border-primary/40 transition-colors"
+                                >
+                                  <Avatar className="h-5 w-5">
+                                    <AvatarFallback className="text-[10px] bg-primary/10 text-primary font-semibold">{getInitials(m.user.name)}</AvatarFallback>
+                                  </Avatar>
+                                  <span className="text-xs font-medium">{m.user.name}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
+
+        {/* ── Dialogs & drawers ── */}
+        {memberDialog && (
+          <MemberDetailDialog
+            member={memberDialog}
+            tasks={deptTasks.filter((t) => t.assignee?.id === memberDialog.id)}
+            onClose={() => setMemberDialog(null)}
+          />
+        )}
+        {inviteMemberOpen && (
+          <InviteMemberDialog
+            deptId={dept.id}
+            onClose={() => {
+              setInviteMemberOpen(false);
+              qc.invalidateQueries({ queryKey: ['dept-detail', slug] });
+            }}
+          />
+        )}
+        <TaskDetailDrawer taskId={selectedTaskId} onClose={() => setSelectedTaskId(null)} />
+        {canManage && createTeamOpen && (
+          <CreateTeamDialog
+            deptId={dept.id}
+            deptName={dept.name}
+            deptUsers={dept.users}
+            onClose={() => setCreateTeamOpen(false)}
+            onSaved={(team) => {
+              qc.invalidateQueries({ queryKey: ['teams'] });
+              setSelectedTeam(team);
+              setCreateTeamOpen(false);
+            }}
+          />
+        )}
+      </div>
     </div>
   );
 }

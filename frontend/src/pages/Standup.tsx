@@ -1,7 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Play, Square, Zap, CheckCircle2, AlertTriangle, Circle, Clock, Edit2, Check, X, Plus, Video, Trash2 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Play, Square, Zap, CheckCircle2, AlertTriangle, Circle, Clock,
+  Edit2, Check, X, Plus, Video, Trash2, Calendar, Users, Timer as TimerIcon,
+  ArrowRight, Sparkles,
+} from 'lucide-react';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -14,23 +18,12 @@ import { cn, getInitials } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/api/client';
 
+// ── Types ──────────────────────────────────────────────────────────────────────
 type StandupCard = {
   id: string; userId: string; status: string;
   yesterdaySummary?: string; todayCommitments?: string; blockers?: string;
   user: { id: string; name: string; role: string; avatarUrl?: string };
 };
-
-const BLOCKER_TYPES = [
-  { value: 'APPROVAL', label: 'Awaiting Approval' },
-  { value: 'CLIENT', label: 'Client Dependency' },
-  { value: 'DEPENDENCY', label: 'Technical Dependency' },
-  { value: 'RESOURCE', label: 'Resource Unavailable' },
-  { value: 'UNCLEAR_REQUIREMENT', label: 'Unclear Requirement' },
-  { value: 'SYSTEM_ISSUE', label: 'System / Tool Issue' },
-  { value: 'OTHER', label: 'Other' },
-] as const;
-type BlockerType = typeof BLOCKER_TYPES[number]['value'];
-
 type StandupSummary = {
   id: string; status: string; scheduledAt: string;
   timerMinutes: number; overrunMinutes?: number;
@@ -38,44 +31,70 @@ type StandupSummary = {
   department: { id: string; name: string; slug: string };
   _count: { cards: number };
 };
-
 type StandupDetail = StandupSummary & {
-  startedAt?: string;
-  endedAt?: string;
-  meetUrl?: string;
-  cards: StandupCard[];
+  startedAt?: string; endedAt?: string; cards: StandupCard[];
 };
+type Department = {
+  id: string; name: string; standupTime?: string;
+  standupDuration?: number; standupMeetUrl?: string;
+};
+const BLOCKER_TYPES = [
+  { value: 'APPROVAL',             label: 'Awaiting Approval' },
+  { value: 'CLIENT',               label: 'Client Dependency' },
+  { value: 'DEPENDENCY',           label: 'Technical Dependency' },
+  { value: 'RESOURCE',             label: 'Resource Unavailable' },
+  { value: 'UNCLEAR_REQUIREMENT',  label: 'Unclear Requirement' },
+  { value: 'SYSTEM_ISSUE',         label: 'System / Tool Issue' },
+  { value: 'OTHER',                label: 'Other' },
+] as const;
+type BlockerType = typeof BLOCKER_TYPES[number]['value'];
 
-function Timer({ startedAt, limit }: { startedAt: string; limit: number }) {
+// ── Helpers ────────────────────────────────────────────────────────────────────
+function isToday(dateStr: string) {
+  const d = new Date(dateStr), n = new Date();
+  return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate();
+}
+
+// ── Live timer ─────────────────────────────────────────────────────────────────
+function LiveTimer({ startedAt, limit }: { startedAt: string; limit: number }) {
   const [elapsed, setElapsed] = useState(0);
-
   useEffect(() => {
-    const interval = setInterval(() => {
-      setElapsed(Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000));
-    }, 1000);
-    return () => clearInterval(interval);
+    const iv = setInterval(() =>
+      setElapsed(Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000)), 1000);
+    return () => clearInterval(iv);
   }, [startedAt]);
 
   const mins = Math.floor(elapsed / 60);
   const secs = elapsed % 60;
   const over = elapsed > limit * 60;
+  const pct  = Math.min((elapsed / (limit * 60)) * 100, 100);
 
   return (
-    <div className={cn('text-4xl font-mono font-bold tabular-nums', over ? 'text-red-500 animate-pulse' : 'text-blue-600')}>
-      {String(mins).padStart(2, '0')}:{String(secs).padStart(2, '0')}
-      {over && <span className="text-sm ml-2">OVER</span>}
+    <div className="flex flex-col items-center gap-2">
+      <div className={cn(
+        'text-4xl sm:text-5xl font-black tabular-nums font-mono tracking-tight',
+        over ? 'text-red-500 animate-pulse' : 'text-white',
+      )}>
+        {String(mins).padStart(2, '0')}:{String(secs).padStart(2, '0')}
+      </div>
+      <div className="w-32 h-1.5 bg-white/20 rounded-full overflow-hidden">
+        <div
+          className={cn('h-full rounded-full transition-all duration-1000', over ? 'bg-red-400' : 'bg-white/80')}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      {over && <span className="text-xs font-bold text-red-300 uppercase tracking-widest">Time Over!</span>}
     </div>
   );
 }
 
-type Department = { id: string; name: string; standupTime?: string; standupDuration?: number; standupMeetUrl?: string };
-
+// ── Daily schedule card ────────────────────────────────────────────────────────
 function DailyScheduleCard({ dept, onUpdated }: { dept: Department; onUpdated: () => void }) {
-  const [editing, setEditing] = useState(false);
-  const [time, setTime] = useState(dept.standupTime || '09:00');
+  const [editing, setEditing]   = useState(false);
+  const [time, setTime]         = useState(dept.standupTime || '09:00');
   const [duration, setDuration] = useState(String(dept.standupDuration ?? 15));
-  const [meetUrl, setMeetUrl] = useState(dept.standupMeetUrl || '');
-  const [saving, setSaving] = useState(false);
+  const [meetUrl, setMeetUrl]   = useState(dept.standupMeetUrl || '');
+  const [saving, setSaving]     = useState(false);
 
   const handleSave = async () => {
     setSaving(true);
@@ -92,73 +111,80 @@ function DailyScheduleCard({ dept, onUpdated }: { dept: Department; onUpdated: (
     }
   };
 
-  return (
-    <Card className={dept.standupTime ? 'border-green-200 bg-green-50/40' : 'border-orange-200 bg-orange-50/40'}>
-      <CardContent className="p-4">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-lg ${dept.standupTime ? 'bg-green-100' : 'bg-orange-100'}`}>
-              <Clock className={`h-4 w-4 ${dept.standupTime ? 'text-green-600' : 'text-orange-500'}`} />
-            </div>
-            <div>
-              <p className="text-sm font-semibold">{dept.name} — Daily Standup</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {dept.standupTime
-                  ? `Every day at ${dept.standupTime} · ${dept.standupDuration ?? 15} min${dept.standupMeetUrl ? ' · link set ✓' : ' · no link'}`
-                  : 'No daily schedule set — standup cards won\'t be created automatically'}
-              </p>
-            </div>
-          </div>
-          <Button size="sm" variant={dept.standupTime ? 'outline' : 'default'} onClick={() => setEditing(true)} className="shrink-0">
-            {dept.standupTime ? 'Change Schedule' : 'Set Schedule'}
-          </Button>
-        </div>
+  const configured = !!dept.standupTime;
 
-        {editing && (
-          <div className="mt-4 pt-4 border-t space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs">Daily time (IST)</Label>
-                <Input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="h-8 text-sm" />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Duration (minutes)</Label>
-                <Input type="number" min={5} max={60} value={duration} onChange={(e) => setDuration(e.target.value)} className="h-8 text-sm" />
-              </div>
+  return (
+    <div className={cn(
+      'rounded-2xl border overflow-hidden transition-all',
+      configured ? 'border-emerald-200 bg-gradient-to-br from-emerald-50/60 to-green-50/30' : 'border-amber-200 bg-gradient-to-br from-amber-50/60 to-orange-50/30',
+    )}>
+      <div className="flex items-center justify-between gap-3 flex-wrap px-4 py-4">
+        <div className="flex items-center gap-3">
+          <div className={cn('h-10 w-10 rounded-2xl flex items-center justify-center shadow-sm', configured ? 'bg-gradient-to-br from-emerald-400 to-green-500' : 'bg-gradient-to-br from-amber-400 to-orange-500')}>
+            <Clock className="h-5 w-5 text-white" />
+          </div>
+          <div>
+            <p className="text-sm font-bold">{dept.name}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {configured
+                ? `Daily at ${dept.standupTime} · ${dept.standupDuration ?? 15} min${dept.standupMeetUrl ? ' · Meet link set ✓' : ''}`
+                : 'No schedule set — cards won\'t auto-create'}
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={() => setEditing((v) => !v)}
+          className={cn(
+            'inline-flex items-center gap-1.5 h-8 px-3 rounded-xl border text-xs font-semibold transition-all shadow-sm',
+            configured
+              ? 'border-emerald-300 text-emerald-700 bg-white hover:bg-emerald-50'
+              : 'border-amber-300 text-amber-700 bg-white hover:bg-amber-50',
+          )}
+        >
+          {editing ? <X className="h-3.5 w-3.5" /> : <Edit2 className="h-3.5 w-3.5" />}
+          {editing ? 'Cancel' : configured ? 'Change' : 'Set Schedule'}
+        </button>
+      </div>
+
+      {editing && (
+        <div className="px-4 pb-4 pt-0 space-y-3 border-t border-border/30">
+          <div className="grid grid-cols-2 gap-3 pt-3">
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold">Daily Time</Label>
+              <Input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="h-9 rounded-xl text-sm border-border/60" />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Daily Meeting Link <span className="text-muted-foreground font-normal">(optional)</span></Label>
-              <Input
-                placeholder="https://meet.google.com/xxx-xxxx-xxx"
-                value={meetUrl}
-                onChange={(e) => setMeetUrl(e.target.value)}
-                className="h-8 text-sm"
-              />
-              <p className="text-xs text-muted-foreground">This link will be used on every auto-created standup for this department.</p>
-            </div>
-            <div className="flex gap-2 justify-end">
-              <Button size="sm" variant="outline" onClick={() => setEditing(false)}>Cancel</Button>
-              <Button size="sm" onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
+              <Label className="text-xs font-semibold">Duration (min)</Label>
+              <Input type="number" min={5} max={60} value={duration} onChange={(e) => setDuration(e.target.value)} className="h-9 rounded-xl text-sm border-border/60" />
             </div>
           </div>
-        )}
-      </CardContent>
-    </Card>
+          <div className="space-y-1">
+            <Label className="text-xs font-semibold">Meeting Link <span className="text-muted-foreground font-normal">(optional)</span></Label>
+            <Input placeholder="https://meet.google.com/…" value={meetUrl} onChange={(e) => setMeetUrl(e.target.value)} className="h-9 rounded-xl text-sm border-border/60" />
+            <p className="text-[10px] text-muted-foreground">Used on every auto-created standup for this department.</p>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <button onClick={() => setEditing(false)} className="h-8 px-3 rounded-xl border border-border/60 text-xs text-muted-foreground hover:bg-muted transition-colors">Cancel</button>
+            <button onClick={handleSave} disabled={saving} className="h-8 px-4 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-600 text-white text-xs font-bold hover:from-indigo-600 hover:to-violet-700 transition-all disabled:opacity-50 shadow-sm">
+              {saving ? 'Saving…' : 'Save Schedule'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
-function ScheduleDialog({ open, onClose, onCreated }: {
-  open: boolean; onClose: () => void; onCreated: () => void;
-}) {
+// ── Schedule dialog ────────────────────────────────────────────────────────────
+function ScheduleDialog({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
   const { user } = useAuthStore();
-  const isCeo = ['OWNER', 'COMPANY_ADMIN'].includes(user?.role || '');
-  const today = new Date().toISOString().slice(0, 10);
-
-  const [deptId, setDeptId] = useState(user?.departmentId || '');
-  const [date, setDate] = useState(today);
-  const [time, setTime] = useState('09:00');
+  const isCeo  = ['OWNER', 'COMPANY_ADMIN'].includes(user?.role || '');
+  const today  = new Date().toISOString().slice(0, 10);
+  const [deptId, setDeptId]   = useState(user?.departmentId || '');
+  const [date, setDate]       = useState(today);
+  const [time, setTime]       = useState('09:00');
   const [meetUrl, setMeetUrl] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError]     = useState('');
 
   const { data: depts = [] } = useQuery<Department[]>({
     queryKey: ['departments-list'],
@@ -178,72 +204,85 @@ function ScheduleDialog({ open, onClose, onCreated }: {
   const handleSubmit = () => {
     setError('');
     if (!deptId) { setError('Select a department'); return; }
-    if (!date) { setError('Pick a date'); return; }
+    if (!date)   { setError('Pick a date'); return; }
     mutation.mutate();
   };
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent className="sm:max-w-sm rounded-2xl">
         <DialogHeader>
-          <DialogTitle>Schedule Standup</DialogTitle>
+          <DialogTitle className="flex items-center gap-2.5">
+            <div className="h-7 w-7 rounded-xl bg-indigo-100 flex items-center justify-center">
+              <Zap className="h-3.5 w-3.5 text-indigo-600" />
+            </div>
+            Schedule Standup
+          </DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 py-2">
-          {isCeo && (
+
+        <div className="space-y-4">
+          {isCeo ? (
             <div className="space-y-1.5">
-              <Label>Department</Label>
+              <Label className="text-xs font-semibold">Department</Label>
               <Select value={deptId} onValueChange={setDeptId}>
-                <SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger>
-                <SelectContent>
+                <SelectTrigger className="rounded-xl border-border/60"><SelectValue placeholder="Select department" /></SelectTrigger>
+                <SelectContent className="rounded-xl">
                   {depts.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
-          )}
-          {!isCeo && user?.departmentId && (
+          ) : user?.departmentId && (
             <div className="space-y-1.5">
-              <Label>Department</Label>
-              <p className="text-sm font-medium px-3 py-2 bg-muted rounded-md text-muted-foreground">
-                Your department
-              </p>
+              <Label className="text-xs font-semibold">Department</Label>
+              <div className="h-9 rounded-xl bg-muted/50 border border-border/60 px-3 flex items-center text-sm text-muted-foreground">Your department</div>
             </div>
           )}
-          <div className="space-y-1.5">
-            <Label>Date</Label>
-            <Input type="date" value={date} min={today} onChange={(e) => setDate(e.target.value)} />
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Date</Label>
+              <Input type="date" value={date} min={today} onChange={(e) => setDate(e.target.value)} className="h-9 rounded-xl border-border/60 text-sm" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Time</Label>
+              <Input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="h-9 rounded-xl border-border/60 text-sm" />
+            </div>
           </div>
+
           <div className="space-y-1.5">
-            <Label>Time</Label>
-            <Input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+            <Label className="text-xs font-semibold">Meeting Link <span className="text-muted-foreground font-normal">(optional)</span></Label>
+            <Input placeholder="https://meet.google.com/…" value={meetUrl} onChange={(e) => setMeetUrl(e.target.value)} className="h-9 rounded-xl border-border/60 text-sm" />
+            <p className="text-[10px] text-muted-foreground">Everyone in the standup will see a Join button.</p>
           </div>
-          <div className="space-y-1.5">
-            <Label>Meeting Link <span className="text-muted-foreground font-normal">(optional)</span></Label>
-            <Input
-              placeholder="https://meet.google.com/xxx-xxxx-xxx"
-              value={meetUrl}
-              onChange={(e) => setMeetUrl(e.target.value)}
-            />
-            <p className="text-xs text-muted-foreground">Paste any video call link — everyone in the standup will see a Join button.</p>
-          </div>
-          {error && <p className="text-xs text-red-600">{error}</p>}
+
+          {error && (
+            <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 font-medium">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {error}
+            </div>
+          )}
         </div>
+
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleSubmit} disabled={mutation.isPending}>
+          <button onClick={onClose} className="h-9 px-4 rounded-xl border border-border/60 text-sm text-muted-foreground hover:bg-muted transition-colors">Cancel</button>
+          <button onClick={handleSubmit} disabled={mutation.isPending} className="h-9 px-5 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-600 text-white text-sm font-bold hover:from-indigo-600 hover:to-violet-700 transition-all disabled:opacity-50 shadow-sm">
             {mutation.isPending ? 'Scheduling…' : 'Schedule'}
-          </Button>
+          </button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
 
+// ── Main page ──────────────────────────────────────────────────────────────────
 export default function Standup() {
   const qc = useQueryClient();
   const { user } = useAuthStore();
   const [activeStandupId, setActiveStandupId] = useState<string | null>(null);
-  const [scheduleOpen, setScheduleOpen] = useState(false);
-  const canSchedule = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
+  const [scheduleOpen, setScheduleOpen]       = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [mainTab, setMainTab] = useState<'recent' | 'schedule'>('recent');
+
+  const canSchedule         = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
   const canConfigureSchedule = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'].includes(user?.role || '');
 
   const { data: depts = [], refetch: refetchDepts } = useQuery<Department[]>({
@@ -251,8 +290,6 @@ export default function Standup() {
     queryFn: () => api.get('/departments').then((r) => r.data),
     enabled: canConfigureSchedule,
   });
-
-  // For dept head/manager: show only their own department; for CEO/admin: show all
   const schedulableDepts = user?.role === 'DEPARTMENT_HEAD'
     ? depts.filter((d) => d.id === user.departmentId)
     : depts;
@@ -262,226 +299,356 @@ export default function Standup() {
     queryFn: () => api.get('/standups').then((r) => r.data),
   });
 
-  // Fetch full detail (with cards) for the active standup
   const activeId = activeStandupId || standups.find((s) => s.status === 'IN_PROGRESS')?.id || null;
 
   const { data: activeStandup } = useQuery<StandupDetail>({
     queryKey: ['standup', activeId],
     queryFn: () => api.get(`/standups/${activeId}`).then((r) => r.data),
     enabled: !!activeId,
-    refetchInterval: (query) => query.state.data?.status === 'IN_PROGRESS' ? 10000 : false,
+    refetchInterval: (q) => q.state.data?.status === 'IN_PROGRESS' ? 10000 : false,
   });
-
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/standups/${id}`),
-    onSuccess: () => {
-      setConfirmDeleteId(null);
-      setActiveStandupId(null);
-      qc.invalidateQueries({ queryKey: ['standups'] });
-    },
+    onSuccess: () => { setConfirmDeleteId(null); setActiveStandupId(null); qc.invalidateQueries({ queryKey: ['standups'] }); },
   });
-
   const startMutation = useMutation({
     mutationFn: (id: string) => api.post(`/standups/${id}/start`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['standups'] });
-      qc.invalidateQueries({ queryKey: ['standup', activeId] });
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['standups'] }); qc.invalidateQueries({ queryKey: ['standup', activeId] }); },
   });
-
   const endMutation = useMutation({
     mutationFn: (id: string) => api.post(`/standups/${id}/end`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['standups'] });
-      qc.invalidateQueries({ queryKey: ['standup', activeId] });
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['standups'] }); qc.invalidateQueries({ queryKey: ['standup', activeId] }); },
   });
 
+  // Status UI tokens
+  const statusConfig = {
+    SCHEDULED:   { label: 'Scheduled',   badge: 'bg-slate-100 text-slate-700 border-slate-200',   dot: 'bg-slate-400' },
+    IN_PROGRESS: { label: 'Live',        badge: 'bg-blue-100 text-blue-700 border-blue-200',       dot: 'bg-blue-500' },
+    COMPLETED:   { label: 'Completed',   badge: 'bg-emerald-100 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' },
+  } as Record<string, { label: string; badge: string; dot: string }>;
+
   return (
-    <div className="p-4 sm:p-8 space-y-4 sm:space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Zap className="h-6 w-6 text-yellow-500" />
-            Daily Standup
-          </h1>
-          <p className="text-muted-foreground text-sm mt-0.5">15-minute daily operating ritual</p>
-        </div>
-        {canSchedule && (
-          <Button size="sm" className="gap-2" onClick={() => setScheduleOpen(true)}>
-            <Plus className="h-4 w-4" />
-            Schedule Standup
-          </Button>
-        )}
-      </div>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50/40">
+      <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-[1200px] mx-auto">
 
-      {/* Active standup panel */}
-      {activeId && activeStandup ? (
-        <Card className="border-blue-200 bg-blue-50/50">
-          <CardHeader>
-            <div className="flex items-center justify-between flex-wrap gap-3">
-              <div>
-                <CardTitle className="text-lg">{activeStandup.department.name} Standup</CardTitle>
-                {activeStandup.meetUrl && (
-                  <a
-                    href={activeStandup.meetUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-blue-600 mt-1"
-                  >
-                    <Video className="h-3 w-3" />
-                    Google Meet
-                  </a>
-                )}
-              </div>
-              <div className="flex items-center gap-3">
-                {activeStandup.status === 'IN_PROGRESS' && activeStandup.startedAt && (
-                  <Timer startedAt={activeStandup.startedAt} limit={activeStandup.timerMinutes} />
-                )}
-                {activeStandup.meetUrl && (
-                  <Button size="sm" asChild className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white">
-                    <a href={activeStandup.meetUrl} target="_blank" rel="noopener noreferrer">
-                      <Video className="h-3.5 w-3.5" />
-                      Join Meeting
-                    </a>
-                  </Button>
-                )}
-                {activeStandup.status === 'SCHEDULED' ? (
-                  <Button onClick={() => startMutation.mutate(activeStandup.id)} className="gap-2" disabled={startMutation.isPending}>
-                    <Play className="h-4 w-4" /> Start
-                  </Button>
-                ) : activeStandup.status === 'IN_PROGRESS' ? (
-                  <Button variant="destructive" onClick={() => endMutation.mutate(activeStandup.id)} className="gap-2" disabled={endMutation.isPending}>
-                    <Square className="h-4 w-4" /> End
-                  </Button>
-                ) : (
-                  <Badge className="gap-1 bg-green-100 text-green-700 border-green-200">
-                    <CheckCircle2 className="h-3 w-3" /> Completed
-                  </Badge>
-                )}
-              </div>
+        {/* ── Header ── */}
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="h-11 w-11 rounded-2xl bg-gradient-to-br from-yellow-400 to-orange-500 flex items-center justify-center shadow-lg shadow-orange-200 shrink-0">
+              <Zap className="h-6 w-6 text-white" />
             </div>
-          </CardHeader>
-          <CardContent>
-            {activeStandup.cards.length === 0 ? (
-              <p className="text-muted-foreground text-sm text-center py-8">No standup cards for this session.</p>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {activeStandup.cards.map((card) => (
-                  <StandupCardView
-                    key={card.id}
-                    card={card}
-                    standupId={activeStandup.id}
-                    standupStatus={activeStandup.status}
-                    departmentId={activeStandup.department.id}
-                    currentUserId={user?.id}
-                    currentUserRole={user?.role}
-                    onSaved={() => qc.invalidateQueries({ queryKey: ['standup', activeId] })}
-                  />
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      ) : (
-        <Card className="border-dashed">
-          <CardContent className="p-12 text-center text-muted-foreground">
-            <Zap className="h-12 w-12 mx-auto mb-4 opacity-20" />
-            <p>No active standup. Select one from below to start.</p>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Daily schedule configuration */}
-      {canConfigureSchedule && schedulableDepts.length > 0 && (
-        <div>
-          <h2 className="text-base font-semibold mb-3">Daily Schedule</h2>
-          <div className="space-y-3">
-            {schedulableDepts.map((dept) => (
-              <DailyScheduleCard key={dept.id} dept={dept} onUpdated={() => refetchDepts()} />
-            ))}
+            <div>
+              <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Daily Standup</h1>
+              <p className="text-xs text-muted-foreground mt-0.5">15-minute daily operating ritual</p>
+            </div>
           </div>
-        </div>
-      )}
-
-      {/* All standups list */}
-      <div>
-        <h2 className="text-base font-semibold mb-3">Recent Standups</h2>
-        <div className="space-y-2">
-          {standups.map((s) => (
-            <Card
-              key={s.id}
-              className={cn('cursor-pointer hover:shadow-sm transition-shadow', activeId === s.id && 'ring-2 ring-primary')}
-              onClick={() => setActiveStandupId(s.id === activeStandupId ? null : s.id)}
+          {canSchedule && (
+            <button
+              onClick={() => setScheduleOpen(true)}
+              className="inline-flex items-center gap-1.5 h-9 px-4 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-600 text-white text-xs font-bold hover:from-indigo-600 hover:to-violet-700 shadow-sm shadow-indigo-200 transition-all"
             >
-              <CardContent className="p-4 flex items-center gap-4">
-                <div className="flex-1">
-                  <p className="font-medium">{s.department.name}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {new Date(s.scheduledAt).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}
-                    {' · '}{s._count.cards} participants
-                  </p>
+              <Plus className="h-4 w-4" /> Schedule Standup
+            </button>
+          )}
+        </div>
+
+        {/* ── Active standup panel ── */}
+        {activeId && activeStandup ? (
+          <div className={cn(
+            'rounded-3xl overflow-hidden shadow-xl',
+            activeStandup.status === 'IN_PROGRESS'
+              ? 'bg-gradient-to-br from-indigo-600 via-violet-600 to-purple-700'
+              : activeStandup.status === 'COMPLETED'
+              ? 'bg-gradient-to-br from-emerald-500 to-green-600'
+              : 'bg-gradient-to-br from-slate-600 to-slate-700',
+          )}>
+            {/* Top bar */}
+            <div className="px-5 sm:px-7 pt-6 pb-5 flex items-start justify-between gap-4 flex-wrap">
+              <div>
+                <p className="text-white/60 text-xs font-bold uppercase tracking-widest mb-1">
+                  {activeStandup.status === 'IN_PROGRESS' ? '🔴 Live Now' : activeStandup.status === 'COMPLETED' ? '✓ Completed' : '🕐 Scheduled'}
+                </p>
+                <h2 className="text-white text-xl sm:text-2xl font-black">{activeStandup.department.name} Standup</h2>
+                <div className="flex items-center gap-3 mt-2 flex-wrap">
+                  <span className="text-white/70 text-xs flex items-center gap-1">
+                    <Calendar className="h-3.5 w-3.5" />
+                    {new Date(activeStandup.scheduledAt).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}
+                  </span>
+                  <span className="text-white/70 text-xs flex items-center gap-1">
+                    <Users className="h-3.5 w-3.5" />
+                    {(activeStandup.cards ?? []).length} participants
+                  </span>
+                  <span className="text-white/70 text-xs flex items-center gap-1">
+                    <TimerIcon className="h-3.5 w-3.5" />
+                    {activeStandup.timerMinutes} min
+                  </span>
                 </div>
+              </div>
+
+              {/* Timer + controls */}
+              <div className="flex flex-col items-end gap-3">
+                {activeStandup.status === 'IN_PROGRESS' && activeStandup.startedAt && (
+                  <LiveTimer startedAt={activeStandup.startedAt} limit={activeStandup.timerMinutes} />
+                )}
                 <div className="flex items-center gap-2">
-                  {s.overrunMinutes && s.overrunMinutes > 0 && (
-                    <Badge variant="outline" className="gap-1 text-xs text-orange-600 border-orange-200">
-                      <Clock className="h-3 w-3" />+{Math.round(s.overrunMinutes)}m over
-                    </Badge>
-                  )}
-                  <Badge className={cn('text-xs', {
-                    'bg-green-100 text-green-700 border-green-200': s.status === 'COMPLETED',
-                    'bg-blue-100 text-blue-700 border-blue-200': s.status === 'IN_PROGRESS',
-                    'bg-gray-100 text-gray-600': s.status === 'SCHEDULED',
-                  })}>
-                    {s.status.toLowerCase().replace('_', ' ')}
-                  </Badge>
-                  {s.status !== 'COMPLETED' && s.meetUrl && (
+                  {activeStandup.meetUrl && isToday(activeStandup.scheduledAt) && (
                     <a
-                      href={s.meetUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors shrink-0"
+                      href={activeStandup.meetUrl}
+                      target="_blank" rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 h-9 px-4 rounded-xl bg-white/20 backdrop-blur-sm border border-white/30 text-white text-xs font-bold hover:bg-white/30 transition-all"
                     >
-                      <Video className="h-3.5 w-3.5" />
-                      Join
+                      <Video className="h-3.5 w-3.5" /> Join Meeting
                     </a>
                   )}
-                  {canSchedule && s.status !== 'IN_PROGRESS' && (
-                    confirmDeleteId === s.id ? (
-                      <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          onClick={() => deleteMutation.mutate(s.id)}
-                          disabled={deleteMutation.isPending}
-                          className="px-2 py-1 rounded text-xs font-medium bg-red-600 text-white hover:bg-red-700 transition-colors"
-                        >
-                          {deleteMutation.isPending ? '…' : 'Confirm'}
-                        </button>
-                        <button
-                          onClick={() => setConfirmDeleteId(null)}
-                          className="px-2 py-1 rounded text-xs font-medium border hover:bg-muted transition-colors"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    ) : (
+                  {canSchedule && (
+                    activeStandup.status === 'SCHEDULED' ? (
                       <button
-                        onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(s.id); }}
-                        className="p-1.5 rounded text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-colors shrink-0"
-                        title="Delete standup"
+                        onClick={() => startMutation.mutate(activeStandup.id)}
+                        disabled={startMutation.isPending}
+                        className="inline-flex items-center gap-1.5 h-9 px-5 rounded-xl bg-white text-indigo-700 text-xs font-black hover:bg-white/90 transition-all shadow-sm disabled:opacity-50"
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        <Play className="h-4 w-4" /> Start
                       </button>
+                    ) : activeStandup.status === 'IN_PROGRESS' ? (
+                      <button
+                        onClick={() => endMutation.mutate(activeStandup.id)}
+                        disabled={endMutation.isPending}
+                        className="inline-flex items-center gap-1.5 h-9 px-5 rounded-xl bg-red-500 text-white text-xs font-black hover:bg-red-600 transition-all shadow-sm disabled:opacity-50"
+                      >
+                        <Square className="h-4 w-4" /> End
+                      </button>
+                    ) : (
+                      <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/20 backdrop-blur-sm border border-white/30">
+                        <CheckCircle2 className="h-4 w-4 text-white" />
+                        <span className="text-white text-xs font-bold">Completed</span>
+                      </div>
                     )
                   )}
                 </div>
-              </CardContent>
-            </Card>
-          ))}
-          {standups.length === 0 && (
-            <p className="text-muted-foreground text-sm text-center py-8">No standups scheduled yet</p>
+              </div>
+            </div>
+
+            {/* Cards area */}
+            <div className="bg-white/10 backdrop-blur-sm px-5 sm:px-7 py-5">
+              {(activeStandup.cards ?? []).length === 0 ? (
+                <div className="flex flex-col items-center py-12 gap-3 text-white/60">
+                  <Users className="h-10 w-10 opacity-40" />
+                  <p className="text-sm font-medium">No standup cards yet for this session</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {(activeStandup.cards ?? []).map((card) => (
+                    <StandupCardView
+                      key={card.id}
+                      card={card}
+                      standupId={activeStandup.id}
+                      standupStatus={activeStandup.status}
+                      departmentId={activeStandup.department.id}
+                      currentUserId={user?.id}
+                      currentUserRole={user?.role}
+                      onSaved={() => qc.invalidateQueries({ queryKey: ['standup', activeId] })}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-3xl border-2 border-dashed border-border/50 bg-white/60">
+            <div className="flex flex-col items-center py-16 gap-4 text-muted-foreground">
+              <div className="h-16 w-16 rounded-3xl bg-gradient-to-br from-yellow-100 to-orange-100 flex items-center justify-center">
+                <Zap className="h-8 w-8 text-orange-300" />
+              </div>
+              <div className="text-center">
+                <p className="font-semibold text-foreground/60">No active standup</p>
+                <p className="text-sm mt-1">Select one from below or schedule a new one</p>
+              </div>
+              {canSchedule && (
+                <button
+                  onClick={() => setScheduleOpen(true)}
+                  className="inline-flex items-center gap-1.5 h-9 px-4 rounded-xl border border-indigo-300 text-indigo-700 bg-indigo-50 text-sm font-semibold hover:bg-indigo-100 transition-colors mt-1"
+                >
+                  <Plus className="h-4 w-4" /> Schedule Standup
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── Tabbed: Recent | Daily Schedule ── */}
+        <div>
+          {/* Tab bar */}
+          <div className="flex items-center gap-1 p-1 rounded-2xl bg-white border border-border/60 shadow-sm mb-4 w-fit">
+            {([
+              { key: 'recent'   as const, label: 'Recent Standups', icon: Calendar, hidden: false },
+              { key: 'schedule' as const, label: 'Daily Schedule',  icon: Clock,    hidden: !canConfigureSchedule },
+            ]).filter((t) => !t.hidden).map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                onClick={() => setMainTab(key)}
+                className={cn(
+                  'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all',
+                  mainTab === key
+                    ? 'bg-gradient-to-r from-indigo-500 to-violet-600 text-white shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
+                )}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {label}
+                {key === 'recent' && (
+                  <span className={cn(
+                    'text-[10px] font-black rounded-full px-1.5 py-0.5 min-w-[18px] text-center',
+                    mainTab === key ? 'bg-white/25 text-white' : 'bg-muted text-muted-foreground',
+                  )}>
+                    {standups.length}
+                  </span>
+                )}
+                {key === 'schedule' && schedulableDepts.length > 0 && (
+                  <span className={cn(
+                    'text-[10px] font-black rounded-full px-1.5 py-0.5 min-w-[18px] text-center',
+                    mainTab === key ? 'bg-white/25 text-white' : 'bg-muted text-muted-foreground',
+                  )}>
+                    {schedulableDepts.length}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* ── Recent tab ── */}
+          {mainTab === 'recent' && (
+            standups.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-border/60 bg-white/60 flex flex-col items-center py-14 gap-3 text-muted-foreground">
+                <Zap className="h-9 w-9 opacity-20" />
+                <div className="text-center">
+                  <p className="text-sm font-medium">No standups scheduled yet</p>
+                  {canSchedule && (
+                    <button
+                      onClick={() => setScheduleOpen(true)}
+                      className="mt-2 text-xs text-primary hover:underline font-semibold"
+                    >
+                      Schedule your first standup →
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {standups.map((s) => {
+                  const tok = statusConfig[s.status] ?? statusConfig.SCHEDULED;
+                  const selected = activeId === s.id;
+                  const standupIsToday = isToday(s.scheduledAt);
+
+                  return (
+                    <div
+                      key={s.id}
+                      onClick={() => setActiveStandupId(s.id === activeStandupId ? null : s.id)}
+                      className={cn(
+                        'rounded-2xl border bg-white overflow-hidden cursor-pointer transition-all duration-200 hover:shadow-md hover:border-indigo-200/60 group',
+                        selected ? 'border-indigo-300 shadow-md ring-2 ring-indigo-100' : 'border-border/60',
+                        s.status === 'IN_PROGRESS' && 'border-blue-300',
+                      )}
+                    >
+                      <div className={cn('h-0.5 w-full', {
+                        'bg-gradient-to-r from-blue-400 to-indigo-500': s.status === 'IN_PROGRESS',
+                        'bg-gradient-to-r from-emerald-400 to-green-500': s.status === 'COMPLETED',
+                        'bg-gradient-to-r from-slate-300 to-gray-400': s.status === 'SCHEDULED',
+                      })} />
+
+                      <div className="flex items-center gap-3 px-4 py-3.5">
+                        <div className={cn('h-9 w-9 rounded-2xl flex items-center justify-center shrink-0', {
+                          'bg-gradient-to-br from-blue-500 to-indigo-600 shadow-sm shadow-blue-200': s.status === 'IN_PROGRESS',
+                          'bg-gradient-to-br from-emerald-400 to-green-500 shadow-sm shadow-green-200': s.status === 'COMPLETED',
+                          'bg-gradient-to-br from-slate-300 to-gray-400': s.status === 'SCHEDULED',
+                        })}>
+                          {s.status === 'IN_PROGRESS' ? <Zap className="h-4 w-4 text-white" />
+                            : s.status === 'COMPLETED' ? <CheckCircle2 className="h-4 w-4 text-white" />
+                            : <Clock className="h-4 w-4 text-white" />}
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-semibold text-sm group-hover:text-indigo-700 transition-colors truncate">{s.department.name}</p>
+                            {standupIsToday && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200">Today</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                            <span className="text-xs text-muted-foreground">
+                              {new Date(s.scheduledAt).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}
+                              {' · '}
+                              {new Date(s.scheduledAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                              <Users className="h-3 w-3" /> {s._count.cards}
+                            </span>
+                            {s.overrunMinutes && s.overrunMinutes > 0 && (
+                              <span className="text-[10px] font-semibold text-orange-600 flex items-center gap-0.5">
+                                <Clock className="h-3 w-3" /> +{Math.round(s.overrunMinutes)}m over
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className={cn('text-[10px] font-bold px-2.5 py-1 rounded-full border', tok.badge)}>
+                            <span className={cn('inline-block h-1.5 w-1.5 rounded-full mr-1.5', tok.dot, s.status === 'IN_PROGRESS' && 'animate-pulse')} />
+                            {tok.label}
+                          </span>
+
+                          {s.status !== 'COMPLETED' && s.meetUrl && standupIsToday && (
+                            <a
+                              href={s.meetUrl}
+                              target="_blank" rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 text-white text-[11px] font-bold hover:from-blue-600 hover:to-indigo-700 transition-all shadow-sm shadow-blue-200"
+                            >
+                              <Video className="h-3.5 w-3.5" /> Join
+                            </a>
+                          )}
+
+                          {canSchedule && s.status !== 'IN_PROGRESS' && (
+                            confirmDeleteId === s.id ? (
+                              <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                                <button onClick={() => deleteMutation.mutate(s.id)} disabled={deleteMutation.isPending} className="h-7 px-2.5 rounded-lg bg-red-600 text-white text-[10px] font-bold hover:bg-red-700 disabled:opacity-50">
+                                  {deleteMutation.isPending ? '…' : 'Confirm'}
+                                </button>
+                                <button onClick={() => setConfirmDeleteId(null)} className="h-7 px-2 rounded-lg border border-border/60 text-[10px] text-muted-foreground hover:bg-muted">
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(s.id); }} className="h-8 w-8 rounded-xl border border-border/60 flex items-center justify-center text-muted-foreground hover:text-red-600 hover:bg-red-50 hover:border-red-200 transition-all">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )
+                          )}
+
+                          <ArrowRight className={cn('h-4 w-4 text-muted-foreground/30 transition-all group-hover:text-indigo-400', selected && 'rotate-90 text-indigo-400')} />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )
+          )}
+
+          {/* ── Daily Schedule tab ── */}
+          {mainTab === 'schedule' && canConfigureSchedule && (
+            schedulableDepts.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-border/60 bg-white/60 flex flex-col items-center py-14 gap-3 text-muted-foreground">
+                <Clock className="h-9 w-9 opacity-20" />
+                <p className="text-sm font-medium">No departments to configure</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {schedulableDepts.map((dept) => (
+                  <DailyScheduleCard key={dept.id} dept={dept} onUpdated={refetchDepts} />
+                ))}
+              </div>
+            )
           )}
         </div>
       </div>
@@ -495,44 +662,34 @@ export default function Standup() {
   );
 }
 
-// ── Card component with inline edit ──────────────────────────────────────────
-
+// ── Standup member card ────────────────────────────────────────────────────────
 function StandupCardView({
   card, standupId, standupStatus, departmentId, currentUserId, currentUserRole, onSaved,
 }: {
-  card: StandupCard;
-  standupId: string;
-  standupStatus: string;
-  departmentId: string;
-  currentUserId?: string;
-  currentUserRole?: string;
-  onSaved: () => void;
+  card: StandupCard; standupId: string; standupStatus: string;
+  departmentId: string; currentUserId?: string; currentUserRole?: string; onSaved: () => void;
 }) {
   const qc = useQueryClient();
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing]       = useState(false);
   const [logBlockerOpen, setLogBlockerOpen] = useState(false);
-  const [yesterday, setYesterday] = useState(card.yesterdaySummary || '');
-  const [today, setToday] = useState(card.todayCommitments || '');
-  const [blockers, setBlockers] = useState(card.blockers || '');
-  const [saving, setSaving] = useState(false);
+  const [yesterday, setYesterday]   = useState(card.yesterdaySummary || '');
+  const [today, setToday]           = useState(card.todayCommitments || '');
+  const [blockers, setBlockers]     = useState(card.blockers || '');
+  const [saving, setSaving]         = useState(false);
 
-  const isOwn = card.userId === currentUserId;
-  const canEdit = isOwn && standupStatus === 'IN_PROGRESS';
-  const hasBlocker = card.blockers && card.blockers.trim().length > 0;
-  const canLogTask = hasBlocker && ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(currentUserRole || '');
+  const isOwn        = card.userId === currentUserId;
+  const canEdit      = isOwn && standupStatus === 'IN_PROGRESS';
+  const hasBlocker   = !!(card.blockers && card.blockers.trim());
+  const canLogTask   = hasBlocker && ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(currentUserRole || '');
+  const submitted    = card.status === 'SUBMITTED';
 
   const handleSave = async () => {
     setSaving(true);
-    await api.patch(`/standups/${standupId}/cards/${card.id}`, {
-      yesterdaySummary: yesterday,
-      todayCommitments: today,
-      blockers,
-    });
+    await api.patch(`/standups/${standupId}/cards/${card.id}`, { yesterdaySummary: yesterday, todayCommitments: today, blockers });
     setSaving(false);
     setEditing(false);
     onSaved();
   };
-
   const handleCancel = () => {
     setYesterday(card.yesterdaySummary || '');
     setToday(card.todayCommitments || '');
@@ -540,118 +697,129 @@ function StandupCardView({
     setEditing(false);
   };
 
+  // Avatar color based on name hash
+  const avatarColors = [
+    'from-indigo-400 to-violet-500', 'from-sky-400 to-blue-500',
+    'from-emerald-400 to-green-500', 'from-amber-400 to-orange-500',
+    'from-rose-400 to-pink-500',     'from-teal-400 to-cyan-500',
+  ];
+  const colorIdx = card.user.name.charCodeAt(0) % avatarColors.length;
+
   return (
-    <div className={cn('rounded-lg border p-4 bg-white space-y-3', hasBlocker && !editing && 'border-red-200')}>
-      {/* Header */}
-      <div className="flex items-center gap-2">
-        <Avatar className="h-8 w-8">
-          <AvatarFallback className="text-xs bg-blue-100 text-blue-700">{getInitials(card.user.name)}</AvatarFallback>
-        </Avatar>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium truncate">{card.user.name}</p>
-          <p className="text-xs text-muted-foreground capitalize">{card.user.role.toLowerCase().replace(/_/g, ' ')}</p>
+    <div className={cn(
+      'rounded-2xl border bg-white/90 backdrop-blur-sm overflow-hidden transition-all',
+      hasBlocker && !editing ? 'border-red-200 shadow-sm shadow-red-100' : 'border-white/60',
+      isOwn && 'ring-1 ring-white/80',
+    )}>
+      {/* Card header */}
+      <div className={cn('px-3 py-2.5 flex items-center justify-between', hasBlocker && !editing ? 'bg-red-50/60' : 'bg-white/60')}>
+        <div className="flex items-center gap-2.5">
+          <Avatar className="h-8 w-8 ring-2 ring-white shadow-sm">
+            <AvatarFallback className={cn('text-[10px] font-black text-white bg-gradient-to-br', avatarColors[colorIdx])}>
+              {getInitials(card.user.name)}
+            </AvatarFallback>
+          </Avatar>
+          <div>
+            <p className="text-xs font-bold leading-tight">{card.user.name}</p>
+            <p className="text-[10px] text-muted-foreground capitalize">{card.user.role.toLowerCase().replace(/_/g, ' ')}</p>
+          </div>
         </div>
-        <div className="flex items-center gap-1">
-          {card.status === 'SUBMITTED' ? (
-            <CheckCircle2 className="h-4 w-4 text-green-500" />
+        <div className="flex items-center gap-1.5">
+          {submitted ? (
+            <div className="flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
+              <CheckCircle2 className="h-3 w-3" /> Done
+            </div>
           ) : (
-            <Circle className="h-4 w-4 text-gray-300" />
+            <div className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground bg-muted/40 rounded-full px-2 py-0.5">
+              <Circle className="h-3 w-3" /> Pending
+            </div>
           )}
           {canEdit && !editing && (
-            <button onClick={() => setEditing(true)} className="ml-1 text-muted-foreground hover:text-foreground">
-              <Edit2 className="h-3.5 w-3.5" />
+            <button
+              onClick={() => setEditing(true)}
+              className="h-6 w-6 rounded-lg flex items-center justify-center text-muted-foreground hover:text-indigo-600 hover:bg-indigo-50 transition-all"
+            >
+              <Edit2 className="h-3 w-3" />
             </button>
           )}
         </div>
       </div>
 
-      {editing ? (
-        /* Edit mode */
-        <div className="space-y-3">
-          <div>
-            <Label className="text-xs text-muted-foreground">Yesterday</Label>
-            <Textarea
-              value={yesterday}
-              onChange={(e) => setYesterday(e.target.value)}
-              placeholder="What did you complete?"
-              rows={2}
-              className="mt-1 text-sm resize-none"
-            />
-          </div>
-          <div>
-            <Label className="text-xs text-muted-foreground">Today</Label>
-            <Textarea
-              value={today}
-              onChange={(e) => setToday(e.target.value)}
-              placeholder="What will you work on?"
-              rows={2}
-              className="mt-1 text-sm resize-none"
-            />
-          </div>
-          <div>
-            <Label className="text-xs text-muted-foreground">Blockers (leave blank if none)</Label>
-            <Textarea
-              value={blockers}
-              onChange={(e) => setBlockers(e.target.value)}
-              placeholder="Any impediments?"
-              rows={2}
-              className="mt-1 text-sm resize-none"
-            />
-          </div>
-          <div className="flex items-center gap-2 pt-1">
-            <Button size="sm" className="gap-1" onClick={handleSave} disabled={saving}>
-              <Check className="h-3.5 w-3.5" /> {saving ? 'Saving...' : 'Submit'}
-            </Button>
-            <Button size="sm" variant="ghost" className="gap-1" onClick={handleCancel}>
-              <X className="h-3.5 w-3.5" /> Cancel
-            </Button>
-          </div>
-        </div>
-      ) : (
-        /* View mode */
-        <>
-          {card.yesterdaySummary ? (
-            <div>
-              <p className="text-xs font-medium text-muted-foreground mb-1">Yesterday</p>
-              <p className="text-sm">{card.yesterdaySummary}</p>
-            </div>
-          ) : isOwn && standupStatus === 'IN_PROGRESS' ? (
-            <button
-              onClick={() => setEditing(true)}
-              className="w-full text-left text-sm text-muted-foreground border border-dashed rounded p-2 hover:border-primary hover:text-foreground transition-colors"
-            >
-              Click to fill in your standup...
-            </button>
-          ) : null}
-
-          {card.todayCommitments && (
-            <div>
-              <p className="text-xs font-medium text-muted-foreground mb-1">Today</p>
-              <p className="text-sm">{card.todayCommitments}</p>
-            </div>
-          )}
-
-          {hasBlocker && (
-            <div className="bg-red-50 rounded p-2">
-              <div className="flex items-center justify-between gap-1 mb-1">
-                <div className="flex items-center gap-1">
-                  <AlertTriangle className="h-3 w-3 text-red-500" />
-                  <p className="text-xs font-medium text-red-600">Blocker</p>
-                </div>
-                {canLogTask && (
-                  <button
-                    onClick={() => setLogBlockerOpen(true)}
-                    className="flex items-center gap-1 text-xs text-red-600 hover:text-red-800 border border-red-200 rounded px-1.5 py-0.5 hover:bg-red-100 transition-colors"
-                  >
-                    <Plus className="h-3 w-3" /> Log Task
-                  </button>
-                )}
+      {/* Content */}
+      <div className="px-3 pb-3 pt-2 space-y-2.5">
+        {editing ? (
+          <div className="space-y-2.5">
+            {[
+              { label: 'Yesterday', value: yesterday, setter: setYesterday, placeholder: 'What did you complete?' },
+              { label: 'Today',     value: today,     setter: setToday,     placeholder: 'What will you work on?' },
+              { label: 'Blockers',  value: blockers,  setter: setBlockers,  placeholder: 'Any impediments? (leave blank if none)' },
+            ].map(({ label, value, setter, placeholder }) => (
+              <div key={label}>
+                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1">{label}</p>
+                <Textarea
+                  value={value}
+                  onChange={(e) => setter(e.target.value)}
+                  placeholder={placeholder}
+                  rows={2}
+                  className="text-xs resize-none rounded-xl border-border/60 focus-visible:ring-indigo-300 bg-white"
+                />
               </div>
-              <p className="text-sm text-red-800">{card.blockers}</p>
+            ))}
+            <div className="flex items-center gap-1.5 pt-1">
+              <button
+                onClick={handleSave} disabled={saving}
+                className="flex-1 h-8 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-600 text-white text-xs font-bold hover:from-indigo-600 hover:to-violet-700 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
+              >
+                <Check className="h-3.5 w-3.5" /> {saving ? 'Saving…' : 'Submit'}
+              </button>
+              <button
+                onClick={handleCancel}
+                className="h-8 px-3 rounded-xl border border-border/60 text-xs text-muted-foreground hover:bg-muted transition-colors"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
             </div>
-          )}
-        </>
-      )}
+          </div>
+        ) : (
+          <>
+            {card.yesterdaySummary ? (
+              <Section label="Yesterday" content={card.yesterdaySummary} />
+            ) : isOwn && standupStatus === 'IN_PROGRESS' ? (
+              <button
+                onClick={() => setEditing(true)}
+                className="w-full text-left text-xs text-muted-foreground border border-dashed border-border/60 rounded-xl p-2.5 hover:border-indigo-300 hover:text-indigo-700 hover:bg-indigo-50/40 transition-all"
+              >
+                Click to fill in your standup update…
+              </button>
+            ) : null}
+
+            {card.todayCommitments && <Section label="Today" content={card.todayCommitments} />}
+
+            {hasBlocker && (
+              <div className="rounded-xl border border-red-200 bg-red-50/70 p-2.5 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-[10px] font-bold text-red-700 uppercase tracking-widest">
+                    <AlertTriangle className="h-3 w-3" /> Blocker
+                  </div>
+                  {canLogTask && (
+                    <button
+                      onClick={() => setLogBlockerOpen(true)}
+                      className="flex items-center gap-1 text-[10px] font-bold text-red-700 bg-white border border-red-200 rounded-lg px-2 py-0.5 hover:bg-red-100 transition-colors"
+                    >
+                      <Plus className="h-3 w-3" /> Log Task
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs text-red-800 leading-relaxed">{card.blockers}</p>
+              </div>
+            )}
+
+            {!card.yesterdaySummary && !card.todayCommitments && !hasBlocker && !isOwn && (
+              <p className="text-xs text-muted-foreground text-center py-3 italic">No update yet</p>
+            )}
+          </>
+        )}
+      </div>
 
       {logBlockerOpen && (
         <BlockerTaskDialog
@@ -667,70 +835,69 @@ function StandupCardView({
   );
 }
 
-// ── Create task from standup blocker ─────────────────────────────────────────
+function Section({ label, content }: { label: string; content: string }) {
+  return (
+    <div>
+      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1">{label}</p>
+      <p className="text-xs text-foreground/80 leading-relaxed whitespace-pre-wrap">{content}</p>
+    </div>
+  );
+}
 
+// ── Log blocker as task dialog ─────────────────────────────────────────────────
 function BlockerTaskDialog({
   open, blockerText, assigneeUserId, departmentId, onClose, onCreated,
 }: {
-  open: boolean;
-  blockerText: string;
-  assigneeUserId: string;
-  departmentId: string;
-  onClose: () => void;
-  onCreated: () => void;
+  open: boolean; blockerText: string; assigneeUserId: string;
+  departmentId: string; onClose: () => void; onCreated: () => void;
 }) {
-  const [title, setTitle] = useState(blockerText.slice(0, 120));
+  const [title, setTitle]           = useState(blockerText.slice(0, 120));
   const [blockerType, setBlockerType] = useState<BlockerType>('OTHER');
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving]         = useState(false);
 
   const handleCreate = async () => {
     if (!title.trim()) return;
     setSaving(true);
     try {
-      await api.post('/tasks', {
-        title: title.trim(),
-        assigneeUserId,
-        departmentId,
-        status: 'BLOCKED',
-        blockerType,
-        priority: 'HIGH',
-      });
+      await api.post('/tasks', { title: title.trim(), assigneeUserId, departmentId, status: 'BLOCKED', blockerType, priority: 'HIGH' });
       onCreated();
-    } finally {
-      setSaving(false);
-    }
+    } finally { setSaving(false); }
   };
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md rounded-2xl">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-red-600">
-            <AlertTriangle className="h-4 w-4" /> Log Blocker as Task
+          <DialogTitle className="flex items-center gap-2.5">
+            <div className="h-7 w-7 rounded-xl bg-red-100 flex items-center justify-center">
+              <AlertTriangle className="h-3.5 w-3.5 text-red-600" />
+            </div>
+            Log Blocker as Task
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <Label className="text-xs">Task Title</Label>
-            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Describe the blocked work..." />
+            <Label className="text-xs font-semibold">Task Title</Label>
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Describe the blocked work…" className="rounded-xl border-border/60 h-9 text-sm" />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs">Blocker Type</Label>
+            <Label className="text-xs font-semibold">Blocker Type</Label>
             <Select value={blockerType} onValueChange={(v) => setBlockerType(v as BlockerType)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {BLOCKER_TYPES.map((t) => (
-                  <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                ))}
+              <SelectTrigger className="rounded-xl border-border/60 h-9"><SelectValue /></SelectTrigger>
+              <SelectContent className="rounded-xl">
+                {BLOCKER_TYPES.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button variant="destructive" onClick={handleCreate} disabled={saving || !title.trim()}>
-            {saving ? 'Creating...' : 'Create Blocked Task'}
-          </Button>
+          <button onClick={onClose} className="h-9 px-4 rounded-xl border border-border/60 text-sm text-muted-foreground hover:bg-muted transition-colors">Cancel</button>
+          <button
+            onClick={handleCreate} disabled={saving || !title.trim()}
+            className="h-9 px-5 rounded-xl bg-red-600 text-white text-sm font-bold hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+          >
+            <Plus className="h-4 w-4" /> {saving ? 'Creating…' : 'Create Blocked Task'}
+          </button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
