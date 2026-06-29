@@ -187,12 +187,12 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
     onError: (e) => toast.error(formatTaskError(e)),
   });
 
-  const isOwnTask = user?.role === 'TEAM_MEMBER' && task?.assignee?.id === user?.id;
+  const isOwnTask = !!task && task.assignee?.id === user?.id;
   const totalDeliveries = (task?.attachments ?? []).length;
 
   const handleStatusChange = (newStatus: string) => {
     if (newStatus === 'BLOCKED') { setPendingStatus(newStatus); setBlockerOpen(true); return; }
-    if (newStatus === 'DONE' && isOwnTask && totalDeliveries === 0) {
+    if (newStatus === 'DONE' && isOwnTask && task?.status !== 'IN_REVIEW' && totalDeliveries === 0) {
       toast.error('Delivery proof required', 'Upload a screenshot, document, or PR link before submitting your work.');
       deliverySectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
