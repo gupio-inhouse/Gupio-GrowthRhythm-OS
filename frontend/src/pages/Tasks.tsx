@@ -195,14 +195,38 @@ export default function Tasks() {
       const newStatus = variables.patch.status as string | undefined;
       if (newStatus) toast.success(STATUS_TOAST[newStatus] ?? 'Status updated');
     },
+    onError: (e: unknown) => {
+      const msg = (() => {
+        if (typeof e === 'object' && e !== null && 'response' in e) {
+          const r = (e as Record<string, unknown>).response;
+          if (typeof r === 'object' && r !== null && 'data' in r) {
+            const d = (r as Record<string, unknown>).data;
+            if (typeof d === 'object' && d !== null && 'error' in d && typeof (d as Record<string, unknown>).error === 'string')
+              return (d as Record<string, string>).error;
+          }
+        }
+        return e instanceof Error ? e.message : 'Something went wrong.';
+      })();
+      toast.error(msg);
+    },
   });
 
   const handleStatusChange = (task: Task, newStatus: string) => {
     if (newStatus === 'BLOCKED') {
       setBlockerCtx({ taskId: task.id, taskTitle: task.title });
-    } else {
-      updateMutation.mutate({ id: task.id, patch: { status: newStatus } });
+      return;
     }
+    if (newStatus === 'DONE' && task.status !== 'IN_REVIEW') {
+      const myId = user?.id;
+      const assigneeId = task.assignee?.id;
+      const attachmentCount = task._count?.attachments ?? 0;
+      if (!!myId && !!assigneeId && myId === assigneeId && attachmentCount === 0) {
+        toast.error('Delivery proof required', 'Upload a screenshot, document, or PR link before submitting.');
+        openTask(task.id, 'SCREENSHOT');
+        return;
+      }
+    }
+    updateMutation.mutate({ id: task.id, patch: { status: newStatus } });
   };
 
   const handleExtendDeadline = (taskId: string, newDate: string) => {

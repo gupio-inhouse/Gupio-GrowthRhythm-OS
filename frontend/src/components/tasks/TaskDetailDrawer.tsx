@@ -187,15 +187,24 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
     onError: (e) => toast.error(formatTaskError(e)),
   });
 
-  const isOwnTask = !!task && task.assignee?.id === user?.id;
+  const isOwnTask = !!task && !!user?.id && task.assignee?.id === user.id;
   const totalDeliveries = (task?.attachments ?? []).length;
+  const needsDeliveryBeforeDone = isOwnTask && task?.status !== 'IN_REVIEW' && totalDeliveries === 0;
 
   const handleStatusChange = (newStatus: string) => {
     if (newStatus === 'BLOCKED') { setPendingStatus(newStatus); setBlockerOpen(true); return; }
-    if (newStatus === 'DONE' && isOwnTask && task?.status !== 'IN_REVIEW' && totalDeliveries === 0) {
-      toast.error('Delivery proof required', 'Upload a screenshot, document, or PR link before submitting your work.');
-      deliverySectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      return;
+    if (newStatus === 'DONE') {
+      // Re-read directly from task/user so we are never working with a stale closure value
+      const myId = user?.id;
+      const assigneeId = task?.assignee?.id;
+      const currentStatus = task?.status;
+      const deliveryCount = (task?.attachments ?? []).length;
+      const submittingOwnWork = !!myId && !!assigneeId && myId === assigneeId && currentStatus !== 'IN_REVIEW';
+      if (submittingOwnWork && deliveryCount === 0) {
+        toast.error('Delivery proof required', 'Upload a screenshot, document, or PR link before submitting your work.');
+        deliverySectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+      }
     }
     updateMutation.mutate({ status: newStatus });
   };
