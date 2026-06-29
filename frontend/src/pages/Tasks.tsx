@@ -5,7 +5,7 @@ import {
   Plus, CheckSquare, AlertTriangle, Clock, Search, LayoutGrid, List,
   Upload, ImagePlus, FileText, GitPullRequest, CalendarDays, Check,
   X as XIcon, ChevronLeft, ChevronRight, CheckCircle2, Filter,
-  ArrowUpRight, Zap, Calendar,
+  ArrowUpRight, Zap,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -13,7 +13,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { cn, priorityColor, formatDate, getInitials, isEngineeringDept, workingDurationLabel, snapToWorkingDay } from '@/lib/utils';
+import { cn, priorityColor, formatDate, getInitials, isEngineeringDept, workingDurationLabel, countWorkingDays } from '@/lib/utils';
+import { WeekdayDatePicker } from '@/components/ui/weekday-date-picker';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { BlockerDialog } from '@/components/tasks/BlockerDialog';
@@ -26,6 +27,7 @@ import { useAuthStore } from '@/store/authStore';
 type Task = {
   id: string; title: string; status: string; priority: string;
   dueDate?: string; createdAt?: string;
+  completionSubmittedAt?: string; completedAt?: string;
   assignee?: { id: string; name: string; avatarUrl?: string };
   department?: { id: string; name: string };
   team?: { id: string; name: string };
@@ -59,27 +61,64 @@ const PRIORITY_STYLE: Record<string, string> = {
 };
 
 // ── DueBadge ──────────────────────────────────────────────────────────────────
-function DueBadge({ dueDate, status, className }: { dueDate: string; status: string; className?: string }) {
-  const now     = new Date();
-  const today   = new Date(); today.setHours(0, 0, 0, 0);
-  const due     = new Date(dueDate);
-  const dueDay  = new Date(dueDate); dueDay.setHours(0, 0, 0, 0);
-  const diff    = Math.round((dueDay.getTime() - today.getTime()) / 86400000);
-  const isDone  = status === 'DONE' || status === 'CANCELLED';
+function DueBadge({
+  dueDate, status, isEng = false,
+  completionSubmittedAt, completedAt,
+  className,
+}: {
+  dueDate: string; status: string; isEng?: boolean;
+  completionSubmittedAt?: string; completedAt?: string;
+  className?: string;
+}) {
+  const now    = new Date();
+  const today  = new Date(); today.setHours(0, 0, 0, 0);
+  const due    = new Date(dueDate);
+  const dueDay = new Date(dueDate); dueDay.setHours(0, 0, 0, 0);
 
-  if (isDone) return <span className={cn('text-xs text-muted-foreground tabular-nums', className)}>{formatDate(dueDate)}</span>;
+  if (status === 'CANCELLED') {
+    return <span className={cn('text-xs text-muted-foreground tabular-nums', className)}>{formatDate(dueDate)}</span>;
+  }
 
-  if (due < now) {
-    const days = Math.abs(diff);
+  if (status === 'DONE') {
+    // Use submission time if available, fall back to completedAt
+    const submittedStr = completionSubmittedAt || completedAt;
+    if (!submittedStr) return <span className={cn('text-xs text-muted-foreground tabular-nums', className)}>{formatDate(dueDate)}</span>;
+
+    const submitted    = new Date(submittedStr);
+    const submittedDay = new Date(submittedStr); submittedDay.setHours(0, 0, 0, 0);
+
+    if (submitted > due) {
+      // How many working days late was it submitted?
+      const lateDays = countWorkingDays(dueDay, submittedDay, isEng);
+      return (
+        <span className={cn('inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-200', className)}>
+          <span>Done</span>
+          <span className="opacity-60">·</span>
+          <span>{lateDays === 0 ? 'same day' : lateDays === 1 ? '1wd late' : `${lateDays}wd late`}</span>
+        </span>
+      );
+    }
     return (
-      <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200', className)}>
-        {days === 0 ? 'Overdue' : days === 1 ? '1d late' : `${days}d late`}
+      <span className={cn('inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200', className)}>
+        ✓ On time
       </span>
     );
   }
-  if (diff === 0) return <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 border border-orange-200', className)}>Today</span>;
-  if (diff === 1) return <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 border border-yellow-200', className)}>Tomorrow</span>;
-  if (diff <= 3)  return <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full bg-yellow-50 text-yellow-700 border border-yellow-100', className)}>In {diff}d</span>;
+
+  // Active task — use working-day count
+  const wDiff = countWorkingDays(today, dueDay, isEng); // negative = overdue
+
+  if (due < now) {
+    const days = Math.abs(wDiff);
+    return (
+      <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200', className)}>
+        {days === 0 ? 'Overdue' : days === 1 ? '1wd late' : `${days}wd late`}
+      </span>
+    );
+  }
+  if (wDiff === 0) return <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 border border-orange-200', className)}>Today</span>;
+  if (wDiff === 1) return <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 border border-yellow-200', className)}>Tomorrow</span>;
+  if (wDiff <= 3)  return <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full bg-yellow-50 text-yellow-700 border border-yellow-100', className)}>In {wDiff}wd</span>;
   return <span className={cn('text-xs text-muted-foreground tabular-nums', className)}>{formatDate(dueDate)}</span>;
 }
 
@@ -378,26 +417,12 @@ export default function Tasks() {
             )}
 
             {/* Custom date filter */}
-            <div className="relative shrink-0">
-              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-              <input
-                type="date"
-                value={dateFilter}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  if (!val) { setDateFilter(''); setStatusFilter(''); resetPage(); return; }
-                  setDateFilter(snapToWorkingDay(val, isEngineeringContext));
-                  setStatusFilter(''); resetPage();
-                }}
-                title={`Filter by due date — working days only (${isEngineeringContext ? 'Mon–Sat' : 'Mon–Fri'})`}
-                className={cn(
-                  'h-9 pl-9 pr-3 rounded-xl border text-xs font-medium bg-white focus:outline-none focus:ring-1 focus:ring-indigo-300 transition-all',
-                  dateFilter
-                    ? 'border-indigo-400 text-indigo-700 bg-indigo-50'
-                    : 'border-border/60 text-muted-foreground',
-                )}
-              />
-            </div>
+            <WeekdayDatePicker
+              value={dateFilter}
+              onChange={(v) => { setDateFilter(v); setStatusFilter(''); resetPage(); }}
+              excludeSat={isEngineeringContext}
+              placeholder="Filter by date"
+            />
 
             {activeFilters > 0 && (
               <button
@@ -664,7 +689,7 @@ function TaskListRow({
                   </span>
                 )}
                 {/* Mobile due badge + duration */}
-                {task.dueDate && <DueBadge dueDate={task.dueDate} status={task.status} className="sm:hidden" />}
+                {task.dueDate && <DueBadge dueDate={task.dueDate} status={task.status} isEng={isEngineeringDept(task.department?.name)} completionSubmittedAt={task.completionSubmittedAt} completedAt={task.completedAt} className="sm:hidden" />}
                 <DurationBadge createdAt={task.createdAt} dueDate={task.dueDate} isEng={isEngineeringDept(task.department?.name)} />
               </div>
 
@@ -692,14 +717,17 @@ function TaskListRow({
             {/* Duration + due date (desktop) + extend */}
             <div className="hidden sm:flex items-center gap-1.5 shrink-0">
               <DurationBadge createdAt={task.createdAt} dueDate={task.dueDate} isEng={isEngineeringDept(task.department?.name)} />
-              {task.dueDate && <DueBadge dueDate={task.dueDate} status={task.status} />}
+              {task.dueDate && <DueBadge dueDate={task.dueDate} status={task.status} isEng={isEngineeringDept(task.department?.name)} completionSubmittedAt={task.completionSubmittedAt} completedAt={task.completedAt} />}
               {canExtend && !['DONE', 'CANCELLED'].includes(task.status) && (
                 extendOpen ? (
                   <form className="flex items-center gap-1" onClick={(e) => e.stopPropagation()} onSubmit={submitExtend}>
-                    <input
-                      autoFocus type="date" min={minDateStr} value={newDate}
-                      onChange={(e) => setNewDate(e.target.value)}
-                      className="rounded-lg border border-border/60 bg-white px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                    <WeekdayDatePicker
+                      value={newDate}
+                      onChange={setNewDate}
+                      excludeSat={isEngineeringDept(task.department?.name)}
+                      minDate={minDateStr}
+                      placeholder="New date"
+                      inputClassName="text-[11px] h-8 px-2"
                     />
                     <button type="submit" className="p-1 rounded-lg text-emerald-600 hover:bg-emerald-50 transition-colors">
                       <Check className="h-3.5 w-3.5" />
@@ -909,14 +937,17 @@ function KanbanCard({
               <span className="text-[10px] text-muted-foreground">📎{task._count.attachments}</span>
             )}
             <DurationBadge createdAt={task.createdAt} dueDate={task.dueDate} isEng={isEngineeringDept(task.department?.name)} />
-            {task.dueDate && <DueBadge dueDate={task.dueDate} status={task.status} />}
+            {task.dueDate && <DueBadge dueDate={task.dueDate} status={task.status} isEng={isEngineeringDept(task.department?.name)} completionSubmittedAt={task.completionSubmittedAt} completedAt={task.completedAt} />}
             {canExtend && !['DONE', 'CANCELLED'].includes(task.status) && (
               extendOpen ? (
                 <form className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()} onSubmit={submitExtend}>
-                  <input
-                    autoFocus type="date" min={minDateStr} value={newDate}
-                    onChange={(e) => setNewDate(e.target.value)}
-                    className="rounded-lg border bg-white px-1.5 py-0.5 text-[10px] w-24 focus:outline-none"
+                  <WeekdayDatePicker
+                    value={newDate}
+                    onChange={setNewDate}
+                    excludeSat={isEngineeringDept(task.department?.name)}
+                    minDate={minDateStr}
+                    placeholder="New date"
+                    inputClassName="text-[10px] h-7 px-2"
                   />
                   <button type="submit" className="text-emerald-600"><Check className="h-3 w-3" /></button>
                   <button type="button" onClick={() => setExtendOpen(false)} className="text-muted-foreground"><XIcon className="h-3 w-3" /></button>

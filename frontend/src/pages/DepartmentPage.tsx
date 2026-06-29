@@ -20,7 +20,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { cn, getInitials, formatDate, formatRelative, priorityColor, statusColor, isEngineeringDept, snapToWorkingDay } from '@/lib/utils';
+import { cn, getInitials, formatDate, formatRelative, priorityColor, statusColor, isEngineeringDept, countWorkingDays } from '@/lib/utils';
+import { WeekdayDatePicker } from '@/components/ui/weekday-date-picker';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/api/client';
 import { TaskDetailDrawer } from '@/components/tasks/TaskDetailDrawer';
@@ -43,6 +44,7 @@ type DeptDash = {
 type DeptTask = {
   id: string; title: string; status: string; priority: string;
   dueDate?: string; createdAt?: string; description?: string; blockerType?: string;
+  completionSubmittedAt?: string; completedAt?: string;
   assignee?: { id: string; name: string; avatarUrl?: string };
   department?: { id: string; name: string };
   team?: { id: string; name: string };
@@ -55,7 +57,7 @@ type Team = {
   managerUserId?: string; manager?: TeamUser; departmentHead?: TeamUser;
   members: TeamMember[]; memberCount: number;
 };
-type TaskSummary = { id: string; title: string; status: string; priority: string; dueDate?: string; createdAt?: string; assigneeUserId: string };
+type TaskSummary = { id: string; title: string; status: string; priority: string; dueDate?: string; createdAt?: string; completionSubmittedAt?: string; completedAt?: string; assigneeUserId: string };
 type MemberStat = {
   user: TeamUser; joinedAt: string;
   stats: { total: number; done: number; inProgress: number; inReview: number; blocked: number; todo: number; overdue: number; completionRate: number };
@@ -101,6 +103,31 @@ function ProgressBar({ value, className }: { value: number; className?: string }
     <div className={cn('w-full rounded-full bg-muted h-2', className)}>
       <div className={cn('h-2 rounded-full transition-all', color)} style={{ width: `${Math.min(value, 100)}%` }} />
     </div>
+  );
+}
+
+// Returns a small "Done · Xwd late" or "✓ On time" badge for a completed task.
+function doneLateLabel(
+  dueDate: string | undefined,
+  completionSubmittedAt: string | undefined,
+  completedAt: string | undefined,
+  isEng: boolean,
+): React.ReactNode {
+  if (!dueDate) return null;
+  const submittedStr = completionSubmittedAt || completedAt;
+  if (!submittedStr) return null;
+  const due       = new Date(dueDate);
+  const submitted = new Date(submittedStr);
+  if (submitted <= due) {
+    return <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">✓ On time</span>;
+  }
+  const dueDay  = new Date(dueDate); dueDay.setHours(0, 0, 0, 0);
+  const subDay  = new Date(submittedStr); subDay.setHours(0, 0, 0, 0);
+  const lateDays = countWorkingDays(dueDay, subDay, isEng);
+  return (
+    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-200">
+      {lateDays <= 0 ? 'Done late' : lateDays === 1 ? '1wd late' : `${lateDays}wd late`}
+    </span>
   );
 }
 
@@ -772,26 +799,13 @@ export default function DepartmentPage() {
                   </SelectContent>
                 </Select>
                 {/* Custom date filter */}
-                <div className="relative shrink-0">
-                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-                  <input
-                    type="date"
-                    value={taskDateFilter}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      if (!val) { setTaskDateFilter(''); setTaskFilter('all'); setDeptTasksPage(1); return; }
-                      setTaskDateFilter(snapToWorkingDay(val, isEngDept));
-                      setTaskFilter('all'); setDeptTasksPage(1);
-                    }}
-                    title={`Filter by due date — working days only (${isEngDept ? 'Mon–Sat' : 'Mon–Fri'})`}
-                    className={cn(
-                      'h-9 pl-9 pr-3 rounded-xl border text-xs font-medium bg-white focus:outline-none focus:ring-1 focus:ring-violet-300 transition-all',
-                      taskDateFilter
-                        ? 'border-violet-400 text-violet-700 bg-violet-50'
-                        : 'border-border/60 text-muted-foreground',
-                    )}
-                  />
-                </div>
+                <WeekdayDatePicker
+                  value={taskDateFilter}
+                  onChange={(v) => { setTaskDateFilter(v); setTaskFilter('all'); setDeptTasksPage(1); }}
+                  excludeSat={isEngDept}
+                  placeholder="Filter by date"
+                  inputClassName="border-violet-200 focus:ring-violet-300 data-[active]:border-violet-400 data-[active]:text-violet-700 data-[active]:bg-violet-50"
+                />
 
                 {(taskSearch || taskMemberFilter || taskDateFilter) && (
                   <button
@@ -912,6 +926,7 @@ export default function DepartmentPage() {
                                 {formatDate(task.dueDate)}
                               </span>
                             )}
+                            {task.status === 'DONE' && doneLateLabel(task.dueDate, task.completionSubmittedAt, task.completedAt, isEngDept)}
                             {task.assignee && (
                               <button
                                 onClick={(e) => {
@@ -1109,6 +1124,7 @@ export default function DepartmentPage() {
           <MemberDetailDialog
             member={memberDialog}
             tasks={deptTasks.filter((t) => t.assignee?.id === memberDialog.id)}
+            isEng={isEngDept}
             onClose={() => setMemberDialog(null)}
           />
         )}
@@ -1142,9 +1158,10 @@ export default function DepartmentPage() {
 
 // ── Member detail dialog ───────────────────────────────────────────────────────
 
-function MemberDetailDialog({ member, tasks, onClose }: {
+function MemberDetailDialog({ member, tasks, isEng = false, onClose }: {
   member: DeptMember;
   tasks: DeptTask[];
+  isEng?: boolean;
   onClose: () => void;
 }) {
   const now = new Date();
@@ -1244,6 +1261,11 @@ function MemberDetailDialog({ member, tasks, onClose }: {
                       <p className={cn('text-xs mt-0.5', isOverdue ? 'text-red-600 font-medium' : 'text-muted-foreground')}>
                         {isOverdue ? '⚠ Overdue · ' : ''}{formatDate(task.dueDate)}
                       </p>
+                    )}
+                    {task.status === 'DONE' && (
+                      <div className="mt-0.5">
+                        {doneLateLabel(task.dueDate, task.completionSubmittedAt, task.completedAt, isEng)}
+                      </div>
                     )}
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
@@ -1985,6 +2007,7 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
                     onAssignManager={() => assignManager.mutate(ms.user.id)}
                     onViewMember={onViewMember}
                     onTaskClick={(id) => setSelectedTaskId(id)}
+                    isEng={isEngProject}
                   />
                 ))}
               </div>
@@ -2030,26 +2053,12 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
               )}
 
               {/* Custom date filter */}
-              <div className="relative shrink-0">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-                <input
-                  type="date"
-                  value={projectDateFilter}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (!val) { setProjectDateFilter(''); setTaskFilter('all'); setTasksPage(1); return; }
-                    setProjectDateFilter(snapToWorkingDay(val, isEngProject));
-                    setTaskFilter('all'); setTasksPage(1);
-                  }}
-                  title={`Filter by due date — working days only (${isEngProject ? 'Mon–Sat' : 'Mon–Fri'})`}
-                  className={cn(
-                    'h-9 pl-9 pr-3 rounded-xl border text-xs font-medium bg-white focus:outline-none focus:ring-1 focus:ring-indigo-300 transition-all',
-                    projectDateFilter
-                      ? 'border-indigo-400 text-indigo-700 bg-indigo-50'
-                      : 'border-border/60 text-muted-foreground',
-                  )}
-                />
-              </div>
+              <WeekdayDatePicker
+                value={projectDateFilter}
+                onChange={(v) => { setProjectDateFilter(v); setTaskFilter('all'); setTasksPage(1); }}
+                excludeSat={isEngProject}
+                placeholder="Filter by date"
+              />
 
               {/* Clear */}
               {(search || projectMemberFilter || projectDateFilter) && (
@@ -2179,6 +2188,7 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
                               {formatDate(task.dueDate)}
                             </span>
                           )}
+                          {task.status === 'DONE' && doneLateLabel(task.dueDate, task.completionSubmittedAt, task.completedAt, isEngProject)}
                           <button
                             onClick={(e) => { e.stopPropagation(); onViewMember(task.memberId); }}
                             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
@@ -2247,6 +2257,7 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
           teamId={team.id}
           canAssign={canAssignTask}
           selfId={authUser?.id ?? ''}
+          deptName={team.department.name}
           members={(() => {
             const seen = new Set<string>();
             const list: TeamUser[] = [];
@@ -2272,12 +2283,13 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
 
 // ── Member task row ────────────────────────────────────────────────────────────
 
-function MemberTaskRow({ ms, expanded, onToggle, onRemove, removing, canManage, isManager, canAssignManager, onAssignManager, onViewMember, onTaskClick }: {
+function MemberTaskRow({ ms, expanded, onToggle, onRemove, removing, canManage, isManager, canAssignManager, onAssignManager, onViewMember, onTaskClick, isEng = false }: {
   ms: MemberStat; expanded: boolean; onToggle: () => void;
   onRemove: () => void; removing: boolean; canManage: boolean;
   isManager?: boolean; canAssignManager?: boolean; onAssignManager?: () => void;
   onViewMember: (id: string) => void;
   onTaskClick?: (id: string) => void;
+  isEng?: boolean;
 }) {
   const now = new Date();
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -2376,6 +2388,9 @@ function MemberTaskRow({ ms, expanded, onToggle, onRemove, removing, canManage, 
                     <p className={cn('text-xs mt-0.5', overdue ? 'text-red-600 font-medium' : 'text-muted-foreground')}>
                       {overdue ? '⚠ Overdue · ' : ''}{formatDate(t.dueDate)}
                     </p>
+                  )}
+                  {t.status === 'DONE' && (
+                    <div className="mt-0.5">{doneLateLabel(t.dueDate, t.completionSubmittedAt, t.completedAt, isEng)}</div>
                   )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -2794,14 +2809,16 @@ const addProjectTaskSchema = z.object({
 });
 type AddProjectTaskForm = z.infer<typeof addProjectTaskSchema>;
 
-function AddProjectTaskDialog({ teamId, members, canAssign, selfId, onClose, onCreated }: {
+function AddProjectTaskDialog({ teamId, members, canAssign, selfId, deptName, onClose, onCreated }: {
   teamId: string;
   members: TeamUser[];
   canAssign: boolean;
   selfId: string;
+  deptName?: string;
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const isEngTask = isEngineeringDept(deptName);
   const { register, handleSubmit, setValue, watch, formState: { errors, isSubmitting } } = useForm<AddProjectTaskForm>({
     resolver: zodResolver(addProjectTaskSchema),
     defaultValues: { priority: 'MEDIUM', assigneeUserId: canAssign ? '' : selfId },
@@ -2901,7 +2918,13 @@ function AddProjectTaskDialog({ teamId, members, canAssign, selfId, onClose, onC
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label>Due Date</Label>
-              <Input type="date" {...register('dueDate')} />
+              <WeekdayDatePicker
+                value={watch('dueDate') ?? ''}
+                onChange={(v) => setValue('dueDate', v)}
+                excludeSat={isEngTask}
+                placeholder="Pick due date"
+                inputClassName="w-full"
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Due Time</Label>

@@ -91,3 +91,18 @@ export function snapToWorkingDay(dateStr: string, excludeSat: boolean): string {
   return d.toISOString().split('T')[0];
 }
 
+// Count working days between two dates (positive = from < to, negative = from > to).
+export function countWorkingDays(from: Date, to: Date, excludeSat: boolean): number {
+  const sign  = to < from ? -1 : 1;
+  const start = new Date(sign === 1 ? from : to); start.setHours(0, 0, 0, 0);
+  const end   = new Date(sign === 1 ? to   : from); end.setHours(0, 0, 0, 0);
+  let count = 0;
+  const d = new Date(start);
+  while (d < end) {
+    const day = d.getDay();
+    if (day !== 0 && !(excludeSat && day === 6)) count++;
+    d.setDate(d.getDate() + 1);
+  }
+  return sign * count;
+}
+

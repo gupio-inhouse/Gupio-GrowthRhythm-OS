@@ -13,7 +13,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BlockerDialog } from './BlockerDialog';
 import { NewTaskDialog, type TaskToEdit } from './NewTaskDialog';
-import { cn, formatDate, formatRelative, getInitials, isEngineeringDept, workingDurationLabel } from '@/lib/utils';
+import { cn, formatDate, formatRelative, getInitials, isEngineeringDept, workingDurationLabel, countWorkingDays } from '@/lib/utils';
 import api from '@/api/client';
 import { useAuthStore } from '@/store/authStore';
 
@@ -435,10 +435,32 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
                         </span>
                       ),
                     },
-                    task.completionSubmittedAt && task.status === 'IN_REVIEW' && {
+                    (task.completionSubmittedAt && (task.status === 'IN_REVIEW' || task.status === 'DONE')) && {
                       icon: Calendar, label: 'Submitted',
                       content: <span className="text-sm">{formatDateTime(task.completionSubmittedAt)}</span>,
                     },
+                    (task.status === 'DONE' && task.dueDate && (task.completionSubmittedAt || task.completedAt)) && (() => {
+                      const isEng        = isEngineeringDept(task.department?.name);
+                      const submittedStr = task.completionSubmittedAt || task.completedAt!;
+                      const due          = new Date(task.dueDate!);
+                      const submitted    = new Date(submittedStr);
+                      const dueDay       = new Date(task.dueDate!); dueDay.setHours(0, 0, 0, 0);
+                      const subDay       = new Date(submittedStr);   subDay.setHours(0, 0, 0, 0);
+                      const isLate       = submitted > due;
+                      const lateDays     = isLate ? countWorkingDays(dueDay, subDay, isEng) : 0;
+                      return {
+                        icon: CheckCircle2, label: 'Submission',
+                        content: isLate ? (
+                          <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-red-600">
+                            {lateDays <= 0 ? 'Late (same day)' : lateDays === 1 ? '1 working day late' : `${lateDays} working days late`}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-600">
+                            ✓ Submitted on time
+                          </span>
+                        ),
+                      };
+                    })(),
                     task.completionReviewedAt && task.completionReviewedBy && {
                       icon: CheckCircle2, label: 'Reviewed by',
                       content: <span className="text-sm">{task.completionReviewedBy.name} · {formatDateTime(task.completionReviewedAt)}</span>,

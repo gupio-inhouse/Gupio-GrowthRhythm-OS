@@ -8,7 +8,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { cn, getInitials } from '@/lib/utils';
+import { cn, getInitials, isEngineeringDept } from '@/lib/utils';
+import { WeekdayDatePicker } from '@/components/ui/weekday-date-picker';
 import {
   ClipboardList, User, Calendar, Clock, Tag, Link2, FolderKanban,
   ChevronDown, Search, X,
@@ -195,6 +196,7 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
   // Group by department for the dropdown
   const deptMap = new Map(departments.map((d) => [d.id, d.name]));
   const assigneeName = users.find((u) => u.id === watchedAssigneeId)?.name;
+  const isEngInDialog = isEngineeringDept(deptMap.get(watchedDeptId));
 
   const availableTeams = canAssignToAny && watchedAssigneeId
     ? teams.filter((t) => t.members.some((m) => m.user.id === watchedAssigneeId))
@@ -448,7 +450,13 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
                     <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
                     <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Due Date</Label>
                   </div>
-                  <Input type="date" {...register('dueDate')} className="rounded-xl border-border/60 h-9 text-sm" />
+                  <WeekdayDatePicker
+                    value={watch('dueDate') ?? ''}
+                    onChange={(v) => setValue('dueDate', v)}
+                    excludeSat={isEngInDialog}
+                    placeholder="Pick due date"
+                    inputClassName="w-full"
+                  />
                 </div>
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-1.5">
