@@ -597,28 +597,39 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
   res.json({ ...user, phone: decryptField(user.phone) });
 });
 
-// DELETE /users/:id — hard delete (OWNER/ADMIN only, cannot delete self or another OWNER)
-router.delete('/:id', requireRole('OWNER', 'COMPANY_ADMIN'), async (req: AuthRequest, res: Response) => {
-  const targetId = req.params.id as string;
+// DELETE /users/:id — hard delete (OWNER/ADMIN: any non-owner; DEPT_HEAD: own dept TEAM_MEMBER/MANAGER only)
+router.delete('/:id', async (req: AuthRequest, res: Response) => {
+  const actor = await getViewerScope(req.user!.userId);
+  if (!actor) { res.status(403).json({ error: 'Forbidden' }); return; }
 
-  if (targetId === req.user!.userId) {
+  if (!['OWNER', 'COMPANY_ADMIN', 'SUPER_ADMIN', 'DEPARTMENT_HEAD'].includes(actor.role)) {
+    res.status(403).json({ error: 'Forbidden' });
+    return;
+  }
+
+  const targetId = req.params.id as string;
+  if (targetId === actor.id) {
     res.status(400).json({ error: 'You cannot delete your own account' });
     return;
   }
 
   const target = await prisma.user.findFirst({
     where: { id: targetId, orgId: req.user!.orgId },
-    select: { id: true, role: true },
+    select: { id: true, role: true, departmentId: true },
   });
 
-  if (!target) {
-    res.status(404).json({ error: 'User not found' });
-    return;
-  }
+  if (!target) { res.status(404).json({ error: 'User not found' }); return; }
+  if (target.role === 'OWNER') { res.status(403).json({ error: 'Cannot delete an organization owner' }); return; }
 
-  if (target.role === 'OWNER') {
-    res.status(403).json({ error: 'Cannot delete an organization owner' });
-    return;
+  if (actor.role === 'DEPARTMENT_HEAD') {
+    if (!['TEAM_MEMBER', 'MANAGER'].includes(target.role)) {
+      res.status(403).json({ error: 'Department heads can only delete team members and managers' });
+      return;
+    }
+    if (!actor.departmentId || actor.departmentId !== target.departmentId) {
+      res.status(403).json({ error: 'You can only delete members in your own department' });
+      return;
+    }
   }
 
   await prisma.user.delete({ where: { id: targetId } });

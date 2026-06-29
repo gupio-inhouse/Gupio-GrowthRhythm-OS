@@ -159,7 +159,7 @@ export default function Team() {
   const canInviteOnlyTeamMembers = me?.role === 'MANAGER';
   const canDeactivate = ['OWNER', 'COMPANY_ADMIN'].includes(me?.role || '');
   const canEditUser = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'].includes(me?.role || '');
-  const canDeleteUser = ['OWNER', 'COMPANY_ADMIN'].includes(me?.role || '');
+  const canDeleteUser = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'].includes(me?.role || '');
 
   const toggleStatus = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) =>
@@ -451,7 +451,11 @@ export default function Team() {
                           }
                         </button>
                       )}
-                      {canDeleteUser && member.id !== me?.id && member.role !== 'OWNER' && (
+                      {canDeleteUser && member.id !== me?.id && member.role !== 'OWNER' &&
+                        (me?.role !== 'DEPARTMENT_HEAD' || (
+                          member.department?.id === me?.departmentId &&
+                          ['TEAM_MEMBER', 'MANAGER'].includes(member.role)
+                        )) && (
                         confirmDeleteMemberId === member.id ? (
                           <div className="flex items-center gap-1">
                             <button
