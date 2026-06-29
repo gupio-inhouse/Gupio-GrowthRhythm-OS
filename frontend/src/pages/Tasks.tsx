@@ -5,7 +5,7 @@ import {
   Plus, CheckSquare, AlertTriangle, Clock, Search, LayoutGrid, List,
   Upload, ImagePlus, FileText, GitPullRequest, CalendarDays, Check,
   X as XIcon, ChevronLeft, ChevronRight, CheckCircle2, Filter,
-  ArrowUpRight, Zap,
+  ArrowUpRight, Zap, Calendar,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -25,7 +25,7 @@ import { useAuthStore } from '@/store/authStore';
 // ── Types ─────────────────────────────────────────────────────────────────────
 type Task = {
   id: string; title: string; status: string; priority: string;
-  dueDate?: string;
+  dueDate?: string; createdAt?: string;
   assignee?: { id: string; name: string; avatarUrl?: string };
   department?: { id: string; name: string };
   team?: { id: string; name: string };
@@ -83,6 +83,36 @@ function DueBadge({ dueDate, status, className }: { dueDate: string; status: str
   return <span className={cn('text-xs text-muted-foreground tabular-nums', className)}>{formatDate(dueDate)}</span>;
 }
 
+// ── DurationBadge ─────────────────────────────────────────────────────────────
+function DurationBadge({ createdAt, dueDate }: { createdAt?: string; dueDate?: string }) {
+  if (!createdAt || !dueDate) return null;
+  const diffMs = new Date(dueDate).getTime() - new Date(createdAt).getTime();
+  if (diffMs <= 0) return null;
+
+  const totalHours = Math.floor(diffMs / 3_600_000);
+  const days       = Math.floor(diffMs / 86_400_000);
+  const remHours   = totalHours - days * 24;
+
+  let label: string;
+  if (totalHours < 24) {
+    label = `${totalHours}h`;
+  } else if (remHours > 0 && days < 7) {
+    label = `${days}d ${remHours}h`;
+  } else {
+    label = `${days}d`;
+  }
+
+  return (
+    <span
+      title="Total duration: created → due date"
+      className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-50 text-slate-500 border border-slate-200 tabular-nums"
+    >
+      <Clock className="h-2.5 w-2.5" />
+      {label}
+    </span>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 export default function Tasks() {
   const qc = useQueryClient();
@@ -92,6 +122,7 @@ export default function Tasks() {
   const [statusFilter, setStatusFilter] = useState(() => searchParams.get('status') ?? '');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [memberFilter, setMemberFilter] = useState('');
+  const [dateFilter, setDateFilter] = useState('');
   const [page, setPage] = useState(1);
   const [view, setView] = useState<'list' | 'kanban'>('list');
   const deliveryAction = (searchParams.get('delivery') as DeliveryAction | null) ?? null;
@@ -182,8 +213,9 @@ export default function Tasks() {
   const todayMidnight = new Date(); todayMidnight.setHours(0, 0, 0, 0);
   const endOfToday    = new Date(); endOfToday.setHours(23, 59, 59, 999);
 
-  const isTaskOverdue  = (t: Task) => !!(t.dueDate && !['DONE', 'CANCELLED'].includes(t.status) && new Date(t.dueDate) < now);
-  const isTaskDueToday = (t: Task) => !!(t.dueDate && !['DONE', 'CANCELLED'].includes(t.status) && new Date(t.dueDate) >= now && new Date(t.dueDate) <= endOfToday);
+  const isTaskOverdue    = (t: Task) => !!(t.dueDate && !['DONE', 'CANCELLED'].includes(t.status) && new Date(t.dueDate) < now);
+  const isTaskDueToday   = (t: Task) => !!(t.dueDate && !['DONE', 'CANCELLED'].includes(t.status) && new Date(t.dueDate) >= now && new Date(t.dueDate) <= endOfToday);
+  const isCreatedToday   = (t: Task) => !!(t.createdAt && new Date(t.createdAt) >= todayMidnight && new Date(t.createdAt) <= endOfToday);
 
   const filtered = tasks
     .filter((t) => {
@@ -193,8 +225,15 @@ export default function Tasks() {
       }
       if (departmentFilter && t.department?.id !== departmentFilter) return false;
       if (memberFilter && t.assignee?.id !== memberFilter) return false;
+      if (dateFilter) {
+        if (!t.dueDate) return false;
+        const start = new Date(dateFilter); start.setHours(0, 0, 0, 0);
+        const end   = new Date(dateFilter); end.setHours(23, 59, 59, 999);
+        const due   = new Date(t.dueDate);
+        if (due < start || due > end) return false;
+      }
       if (statusFilter === 'overdue')   return isTaskOverdue(t);
-      if (statusFilter === 'due_today') return isTaskDueToday(t);
+      if (statusFilter === 'due_today') return isCreatedToday(t);
       if (statusFilter && t.status !== statusFilter) return false;
       return true;
     })
@@ -209,7 +248,7 @@ export default function Tasks() {
       return 0;
     });
 
-  // Pre-status filtered: apply search + dept + member but NOT status, so KPI tiles reflect active filters
+  // Pre-status filtered: apply search + dept + member + date but NOT status, so KPI tiles reflect active filters
   const preStatusFiltered = tasks.filter((t) => {
     if (search) {
       const q = search.toLowerCase();
@@ -217,6 +256,13 @@ export default function Tasks() {
     }
     if (departmentFilter && t.department?.id !== departmentFilter) return false;
     if (memberFilter && t.assignee?.id !== memberFilter) return false;
+    if (dateFilter) {
+      if (!t.dueDate) return false;
+      const start = new Date(dateFilter); start.setHours(0, 0, 0, 0);
+      const end   = new Date(dateFilter); end.setHours(23, 59, 59, 999);
+      const due   = new Date(t.dueDate);
+      if (due < start || due > end) return false;
+    }
     return true;
   });
 
@@ -236,11 +282,11 @@ export default function Tasks() {
     { label: 'Done',        key: 'DONE',         icon: CheckCircle2,  from: 'from-emerald-500', to: 'to-green-600',   shadow: 'shadow-green-200' },
   ];
 
-  const activeFilters = [search, statusFilter, departmentFilter, memberFilter].filter(Boolean).length;
+  const activeFilters = [search, statusFilter, departmentFilter, memberFilter, dateFilter].filter(Boolean).length;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50/40">
-      <div className="p-4 sm:p-6 lg:p-8 space-y-5 max-w-[1440px] mx-auto">
+      <div className="p-4 sm:p-6 lg:p-8 space-y-5">
 
         {/* ── Header ── */}
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -343,9 +389,26 @@ export default function Tasks() {
               </>
             )}
 
+            {/* Custom date filter */}
+            <div className="relative shrink-0">
+              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+              <input
+                type="date"
+                value={dateFilter}
+                onChange={(e) => { setDateFilter(e.target.value); setStatusFilter(''); resetPage(); }}
+                title="Filter by due date"
+                className={cn(
+                  'h-9 pl-9 pr-3 rounded-xl border text-xs font-medium bg-white focus:outline-none focus:ring-1 focus:ring-indigo-300 transition-all',
+                  dateFilter
+                    ? 'border-indigo-400 text-indigo-700 bg-indigo-50'
+                    : 'border-border/60 text-muted-foreground',
+                )}
+              />
+            </div>
+
             {activeFilters > 0 && (
               <button
-                onClick={() => { setSearch(''); setStatusFilter(''); setDepartmentFilter(''); setMemberFilter(''); resetPage(); }}
+                onClick={() => { setSearch(''); setStatusFilter(''); setDepartmentFilter(''); setMemberFilter(''); setDateFilter(''); resetPage(); }}
                 className="inline-flex items-center gap-1.5 h-9 rounded-xl border border-border/60 px-3 text-xs font-semibold text-muted-foreground hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-all shrink-0"
               >
                 <XIcon className="h-3.5 w-3.5" /> Clear
@@ -353,21 +416,23 @@ export default function Tasks() {
             )}
           </div>
 
-          {/* Status filter pills */}
+          {/* Status + date quick-filter pills */}
           <div className="flex gap-1.5 overflow-x-auto pb-0.5 flex-nowrap">
             {[
-              { val: '', label: 'All', dot: '' },
-              { val: 'TODO',        label: 'To Do',       dot: S.TODO.bar },
-              { val: 'IN_PROGRESS', label: 'In Progress', dot: S.IN_PROGRESS.bar },
-              { val: 'BLOCKED',     label: 'Blocked',     dot: S.BLOCKED.bar },
-              { val: 'IN_REVIEW',   label: 'In Review',   dot: S.IN_REVIEW.bar },
-              { val: 'DONE',        label: 'Done',        dot: S.DONE.bar },
-            ].map(({ val, label, dot }) => {
-              const active = statusFilter === val;
+              { val: '', label: 'All', dot: '', icon: Filter },
+              { val: 'due_today',   label: 'Today',       dot: '#f59e0b', icon: null },
+              { val: 'overdue',     label: 'Overdue',     dot: '#ef4444', icon: null },
+              { val: 'TODO',        label: 'To Do',       dot: S.TODO.bar, icon: null },
+              { val: 'IN_PROGRESS', label: 'In Progress', dot: S.IN_PROGRESS.bar, icon: null },
+              { val: 'BLOCKED',     label: 'Blocked',     dot: S.BLOCKED.bar, icon: null },
+              { val: 'IN_REVIEW',   label: 'In Review',   dot: S.IN_REVIEW.bar, icon: null },
+              { val: 'DONE',        label: 'Done',        dot: S.DONE.bar, icon: null },
+            ].map(({ val, label, dot, icon: Icon }) => {
+              const active = statusFilter === val && !dateFilter;
               return (
                 <button
                   key={val}
-                  onClick={() => { setStatusFilter(val); resetPage(); }}
+                  onClick={() => { setStatusFilter(val); setDateFilter(''); resetPage(); }}
                   className={cn(
                     'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all whitespace-nowrap shrink-0',
                     active
@@ -376,7 +441,7 @@ export default function Tasks() {
                   )}
                 >
                   {dot && <span className="h-2 w-2 rounded-full shrink-0" style={{ background: dot }} />}
-                  {!dot && <Filter className="h-3 w-3" />}
+                  {!dot && Icon && <Icon className="h-3 w-3" />}
                   {label}
                 </button>
               );
@@ -605,8 +670,9 @@ function TaskListRow({
                     {task.blockerType.toLowerCase().replace(/_/g, ' ')}
                   </span>
                 )}
-                {/* Mobile due badge */}
+                {/* Mobile due badge + duration */}
                 {task.dueDate && <DueBadge dueDate={task.dueDate} status={task.status} className="sm:hidden" />}
+                <DurationBadge createdAt={task.createdAt} dueDate={task.dueDate} />
               </div>
 
               {/* Delivery buttons */}
@@ -630,8 +696,9 @@ function TaskListRow({
               {task.priority}
             </Badge>
 
-            {/* Due date (desktop) + extend */}
+            {/* Duration + due date (desktop) + extend */}
             <div className="hidden sm:flex items-center gap-1.5 shrink-0">
+              <DurationBadge createdAt={task.createdAt} dueDate={task.dueDate} />
               {task.dueDate && <DueBadge dueDate={task.dueDate} status={task.status} />}
               {canExtend && !['DONE', 'CANCELLED'].includes(task.status) && (
                 extendOpen ? (
@@ -848,6 +915,7 @@ function KanbanCard({
             {!!task._count?.attachments && (
               <span className="text-[10px] text-muted-foreground">📎{task._count.attachments}</span>
             )}
+            <DurationBadge createdAt={task.createdAt} dueDate={task.dueDate} />
             {task.dueDate && <DueBadge dueDate={task.dueDate} status={task.status} />}
             {canExtend && !['DONE', 'CANCELLED'].includes(task.status) && (
               extendOpen ? (

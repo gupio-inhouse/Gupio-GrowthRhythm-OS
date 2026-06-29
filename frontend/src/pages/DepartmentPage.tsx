@@ -8,7 +8,7 @@ import {
   Building2, Users, CheckSquare, AlertTriangle, Clock, Zap,
   TrendingUp, Plus, Pencil, Trash2, UserPlus, UserMinus,
   ChevronDown, ChevronUp, ChevronLeft, X, FolderKanban, ChevronRight,
-  BarChart2, ArrowLeft, ClipboardList, Filter, FileText, Link2, Upload, Star, Search,
+  BarChart2, ArrowLeft, ClipboardList, Filter, FileText, Link2, Upload, Star, Search, Calendar,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -42,7 +42,7 @@ type DeptDash = {
 };
 type DeptTask = {
   id: string; title: string; status: string; priority: string;
-  dueDate?: string; description?: string; blockerType?: string;
+  dueDate?: string; createdAt?: string; description?: string; blockerType?: string;
   assignee?: { id: string; name: string; avatarUrl?: string };
   department?: { id: string; name: string };
   team?: { id: string; name: string };
@@ -55,7 +55,7 @@ type Team = {
   managerUserId?: string; manager?: TeamUser; departmentHead?: TeamUser;
   members: TeamMember[]; memberCount: number;
 };
-type TaskSummary = { id: string; title: string; status: string; priority: string; dueDate?: string; assigneeUserId: string };
+type TaskSummary = { id: string; title: string; status: string; priority: string; dueDate?: string; createdAt?: string; assigneeUserId: string };
 type MemberStat = {
   user: TeamUser; joinedAt: string;
   stats: { total: number; done: number; inProgress: number; inReview: number; blocked: number; todo: number; overdue: number; completionRate: number };
@@ -68,7 +68,7 @@ type TeamDoc = {
   uploadedBy: { id: string; name: string; avatarUrl?: string };
 };
 
-type TaskFilter = 'all' | 'overdue' | 'blocked' | 'in_progress' | 'in_review' | 'done' | 'todo';
+type TaskFilter = 'all' | 'overdue' | 'due_today' | 'blocked' | 'in_progress' | 'in_review' | 'done' | 'todo';
 type ActiveTab  = 'overview' | 'projects' | 'tasks' | 'members';
 
 const STATUS_LABELS: Record<string, string> = {
@@ -140,6 +140,7 @@ export default function DepartmentPage() {
   const [taskFilter,       setTaskFilter]       = useState<TaskFilter>('all');
   const [taskSearch,       setTaskSearch]       = useState('');
   const [taskMemberFilter, setTaskMemberFilter] = useState('');
+  const [taskDateFilter,   setTaskDateFilter]   = useState('');
   const [deptTasksPage,    setDeptTasksPage]    = useState(1);
   const [selectedTeam,     setSelectedTeam]     = useState<Team | null>(null);
   const [createTeamOpen,   setCreateTeamOpen]   = useState(false);
@@ -159,18 +160,28 @@ export default function DepartmentPage() {
     setActiveTab('tasks');
   };
 
-  const now = new Date();
+  const now           = new Date();
+  const todayMidnight = new Date(); todayMidnight.setHours(0, 0, 0, 0);
+  const endOfToday    = new Date(); endOfToday.setHours(23, 59, 59, 999);
   const preStatusTaskFiltered = deptTasks.filter((t) => {
     if (taskSearch) {
       const q = taskSearch.toLowerCase();
       if (!t.title.toLowerCase().includes(q) && !(t.assignee?.name.toLowerCase().includes(q) ?? false)) return false;
     }
     if (taskMemberFilter && t.assignee?.id !== taskMemberFilter) return false;
+    if (taskDateFilter) {
+      if (!t.dueDate) return false;
+      const start = new Date(taskDateFilter); start.setHours(0, 0, 0, 0);
+      const end   = new Date(taskDateFilter); end.setHours(23, 59, 59, 999);
+      const due   = new Date(t.dueDate);
+      if (due < start || due > end) return false;
+    }
     return true;
   });
   const filteredTasks = preStatusTaskFiltered.filter((t) => {
     if (taskFilter === 'all')         return true;
     if (taskFilter === 'overdue')     return !!t.dueDate && new Date(t.dueDate) < now && t.status !== 'DONE' && t.status !== 'CANCELLED';
+    if (taskFilter === 'due_today')   return !!t.createdAt && new Date(t.createdAt) >= todayMidnight && new Date(t.createdAt) <= endOfToday;
     if (taskFilter === 'blocked')     return t.status === 'BLOCKED';
     if (taskFilter === 'in_progress') return t.status === 'IN_PROGRESS';
     if (taskFilter === 'in_review')   return t.status === 'IN_REVIEW';
@@ -758,19 +769,37 @@ export default function DepartmentPage() {
                     {dept.users.map((u) => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
-                {(taskSearch || taskMemberFilter) && (
+                {/* Custom date filter */}
+                <div className="relative shrink-0">
+                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                  <input
+                    type="date"
+                    value={taskDateFilter}
+                    onChange={(e) => { setTaskDateFilter(e.target.value); setTaskFilter('all'); setDeptTasksPage(1); }}
+                    title="Filter by due date"
+                    className={cn(
+                      'h-9 pl-9 pr-3 rounded-xl border text-xs font-medium bg-white focus:outline-none focus:ring-1 focus:ring-violet-300 transition-all',
+                      taskDateFilter
+                        ? 'border-violet-400 text-violet-700 bg-violet-50'
+                        : 'border-border/60 text-muted-foreground',
+                    )}
+                  />
+                </div>
+
+                {(taskSearch || taskMemberFilter || taskDateFilter) && (
                   <button
-                    onClick={() => { setTaskSearch(''); setTaskMemberFilter(''); setTaskFilter('all'); setDeptTasksPage(1); }}
+                    onClick={() => { setTaskSearch(''); setTaskMemberFilter(''); setTaskDateFilter(''); setTaskFilter('all'); setDeptTasksPage(1); }}
                     className="inline-flex items-center gap-1.5 h-9 rounded-xl border border-border/60 px-3 text-xs font-semibold text-muted-foreground hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-all shrink-0"
                   >
                     <X className="h-3.5 w-3.5" /> Clear
                   </button>
                 )}
               </div>
-              {/* Status filter pills */}
+              {/* Status + date quick-filter pills */}
               <div className="flex gap-1.5 overflow-x-auto pb-0.5 flex-nowrap">
                 {([
                   { key: 'all',         label: 'All',         dot: '' },
+                  { key: 'due_today',   label: 'Today',       dot: '#f59e0b' },
                   { key: 'overdue',     label: 'Overdue',     dot: '#ef4444' },
                   { key: 'blocked',     label: 'Blocked',     dot: '#f97316' },
                   { key: 'in_progress', label: 'In Progress', dot: '#3b82f6' },
@@ -778,11 +807,11 @@ export default function DepartmentPage() {
                   { key: 'todo',        label: 'To Do',       dot: '#94a3b8' },
                   { key: 'done',        label: 'Done',        dot: '#22c55e' },
                 ] as Array<{ key: TaskFilter; label: string; dot: string }>).map(({ key, label, dot }) => {
-                  const active = taskFilter === key;
+                  const active = taskFilter === key && !taskDateFilter;
                   return (
                     <button
                       key={key}
-                      onClick={() => { setTaskFilter(key); setDeptTasksPage(1); }}
+                      onClick={() => { setTaskFilter(key); setTaskDateFilter(''); setDeptTasksPage(1); }}
                       className={cn(
                         'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all whitespace-nowrap shrink-0',
                         active
@@ -1622,12 +1651,16 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
   const [addTaskOpen,    setAddTaskOpen]   = useState(false);
   const [confirmDelete,  setConfirmDelete] = useState(false);
   const [expandedMember, setExpandedMember] = useState<string | null>(null);
-  const [taskFilter,     setTaskFilter]    = useState<string>('all');
-  const [tasksPage,      setTasksPage]     = useState(1);
-  const [membersPage,    setMembersPage]   = useState(1);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [search,         setSearch]        = useState('');
-  const now = new Date();
+  const [taskFilter,         setTaskFilter]        = useState<string>('all');
+  const [tasksPage,          setTasksPage]         = useState(1);
+  const [membersPage,        setMembersPage]       = useState(1);
+  const [selectedTaskId,     setSelectedTaskId]    = useState<string | null>(null);
+  const [search,             setSearch]            = useState('');
+  const [projectDateFilter,  setProjectDateFilter] = useState('');
+  const [projectMemberFilter,setProjectMemberFilter] = useState('');
+  const now           = new Date();
+  const todayMidnight = new Date(); todayMidnight.setHours(0, 0, 0, 0);
+  const endOfToday    = new Date(); endOfToday.setHours(23, 59, 59, 999);
 
   const { user: authUser } = useAuthStore();
   const canDelete        = ['OWNER', 'DEPARTMENT_HEAD'].includes(authUser?.role || '');
@@ -1680,12 +1713,22 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
       ms.tasks.map((t) => ({ ...t, memberName: ms.user.name, memberAvatar: ms.user.avatarUrl, memberId: ms.user.id }))
     );
   const q = search.trim().toLowerCase();
-  const preStatusProjectFilter = allProjectTasks.filter((t) =>
-    !q || t.title.toLowerCase().includes(q) || t.memberName.toLowerCase().includes(q)
-  );
+  const preStatusProjectFilter = allProjectTasks.filter((t) => {
+    if (q && !t.title.toLowerCase().includes(q) && !t.memberName.toLowerCase().includes(q)) return false;
+    if (projectMemberFilter && t.memberId !== projectMemberFilter) return false;
+    if (projectDateFilter) {
+      if (!t.dueDate) return false;
+      const start = new Date(projectDateFilter); start.setHours(0, 0, 0, 0);
+      const end   = new Date(projectDateFilter); end.setHours(23, 59, 59, 999);
+      const due   = new Date(t.dueDate);
+      if (due < start || due > end) return false;
+    }
+    return true;
+  });
   const filteredProjectTasks = preStatusProjectFilter.filter((t) => {
-    if (taskFilter === 'all')     return true;
-    if (taskFilter === 'overdue') return !!t.dueDate && new Date(t.dueDate) < now && t.status !== 'DONE' && t.status !== 'CANCELLED';
+    if (taskFilter === 'all')         return true;
+    if (taskFilter === 'overdue')     return !!t.dueDate && new Date(t.dueDate) < now && t.status !== 'DONE' && t.status !== 'CANCELLED';
+    if (taskFilter === 'due_today')   return !!t.createdAt && new Date(t.createdAt) >= todayMidnight && new Date(t.createdAt) <= endOfToday;
     return t.status === taskFilter;
   });
   const filteredMembers = (overview?.memberStats ?? []).filter((ms) =>
@@ -1762,7 +1805,7 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
       )}
 
       {/* Project tabs */}
-      <Tabs value={tab} onValueChange={(v) => { setTab(v as ProjectTab); setSearch(''); setTasksPage(1); setMembersPage(1); }}>
+      <Tabs value={tab} onValueChange={(v) => { setTab(v as ProjectTab); setSearch(''); setTasksPage(1); setMembersPage(1); setProjectDateFilter(''); setProjectMemberFilter(''); }}>
         <div className="flex items-center gap-3 flex-wrap">
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
@@ -1836,6 +1879,7 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
                         key={label}
                         onClick={() => {
                           setTaskFilter(label === 'Overdue' ? 'overdue' : label === 'Completed' ? 'DONE' : label === 'In Progress' ? 'IN_PROGRESS' : 'all');
+                          setProjectDateFilter('');
                           setTab('tasks');
                         }}
                         className={cn('rounded-lg px-3 py-2.5 flex items-center gap-2.5 hover:opacity-80 transition-opacity', color.split(' ')[1])}
@@ -1946,20 +1990,79 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
 
           {/* ── Filters + New Task ── */}
           <div className="rounded-2xl border border-border/60 bg-white shadow-sm p-3 sm:p-4 space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Filter by Status</p>
+            {/* Row 1: search + member + date + new task */}
+            <div className="flex flex-col sm:flex-row gap-2">
+              {/* Search */}
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search task or member…"
+                  value={search}
+                  onChange={(e) => { setSearch(e.target.value); setTasksPage(1); }}
+                  className="pl-9 rounded-xl border-border/60 bg-muted/20 focus-visible:bg-white h-9 text-sm"
+                />
+              </div>
+
+              {/* Member filter */}
+              {(overview?.memberStats ?? []).length > 0 && (
+                <Select
+                  value={projectMemberFilter || '__all__'}
+                  onValueChange={(v) => { setProjectMemberFilter(v === '__all__' ? '' : v); setTasksPage(1); }}
+                >
+                  <SelectTrigger className="w-full sm:w-44 h-9 text-sm rounded-xl border-border/60">
+                    <SelectValue placeholder="All Members" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl">
+                    <SelectItem value="__all__">All Members</SelectItem>
+                    {(overview?.memberStats ?? []).map((ms) => (
+                      <SelectItem key={ms.user.id} value={ms.user.id}>{ms.user.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+
+              {/* Custom date filter */}
+              <div className="relative shrink-0">
+                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                <input
+                  type="date"
+                  value={projectDateFilter}
+                  onChange={(e) => { setProjectDateFilter(e.target.value); setTaskFilter('all'); setTasksPage(1); }}
+                  title="Filter by due date"
+                  className={cn(
+                    'h-9 pl-9 pr-3 rounded-xl border text-xs font-medium bg-white focus:outline-none focus:ring-1 focus:ring-indigo-300 transition-all',
+                    projectDateFilter
+                      ? 'border-indigo-400 text-indigo-700 bg-indigo-50'
+                      : 'border-border/60 text-muted-foreground',
+                  )}
+                />
+              </div>
+
+              {/* Clear */}
+              {(search || projectMemberFilter || projectDateFilter) && (
+                <button
+                  onClick={() => { setSearch(''); setProjectMemberFilter(''); setProjectDateFilter(''); setTaskFilter('all'); setTasksPage(1); }}
+                  className="inline-flex items-center gap-1.5 h-9 rounded-xl border border-border/60 px-3 text-xs font-semibold text-muted-foreground hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-all shrink-0"
+                >
+                  <X className="h-3.5 w-3.5" /> Clear
+                </button>
+              )}
+
               {canCreateTask && (
                 <button
                   onClick={() => setAddTaskOpen(true)}
-                  className="inline-flex items-center gap-1.5 h-8 px-3 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-600 text-white text-xs font-bold hover:from-indigo-600 hover:to-violet-700 transition-all shadow-sm shrink-0"
+                  className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-600 text-white text-xs font-bold hover:from-indigo-600 hover:to-violet-700 transition-all shadow-sm shrink-0"
                 >
                   <Plus className="h-3.5 w-3.5" /> New Task
                 </button>
               )}
             </div>
+
+            {/* Row 2: status + date quick-filter pills */}
             <div className="flex gap-1.5 overflow-x-auto pb-0.5 flex-nowrap">
               {([
                 { key: 'all',         label: 'All',         dot: '' },
+                { key: 'due_today',   label: 'Today',       dot: '#f59e0b' },
                 { key: 'overdue',     label: 'Overdue',     dot: '#ef4444' },
                 { key: 'BLOCKED',     label: 'Blocked',     dot: '#f97316' },
                 { key: 'IN_PROGRESS', label: 'In Progress', dot: '#3b82f6' },
@@ -1967,11 +2070,11 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
                 { key: 'TODO',        label: 'To Do',       dot: '#94a3b8' },
                 { key: 'DONE',        label: 'Done',        dot: '#22c55e' },
               ] as Array<{ key: string; label: string; dot: string }>).map(({ key, label, dot }) => {
-                const active = taskFilter === key;
+                const active = taskFilter === key && !projectDateFilter;
                 return (
                   <button
                     key={key}
-                    onClick={() => { setTaskFilter(key); setTasksPage(1); }}
+                    onClick={() => { setTaskFilter(key); setProjectDateFilter(''); setTasksPage(1); }}
                     className={cn(
                       'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all whitespace-nowrap shrink-0',
                       active
@@ -1996,11 +2099,11 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
               { label: 'In Progress', key: 'IN_PROGRESS', count: preStatusProjectFilter.filter((t) => t.status === 'IN_PROGRESS' || t.status === 'IN_REVIEW').length,                                                                         icon: Zap,           grad: 'from-blue-500 to-indigo-600',   shadow: 'hover:shadow-blue-200/60'    },
               { label: 'Done',        key: 'DONE',        count: preStatusProjectFilter.filter((t) => t.status === 'DONE').length,                                                                                                            icon: CheckSquare,   grad: 'from-emerald-500 to-teal-600',  shadow: 'hover:shadow-emerald-200/60' },
             ] as Array<{ label: string; key: string; count: number; icon: React.ElementType; grad: string; shadow: string }>).map(({ label, key, count, icon: Icon, grad, shadow }) => {
-              const active = taskFilter === key;
+              const active = taskFilter === key && !projectDateFilter;
               return (
                 <button
                   key={key}
-                  onClick={() => { setTaskFilter(key); setTasksPage(1); }}
+                  onClick={() => { setTaskFilter(key); setProjectDateFilter(''); setTasksPage(1); }}
                   className={cn('group text-left rounded-2xl transition-all duration-200', active ? 'scale-[1.03]' : 'hover:scale-[1.02]')}
                 >
                   <div className={cn(

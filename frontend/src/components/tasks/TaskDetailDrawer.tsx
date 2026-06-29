@@ -33,7 +33,7 @@ type TaskStatusHistory = {
 };
 type TaskDetail = {
   id: string; title: string; description?: string; expectedOutcome?: string;
-  status: string; priority: string; dueDate?: string;
+  status: string; priority: string; dueDate?: string; createdAt?: string;
   completionSubmittedAt?: string; completedAt?: string;
   completionReviewedAt?: string; blockerType?: string; blockerExpectedResolution?: string;
   assignee: { id: string; name: string; avatarUrl?: string };
@@ -386,6 +386,10 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
                       icon: User, label: 'Assigned by',
                       content: <span className="text-sm">{task.assignedBy.name}</span>,
                     },
+                    task.createdAt && {
+                      icon: Calendar, label: 'Created',
+                      content: <span className="text-sm">{formatDateTime(task.createdAt)}</span>,
+                    },
                     task.dueDate && {
                       icon: Calendar, label: 'Due date',
                       content: (
@@ -395,6 +399,25 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
                         </span>
                       ),
                     },
+                    (task.createdAt && task.dueDate) && (() => {
+                      const diffMs    = new Date(task.dueDate!).getTime() - new Date(task.createdAt!).getTime();
+                      if (diffMs <= 0) return null;
+                      const totalHours = Math.floor(diffMs / 3_600_000);
+                      const days       = Math.floor(diffMs / 86_400_000);
+                      const remHours   = totalHours - days * 24;
+                      const label      = totalHours < 24
+                        ? `${totalHours}h`
+                        : (remHours > 0 && days < 7 ? `${days}d ${remHours}h` : `${days}d`);
+                      return {
+                        icon: Clock, label: 'Duration',
+                        content: (
+                          <span className="inline-flex items-center gap-1.5 text-sm font-semibold tabular-nums">
+                            {label}
+                            <span className="text-[10px] font-normal text-muted-foreground">(created → due)</span>
+                          </span>
+                        ),
+                      };
+                    })(),
                     task.department && {
                       icon: Building2, label: 'Department',
                       content: <span className="text-sm">{task.department.name}</span>,
