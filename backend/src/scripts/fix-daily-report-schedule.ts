@@ -12,7 +12,7 @@ async function main() {
   const jobs = await queue.getRepeatableJobs();
   console.log('Remaining daily-report repeats:');
   jobs.filter((j) => j.name === 'daily-report').forEach((j) => {
-    console.log(`  key=${j.key} pattern=${j.pattern} next=${new Date(j.next).toISOString()}`);
+    console.log(`  key=${j.key} pattern=${j.pattern} next=${j.next ? new Date(j.next).toISOString() : 'unknown'}`);
   });
 
   await queue.close();

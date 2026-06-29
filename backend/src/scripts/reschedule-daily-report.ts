@@ -23,7 +23,7 @@ async function main() {
   // Verify
   const repeatable = await queue.getRepeatableJobs();
   const daily = repeatable.find((j) => j.name === 'daily-report');
-  console.log('Next run:', daily ? new Date(daily.next).toISOString() : 'not found');
+  console.log('Next run:', daily?.next ? new Date(daily.next).toISOString() : 'not found');
 
   await queue.close();
   process.exit(0);
