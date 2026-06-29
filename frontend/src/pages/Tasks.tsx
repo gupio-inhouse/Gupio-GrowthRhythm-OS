@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { cn, priorityColor, formatDate, getInitials } from '@/lib/utils';
+import { cn, priorityColor, formatDate, getInitials, isEngineeringDept, workingDurationLabel, snapToWorkingDay } from '@/lib/utils';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { BlockerDialog } from '@/components/tasks/BlockerDialog';
@@ -84,27 +84,13 @@ function DueBadge({ dueDate, status, className }: { dueDate: string; status: str
 }
 
 // ── DurationBadge ─────────────────────────────────────────────────────────────
-function DurationBadge({ createdAt, dueDate }: { createdAt?: string; dueDate?: string }) {
+function DurationBadge({ createdAt, dueDate, isEng = false }: { createdAt?: string; dueDate?: string; isEng?: boolean }) {
   if (!createdAt || !dueDate) return null;
-  const diffMs = new Date(dueDate).getTime() - new Date(createdAt).getTime();
-  if (diffMs <= 0) return null;
-
-  const totalHours = Math.floor(diffMs / 3_600_000);
-  const days       = Math.floor(diffMs / 86_400_000);
-  const remHours   = totalHours - days * 24;
-
-  let label: string;
-  if (totalHours < 24) {
-    label = `${totalHours}h`;
-  } else if (remHours > 0 && days < 7) {
-    label = `${days}d ${remHours}h`;
-  } else {
-    label = `${days}d`;
-  }
-
+  const label = workingDurationLabel(new Date(createdAt), new Date(dueDate), isEng);
+  if (!label) return null;
   return (
     <span
-      title="Total duration: created → due date"
+      title={`Working duration: created → due (${isEng ? 'Mon–Sat' : 'Mon–Fri'})`}
       className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-50 text-slate-500 border border-slate-200 tabular-nums"
     >
       <Clock className="h-2.5 w-2.5" />
@@ -206,6 +192,8 @@ export default function Tasks() {
   const membersInDept = departmentFilter
     ? allUsers.filter((u) => u.departmentId === departmentFilter)
     : allUsers;
+
+  const isEngineeringContext = isEngineeringDept(departments.find((d) => d.id === departmentFilter)?.name);
 
   const resetPage = () => setPage(1);
 
@@ -395,8 +383,13 @@ export default function Tasks() {
               <input
                 type="date"
                 value={dateFilter}
-                onChange={(e) => { setDateFilter(e.target.value); setStatusFilter(''); resetPage(); }}
-                title="Filter by due date"
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (!val) { setDateFilter(''); setStatusFilter(''); resetPage(); return; }
+                  setDateFilter(snapToWorkingDay(val, isEngineeringContext));
+                  setStatusFilter(''); resetPage();
+                }}
+                title={`Filter by due date — working days only (${isEngineeringContext ? 'Mon–Sat' : 'Mon–Fri'})`}
                 className={cn(
                   'h-9 pl-9 pr-3 rounded-xl border text-xs font-medium bg-white focus:outline-none focus:ring-1 focus:ring-indigo-300 transition-all',
                   dateFilter
@@ -672,7 +665,7 @@ function TaskListRow({
                 )}
                 {/* Mobile due badge + duration */}
                 {task.dueDate && <DueBadge dueDate={task.dueDate} status={task.status} className="sm:hidden" />}
-                <DurationBadge createdAt={task.createdAt} dueDate={task.dueDate} />
+                <DurationBadge createdAt={task.createdAt} dueDate={task.dueDate} isEng={isEngineeringDept(task.department?.name)} />
               </div>
 
               {/* Delivery buttons */}
@@ -698,7 +691,7 @@ function TaskListRow({
 
             {/* Duration + due date (desktop) + extend */}
             <div className="hidden sm:flex items-center gap-1.5 shrink-0">
-              <DurationBadge createdAt={task.createdAt} dueDate={task.dueDate} />
+              <DurationBadge createdAt={task.createdAt} dueDate={task.dueDate} isEng={isEngineeringDept(task.department?.name)} />
               {task.dueDate && <DueBadge dueDate={task.dueDate} status={task.status} />}
               {canExtend && !['DONE', 'CANCELLED'].includes(task.status) && (
                 extendOpen ? (
@@ -915,7 +908,7 @@ function KanbanCard({
             {!!task._count?.attachments && (
               <span className="text-[10px] text-muted-foreground">📎{task._count.attachments}</span>
             )}
-            <DurationBadge createdAt={task.createdAt} dueDate={task.dueDate} />
+            <DurationBadge createdAt={task.createdAt} dueDate={task.dueDate} isEng={isEngineeringDept(task.department?.name)} />
             {task.dueDate && <DueBadge dueDate={task.dueDate} status={task.status} />}
             {canExtend && !['DONE', 'CANCELLED'].includes(task.status) && (
               extendOpen ? (

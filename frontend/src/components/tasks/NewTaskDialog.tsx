@@ -146,10 +146,9 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
       });
     } else {
       reset({ priority: 'MEDIUM' });
-      if (isTeamMember && user) {
-        setValue('assigneeUserId', user.id);
-        if (user.departmentId) setValue('departmentId', user.departmentId);
-      }
+      // Auto-fill department for any role that belongs to one
+      if (user?.departmentId) setValue('departmentId', user.departmentId);
+      if (isTeamMember && user) setValue('assigneeUserId', user.id);
     }
   }, [open, taskToEdit]);
 

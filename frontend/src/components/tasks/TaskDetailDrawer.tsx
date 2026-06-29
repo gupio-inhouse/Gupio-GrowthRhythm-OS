@@ -13,7 +13,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BlockerDialog } from './BlockerDialog';
 import { NewTaskDialog, type TaskToEdit } from './NewTaskDialog';
-import { cn, formatDate, formatRelative, getInitials } from '@/lib/utils';
+import { cn, formatDate, formatRelative, getInitials, isEngineeringDept, workingDurationLabel } from '@/lib/utils';
 import api from '@/api/client';
 import { useAuthStore } from '@/store/authStore';
 
@@ -400,20 +400,17 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
                       ),
                     },
                     (task.createdAt && task.dueDate) && (() => {
-                      const diffMs    = new Date(task.dueDate!).getTime() - new Date(task.createdAt!).getTime();
-                      if (diffMs <= 0) return null;
-                      const totalHours = Math.floor(diffMs / 3_600_000);
-                      const days       = Math.floor(diffMs / 86_400_000);
-                      const remHours   = totalHours - days * 24;
-                      const label      = totalHours < 24
-                        ? `${totalHours}h`
-                        : (remHours > 0 && days < 7 ? `${days}d ${remHours}h` : `${days}d`);
+                      const isEng  = isEngineeringDept(task.department?.name);
+                      const label  = workingDurationLabel(new Date(task.createdAt!), new Date(task.dueDate!), isEng);
+                      if (!label) return null;
                       return {
                         icon: Clock, label: 'Duration',
                         content: (
                           <span className="inline-flex items-center gap-1.5 text-sm font-semibold tabular-nums">
                             {label}
-                            <span className="text-[10px] font-normal text-muted-foreground">(created → due)</span>
+                            <span className="text-[10px] font-normal text-muted-foreground">
+                              (working days · {isEng ? 'Mon–Sat' : 'Mon–Fri'})
+                            </span>
                           </span>
                         ),
                       };

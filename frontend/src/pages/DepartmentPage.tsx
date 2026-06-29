@@ -20,7 +20,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { cn, getInitials, formatDate, formatRelative, priorityColor, statusColor } from '@/lib/utils';
+import { cn, getInitials, formatDate, formatRelative, priorityColor, statusColor, isEngineeringDept, snapToWorkingDay } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/api/client';
 import { TaskDetailDrawer } from '@/components/tasks/TaskDetailDrawer';
@@ -137,6 +137,8 @@ export default function DepartmentPage() {
   const deptTeams = allTeams.filter((t) => t.department.slug === slug);
 
   const [activeTab,        setActiveTab]        = useState<ActiveTab>('overview');
+  const isEngDept = isEngineeringDept(dept?.name);
+
   const [taskFilter,       setTaskFilter]       = useState<TaskFilter>('all');
   const [taskSearch,       setTaskSearch]       = useState('');
   const [taskMemberFilter, setTaskMemberFilter] = useState('');
@@ -775,8 +777,13 @@ export default function DepartmentPage() {
                   <input
                     type="date"
                     value={taskDateFilter}
-                    onChange={(e) => { setTaskDateFilter(e.target.value); setTaskFilter('all'); setDeptTasksPage(1); }}
-                    title="Filter by due date"
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (!val) { setTaskDateFilter(''); setTaskFilter('all'); setDeptTasksPage(1); return; }
+                      setTaskDateFilter(snapToWorkingDay(val, isEngDept));
+                      setTaskFilter('all'); setDeptTasksPage(1);
+                    }}
+                    title={`Filter by due date — working days only (${isEngDept ? 'Mon–Sat' : 'Mon–Fri'})`}
                     className={cn(
                       'h-9 pl-9 pr-3 rounded-xl border text-xs font-medium bg-white focus:outline-none focus:ring-1 focus:ring-violet-300 transition-all',
                       taskDateFilter
@@ -1666,6 +1673,7 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
   const canDelete        = ['OWNER', 'DEPARTMENT_HEAD'].includes(authUser?.role || '');
   const canAssignManager = ['OWNER', 'DEPARTMENT_HEAD'].includes(authUser?.role || '');
   const isProjectManager = authUser?.id === team.managerUserId;
+  const isEngProject     = isEngineeringDept(team.department.name);
   const canAddMember     = canManage || isProjectManager;
   const canCreateTask    = canManage || authUser?.role === 'TEAM_MEMBER';
   const canAssignTask    = canManage || isProjectManager;
@@ -2027,8 +2035,13 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
                 <input
                   type="date"
                   value={projectDateFilter}
-                  onChange={(e) => { setProjectDateFilter(e.target.value); setTaskFilter('all'); setTasksPage(1); }}
-                  title="Filter by due date"
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (!val) { setProjectDateFilter(''); setTaskFilter('all'); setTasksPage(1); return; }
+                    setProjectDateFilter(snapToWorkingDay(val, isEngProject));
+                    setTaskFilter('all'); setTasksPage(1);
+                  }}
+                  title={`Filter by due date — working days only (${isEngProject ? 'Mon–Sat' : 'Mon–Fri'})`}
                   className={cn(
                     'h-9 pl-9 pr-3 rounded-xl border text-xs font-medium bg-white focus:outline-none focus:ring-1 focus:ring-indigo-300 transition-all',
                     projectDateFilter
