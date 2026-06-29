@@ -58,7 +58,7 @@ type Team = {
   managerUserId?: string; manager?: TeamUser; departmentHead?: TeamUser;
   members: TeamMember[]; memberCount: number;
 };
-type TaskSummary = { id: string; title: string; status: string; priority: string; dueDate?: string; createdAt?: string; completionSubmittedAt?: string; completedAt?: string; assigneeUserId: string };
+type TaskSummary = { id: string; title: string; status: string; priority: string; dueDate?: string; createdAt?: string; completionSubmittedAt?: string; completedAt?: string; assigneeUserId: string; _count?: { attachments: number } };
 type MemberStat = {
   user: TeamUser; joinedAt: string;
   stats: { total: number; done: number; inProgress: number; inReview: number; blocked: number; todo: number; overdue: number; completionRate: number };
@@ -2208,7 +2208,17 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
                         </Badge>
                         <Select
                           value={task.status}
-                          onValueChange={(newStatus) => { updateTaskStatus.mutate({ taskId: task.id, status: newStatus }); }}
+                          onValueChange={(newStatus) => {
+                            if (newStatus === 'DONE' && task.status !== 'IN_REVIEW') {
+                              const isOwnTask = authUser?.id === task.memberId;
+                              if (isOwnTask && (task._count?.attachments ?? 0) === 0) {
+                                toast.error('Delivery proof required', 'Upload a screenshot, document, or PR link before submitting.');
+                                setSelectedTaskId(task.id);
+                                return;
+                              }
+                            }
+                            updateTaskStatus.mutate({ taskId: task.id, status: newStatus });
+                          }}
                         >
                           <SelectTrigger
                             onClick={(e) => e.stopPropagation()}

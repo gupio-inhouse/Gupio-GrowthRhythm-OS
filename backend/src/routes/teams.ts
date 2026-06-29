@@ -130,8 +130,10 @@ router.get(
           select: {
             id: true, title: true, status: true, priority: true,
             dueDate: true, createdAt: true,
+            completionSubmittedAt: true,
             assigneeUserId: true,
             department: { select: { id: true, name: true } },
+            _count: { select: { attachments: true } },
           },
           orderBy: { createdAt: 'desc' },
         })
