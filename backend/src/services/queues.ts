@@ -73,9 +73,9 @@ export async function scheduleRecurringJobs() {
     jobId: 'daily-task-due-today',
   });
 
-  // Daily performance report — 8 PM IST (14:30 UTC) every day → Owner only
+  // Daily performance report — 10:35 PM IST (17:05 UTC) every day → Owner + Dept Heads
   await reportQueue.add('daily-report', {}, {
-    repeat: { pattern: '30 14 * * *', tz: 'UTC' },
+    repeat: { pattern: '5 17 * * *', tz: 'UTC' },
     jobId: 'daily-performance-report',
   });
 
