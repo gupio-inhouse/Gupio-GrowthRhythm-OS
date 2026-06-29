@@ -413,7 +413,11 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
   const reviewerId = requestedStatus === 'DONE'
     ? await getCompletionReviewer(existingTask.id, req.user!.orgId)
     : null;
-  const shouldSubmitForReview = actor.role === 'TEAM_MEMBER' && requestedStatus === 'DONE' && !!reviewerId;
+  // Always route TEAM_MEMBER DONE submissions to IN_REVIEW, regardless of whether a reviewer is found.
+  // reviewerId is used only for notification — missing reviewer must not bypass the review gate.
+  const shouldSubmitForReview = actor.role === 'TEAM_MEMBER'
+    && requestedStatus === 'DONE'
+    && existingTask.status !== 'IN_REVIEW';
 
   if (shouldSubmitForReview) {
     data.status = 'IN_REVIEW';
