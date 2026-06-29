@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { cn, getInitials, formatDate, priorityColor, statusColor } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/api/client';
+import { toast } from '@/hooks/use-toast';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -135,16 +136,14 @@ export default function Teams() {
     queryFn: () => api.get('/teams').then((r) => r.data),
   });
 
-  const [deleteError, setDeleteError] = useState('');
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/teams/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['teams'] });
       setSelectedTeam(null);
-      setDeleteError('');
     },
     onError: (err: { response?: { data?: { error?: string } } }) => {
-      setDeleteError(err?.response?.data?.error ?? 'Failed to delete team');
+      toast.error(err?.response?.data?.error ?? 'Failed to delete team');
     },
   });
 
@@ -245,9 +244,8 @@ export default function Teams() {
               <ProjectOverviewPanel
                 team={selectedTeam}
                 onUpdated={handleTeamUpdated}
-                onDelete={() => { setDeleteError(''); deleteMutation.mutate(selectedTeam.id); }}
+                onDelete={() => deleteMutation.mutate(selectedTeam.id)}
                 isDeleting={deleteMutation.isPending}
-                deleteError={deleteError}
               />
             ) : (
               <TeamDetail
@@ -290,12 +288,11 @@ export default function Teams() {
 
 // ── Project Overview Panel (managers / dept heads) ────────────────────────────
 
-function ProjectOverviewPanel({ team, onUpdated, onDelete, isDeleting, deleteError }: {
+function ProjectOverviewPanel({ team, onUpdated, onDelete, isDeleting }: {
   team: Team;
   onUpdated: (t: Team) => void;
   onDelete: () => void;
   isDeleting: boolean;
-  deleteError?: string;
 }) {
   const qc = useQueryClient();
   const [editOpen, setEditOpen] = useState(false);
@@ -362,7 +359,6 @@ function ProjectOverviewPanel({ team, onUpdated, onDelete, isDeleting, deleteErr
                       <X className="h-3.5 w-3.5 text-slate-500" />
                     </button>
                   </div>
-                  {deleteError && <p className="text-xs text-red-500">{deleteError}</p>}
                 </div>
               ) : (
                 <button
@@ -985,7 +981,6 @@ function AddMemberDialog({ open, team, onClose, onAdded }: {
 }) {
   const qc = useQueryClient();
   const [selectedUserId, setSelectedUserId] = useState('');
-  const [error, setError] = useState('');
   const pal = teamPalette(team.name);
 
   const { data: allUsers = [] } = useQuery<OrgUser[]>({
@@ -1003,16 +998,15 @@ function AddMemberDialog({ open, team, onClose, onAdded }: {
       onAdded(updated);
       qc.invalidateQueries({ queryKey: ['teams'] });
       setSelectedUserId('');
-      setError('');
       onClose();
     },
     onError: (err: { response?: { data?: { error?: string } } }) => {
-      setError(err?.response?.data?.error ?? 'Failed to add member');
+      toast.error(err?.response?.data?.error ?? 'Failed to add member');
     },
   });
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) { setSelectedUserId(''); setError(''); onClose(); } }}>
+    <Dialog open={open} onOpenChange={(v) => { if (!v) { setSelectedUserId(''); onClose(); } }}>
       <DialogContent className="w-[calc(100vw-2rem)] max-w-sm p-0 gap-0 overflow-hidden rounded-2xl">
         <div className={cn('bg-gradient-to-r px-6 py-5', pal.grad)}>
           <DialogTitle className="text-white text-base font-bold">Add Member</DialogTitle>
@@ -1032,13 +1026,10 @@ function AddMemberDialog({ open, team, onClose, onAdded }: {
               </SelectContent>
             </Select>
           </div>
-          {error && (
-            <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg border border-red-200">{error}</p>
-          )}
           <div className="flex gap-3">
             <button
               type="button"
-              onClick={() => { setSelectedUserId(''); setError(''); onClose(); }}
+              onClick={() => { setSelectedUserId(''); onClose(); }}
               className="flex-1 py-2.5 rounded-xl border border-border/60 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
             >
               Cancel

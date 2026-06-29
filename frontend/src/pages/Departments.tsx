@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { cn, getInitials } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/api/client';
+import { toast } from '@/hooks/use-toast';
 
 type Department = {
   id: string; name: string; slug: string;
@@ -54,7 +55,6 @@ export default function Departments() {
   const [createdDept, setCreatedDept]   = useState<{ id: string; name: string } | null>(null);
   const [name,  setName]  = useState('');
   const [slug,  setSlug]  = useState('');
-  const [error, setError] = useState('');
 
   type InviteRow = { name: string; email: string; role: string; status: 'idle' | 'sending' | 'sent' | 'error'; errorMsg?: string };
   const [invites, setInvites] = useState<InviteRow[]>([{ name: '', email: '', role: 'TEAM_MEMBER', status: 'idle' }]);
@@ -68,18 +68,17 @@ export default function Departments() {
   const canCreate    = ['OWNER', 'COMPANY_ADMIN'].includes(user?.role || '');
   const qc = useQueryClient();
   const [deleteDeptId, setDeleteDeptId] = useState<string | null>(null);
-  const [deleteError,  setDeleteError]  = useState('');
 
   const deleteDept = useMutation({
     mutationFn: (id: string) => api.delete(`/departments/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['departments'] });
       qc.invalidateQueries({ queryKey: ['cockpit'] });
-      setDeleteDeptId(null); setDeleteError('');
+      setDeleteDeptId(null);
     },
     onError: (err: unknown) => {
       const e = err as { response?: { data?: { error?: string } } };
-      setDeleteError(e.response?.data?.error ?? 'Failed to delete department');
+      toast.error(e.response?.data?.error ?? 'Failed to delete department');
     },
   });
 
@@ -106,15 +105,15 @@ export default function Departments() {
       qc.invalidateQueries({ queryKey: ['departments'] });
       qc.invalidateQueries({ queryKey: ['cockpit'] });
       setCreatedDept({ id: res.data.id, name: res.data.name });
-      setCreateStep('invite'); setError('');
+      setCreateStep('invite');
     },
     onError: (err: unknown) => {
-      setError(err instanceof Error ? err.message : 'Unable to create department');
+      toast.error(err instanceof Error ? err.message : 'Unable to create department');
     },
   });
 
   const resetCreateDialog = () => {
-    setName(''); setSlug(''); setError('');
+    setName(''); setSlug('');
     setCreateStep('dept'); setCreatedDept(null);
     setInvites([{ name: '', email: '', role: 'TEAM_MEMBER', status: 'idle' }]);
   };
@@ -222,7 +221,7 @@ export default function Departments() {
                             )}
                             {canCreate && (
                               <button
-                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteError(''); setDeleteDeptId(dept.id); }}
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteDeptId(dept.id); }}
                                 className="h-7 w-7 rounded-xl border border-border/60 flex items-center justify-center text-muted-foreground hover:text-red-600 hover:bg-red-50 hover:border-red-200 transition-all"
                                 title="Delete department"
                               >
@@ -294,7 +293,7 @@ export default function Departments() {
         )}
 
         {/* ── Delete Confirm Dialog ── */}
-        <Dialog open={!!deleteDeptId} onOpenChange={(v) => { if (!v) { setDeleteDeptId(null); setDeleteError(''); } }}>
+        <Dialog open={!!deleteDeptId} onOpenChange={(v) => { if (!v) setDeleteDeptId(null); }}>
           <DialogContent className="sm:max-w-sm rounded-2xl">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2.5">
@@ -307,14 +306,9 @@ export default function Departments() {
             <p className="text-sm text-muted-foreground">
               This will permanently delete the department. Departments with members cannot be deleted — reassign all members first.
             </p>
-            {deleteError && (
-              <div className="rounded-xl bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
-                {deleteError}
-              </div>
-            )}
             <div className="flex items-center justify-end gap-2 mt-2">
               <button
-                onClick={() => { setDeleteDeptId(null); setDeleteError(''); }}
+                onClick={() => setDeleteDeptId(null)}
                 className="h-9 px-4 rounded-xl border border-border/60 text-sm text-muted-foreground hover:bg-muted transition-colors"
               >
                 Cancel
@@ -375,7 +369,7 @@ export default function Departments() {
               {createStep === 'dept' ? (
                 <form
                   className="space-y-4"
-                  onSubmit={(e) => { e.preventDefault(); setError(''); createDepartment.mutate(); }}
+                  onSubmit={(e) => { e.preventDefault(); createDepartment.mutate(); }}
                 >
                   <div className="space-y-1.5">
                     <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Department Name</Label>
@@ -396,10 +390,6 @@ export default function Departments() {
                     />
                     <p className="text-xs text-muted-foreground">Used in URLs. Lowercase, numbers, hyphens only.</p>
                   </div>
-
-                  {error && (
-                    <div className="rounded-xl bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">{error}</div>
-                  )}
 
                   <div className="flex items-center justify-end gap-2 pt-2">
                     <button type="button" onClick={() => handleCreateOpen(false)} className="h-9 px-4 rounded-xl border border-border/60 text-sm text-muted-foreground hover:bg-muted transition-colors">

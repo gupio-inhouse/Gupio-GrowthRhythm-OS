@@ -16,6 +16,7 @@ import { NewTaskDialog, type TaskToEdit } from './NewTaskDialog';
 import { cn, formatDate, formatRelative, getInitials, isEngineeringDept, workingDurationLabel, countWorkingDays } from '@/lib/utils';
 import api from '@/api/client';
 import { useAuthStore } from '@/store/authStore';
+import { toast } from '@/hooks/use-toast';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type Comment = {
@@ -111,8 +112,6 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
   const [pendingStatus, setPendingStatus] = useState<string | null>(null);
   const [editOpen, setEditOpen]       = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [deliveryError, setDeliveryError]     = useState<string | null>(null);
-  const [deliverySuccess, setDeliverySuccess] = useState<string | null>(null);
   const [prTitle, setPrTitle] = useState('');
   const [prUrl, setPrUrl]     = useState('');
   const [prFormOpen, setPrFormOpen] = useState(false);
@@ -150,29 +149,28 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
       return api.post(`/tasks/${taskId}/attachments`, { name: up.data.originalName, url: up.data.url, type, size: up.data.size });
     },
     onSuccess: (_r, v) => {
-      setDeliveryError(null);
-      setDeliverySuccess(v.type === 'SCREENSHOT' ? 'Screenshot added.' : 'Document added.');
+      toast.success(v.type === 'SCREENSHOT' ? 'Screenshot added.' : 'Document added.');
       qc.invalidateQueries({ queryKey: ['tasks'] }); qc.invalidateQueries({ queryKey: ['task', taskId] });
     },
-    onError: (e) => { setDeliverySuccess(null); setDeliveryError(formatTaskError(e)); },
+    onError: (e) => toast.error(formatTaskError(e)),
   });
   const pullRequestMutation = useMutation({
     mutationFn: ({ title, url }: { title: string; url: string }) =>
       api.post(`/tasks/${taskId}/pull-requests`, { title, url }),
     onSuccess: () => {
       setPrTitle(''); setPrUrl(''); setPrFormOpen(false);
-      setDeliveryError(null); setDeliverySuccess('PR linked to task.');
+      toast.success('PR linked to task.');
       qc.invalidateQueries({ queryKey: ['tasks'] }); qc.invalidateQueries({ queryKey: ['task', taskId] });
     },
-    onError: (e) => { setDeliverySuccess(null); setDeliveryError(formatTaskError(e)); },
+    onError: (e) => toast.error(formatTaskError(e)),
   });
   const removeAttachmentMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/tasks/${taskId}/attachments/${id}`),
     onSuccess: () => {
-      setDeliveryError(null); setDeliverySuccess('Item removed.');
+      toast.success('Item removed.');
       qc.invalidateQueries({ queryKey: ['tasks'] }); qc.invalidateQueries({ queryKey: ['task', taskId] });
     },
-    onError: (e) => { setDeliverySuccess(null); setDeliveryError(formatTaskError(e)); },
+    onError: (e) => toast.error(formatTaskError(e)),
   });
 
   const handleStatusChange = (newStatus: string) => {
@@ -194,19 +192,16 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
   const handleAttachmentSelect = async (event: React.ChangeEvent<HTMLInputElement>, type: 'SCREENSHOT' | 'DOCUMENT') => {
     const file = event.target.files?.[0]; event.target.value = '';
     if (!file) return;
-    setDeliverySuccess(null); setDeliveryError(null);
     await attachmentMutation.mutateAsync({ file, type });
   };
   const handlePullRequestSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!prTitle.trim() || !prUrl.trim()) return;
-    setDeliverySuccess(null); setDeliveryError(null);
     await pullRequestMutation.mutateAsync({ title: prTitle.trim(), url: prUrl.trim() });
   };
 
   useEffect(() => {
     if (!task || !initialDeliveryAction) return;
-    setDeliveryError(null); setDeliverySuccess(null);
     setPrFormOpen(initialDeliveryAction === 'PULL_REQUEST');
     requestAnimationFrame(() => deliverySectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   }, [initialDeliveryAction, task]);
@@ -525,7 +520,7 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
                           },
                           {
                             key: 'PULL_REQUEST', label: 'Raise PR', icon: GitPullRequest,
-                            onClick: () => { setDeliveryError(null); setDeliverySuccess(null); setPrFormOpen((v) => !v); },
+                            onClick: () => setPrFormOpen((v) => !v),
                             loading: false,
                           },
                         ].map(({ key, label, icon: Icon, onClick, loading }) => (
@@ -587,19 +582,6 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
                           </button>
                         </div>
                       </form>
-                    )}
-
-                    {/* Success / Error toast */}
-                    {(deliveryError || deliverySuccess) && (
-                      <div className={cn(
-                        'flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-semibold',
-                        deliveryError
-                          ? 'border-red-200 bg-red-50 text-red-700'
-                          : 'border-emerald-200 bg-emerald-50 text-emerald-700',
-                      )}>
-                        {deliveryError ? <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> : <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />}
-                        {deliveryError || deliverySuccess}
-                      </div>
                     )}
 
                     {/* Attachment groups */}

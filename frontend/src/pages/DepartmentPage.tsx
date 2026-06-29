@@ -24,6 +24,7 @@ import { cn, getInitials, formatDate, formatRelative, priorityColor, statusColor
 import { WeekdayDatePicker } from '@/components/ui/weekday-date-picker';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/api/client';
+import { toast } from '@/hooks/use-toast';
 import { TaskDetailDrawer } from '@/components/tasks/TaskDetailDrawer';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -2594,7 +2595,6 @@ function AddMemberToTeamDialog({ team, onClose, onAdded }: {
   const [managerUserId, setManagerUserId] = useState('');
   const [search,        setSearch]        = useState('');
   const [adding,        setAdding]        = useState(false);
-  const [error,         setError]         = useState('');
 
   const { data: allUsers = [], isLoading } = useQuery<OrgUser[]>({
     queryKey: ['users-list'],
@@ -2626,7 +2626,6 @@ function AddMemberToTeamDialog({ team, onClose, onAdded }: {
   const handleAdd = async () => {
     if (selectedIds.size === 0) return;
     setAdding(true);
-    setError('');
     try {
       let lastResult: Team | null = null;
       for (const userId of selectedIds) {
@@ -2641,7 +2640,7 @@ function AddMemberToTeamDialog({ team, onClose, onAdded }: {
       setManagerUserId('');
     } catch (err: unknown) {
       const e = err as { response?: { data?: { error?: string } } };
-      setError(e?.response?.data?.error ?? 'Failed to add members');
+      toast.error(e?.response?.data?.error ?? 'Failed to add members');
     } finally {
       setAdding(false);
     }
@@ -2652,7 +2651,7 @@ function AddMemberToTeamDialog({ team, onClose, onAdded }: {
     MANAGER: 'Manager', TEAM_MEMBER: 'Member', COACH_ADVISOR: 'Advisor',
   };
 
-  const reset = () => { setSelectedIds(new Set()); setSearch(''); setError(''); setManagerUserId(''); onClose(); };
+  const reset = () => { setSelectedIds(new Set()); setSearch(''); setManagerUserId(''); onClose(); };
 
   return (
     <Dialog open onOpenChange={(v) => { if (!v) reset(); }}>
@@ -2778,7 +2777,6 @@ function AddMemberToTeamDialog({ team, onClose, onAdded }: {
             </div>
           )}
 
-          {error && <p className="text-xs text-destructive">{error}</p>}
         </div>
 
         <div className="flex justify-end gap-2 mt-1">
@@ -3097,7 +3095,6 @@ function AddDocumentDialog({ teamId, onClose, onAdded }: {
   const [url,        setUrl]        = useState('');
   const [file,       setFile]       = useState<File | null>(null);
   const [uploading,  setUploading]  = useState(false);
-  const [error,      setError]      = useState('');
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -3107,8 +3104,7 @@ function AddDocumentDialog({ teamId, onClose, onAdded }: {
   };
 
   const handleSubmit = async () => {
-    setError('');
-    if (!name.trim()) { setError('Name is required'); return; }
+    if (!name.trim()) { toast.error('Name is required'); return; }
 
     setUploading(true);
     try {
@@ -3117,12 +3113,9 @@ function AddDocumentDialog({ teamId, onClose, onAdded }: {
       let size: number | undefined;
 
       if (mode === 'file') {
-        if (!file) { setError('Please select a file'); setUploading(false); return; }
+        if (!file) { toast.error('Please select a file'); setUploading(false); return; }
         const form = new FormData();
         form.append('file', file);
-        // Use fetch directly so the browser sets Content-Type: multipart/form-data
-        // with the correct boundary — the axios instance default (application/json)
-        // would otherwise prevent multer from parsing req.file.
         const apiBase = (import.meta.env.VITE_API_URL as string | undefined) || '/api';
         const token = localStorage.getItem('gr_token');
         const uploadRes = await fetch(`${apiBase}/upload/content`, {
@@ -3139,14 +3132,14 @@ function AddDocumentDialog({ teamId, onClose, onAdded }: {
         fileType  = data.mimeType;
         size      = data.size;
       } else {
-        if (!finalUrl) { setError('URL is required'); setUploading(false); return; }
-        if (!/^https?:\/\//i.test(finalUrl)) { setError('Enter a valid URL starting with http:// or https://'); setUploading(false); return; }
+        if (!finalUrl) { toast.error('URL is required'); setUploading(false); return; }
+        if (!/^https?:\/\//i.test(finalUrl)) { toast.error('Enter a valid URL starting with http:// or https://'); setUploading(false); return; }
       }
 
       await api.post(`/teams/${teamId}/documents`, { name: name.trim(), url: finalUrl, fileType, size });
       onAdded();
     } catch {
-      setError('Upload failed. Please try again.');
+      toast.error('Upload failed. Please try again.');
     } finally {
       setUploading(false);
     }
@@ -3221,7 +3214,6 @@ function AddDocumentDialog({ teamId, onClose, onAdded }: {
             </div>
           )}
 
-          {error && <p className="text-xs text-destructive">{error}</p>}
         </div>
 
         <div className="flex justify-end gap-2 mt-1">

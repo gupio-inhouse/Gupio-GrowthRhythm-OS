@@ -19,6 +19,7 @@ import AuditLog from '@/pages/AuditLog';
 import DepartmentPage from '@/pages/DepartmentPage';
 import { useAuthStore } from '@/store/authStore';
 import { getRoleRedirect } from '@/lib/roleRedirect';
+import { Toaster } from '@/components/ui/toaster';
 
 const qc = new QueryClient({
   defaultOptions: {
@@ -77,6 +78,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </BrowserRouter>
+      <Toaster />
     </QueryClientProvider>
   );
 }

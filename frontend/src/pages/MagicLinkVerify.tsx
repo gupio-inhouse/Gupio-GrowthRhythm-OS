@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import api from '@/api/client';
+import { toast } from '@/hooks/use-toast';
 
 type Status = 'verifying' | 'setup' | 'reset' | 'success' | 'error';
 
@@ -92,12 +93,11 @@ export default function MagicLinkVerify() {
   }, [token]);
 
   const handleSetPassword = async () => {
-    if (!token) { setErrorMsg('No token found.'); return; }
-    if (password.length < 8) { setErrorMsg('Password must be at least 8 characters.'); return; }
-    if (password !== confirmPassword) { setErrorMsg('Passwords do not match.'); return; }
+    if (!token) { toast.error('No token found.'); return; }
+    if (password.length < 8) { toast.error('Password must be at least 8 characters.'); return; }
+    if (password !== confirmPassword) { toast.error('Passwords do not match.'); return; }
 
     setSubmitting(true);
-    setErrorMsg('');
     try {
       const res = await api.post('/magic/accept-invite', { token, password });
       finishLogin(res.data as AuthPayload);
@@ -113,12 +113,11 @@ export default function MagicLinkVerify() {
   };
 
   const handleResetPassword = async () => {
-    if (!resetToken) { setErrorMsg('Reset token missing.'); return; }
-    if (password.length < 8) { setErrorMsg('Password must be at least 8 characters.'); return; }
-    if (password !== confirmPassword) { setErrorMsg('Passwords do not match.'); return; }
+    if (!resetToken) { toast.error('Reset token missing.'); return; }
+    if (password.length < 8) { toast.error('Password must be at least 8 characters.'); return; }
+    if (password !== confirmPassword) { toast.error('Passwords do not match.'); return; }
 
     setSubmitting(true);
-    setErrorMsg('');
     try {
       await api.post('/auth/reset-password', { token: resetToken, password });
       setStatus('success');
@@ -127,7 +126,7 @@ export default function MagicLinkVerify() {
       const msg =
         (err as { response?: { data?: { error?: string } } }).response?.data?.error ??
         'Unable to reset password. Please request a new link.';
-      setErrorMsg(msg);
+      toast.error(msg);
     } finally {
       setSubmitting(false);
     }
@@ -175,7 +174,6 @@ export default function MagicLinkVerify() {
                 <Input id="confirmPassword" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="Re-enter your password" className="bg-white/10 border-white/20 text-white placeholder:text-white/40" />
               </div>
-              {errorMsg && <p className="text-sm text-red-300">{errorMsg}</p>}
               <Button type="button" className="w-full bg-blue-600 hover:bg-blue-500" onClick={handleSetPassword} disabled={submitting}>
                 {submitting ? 'Setting up...' : 'Complete Setup'}
               </Button>
@@ -201,7 +199,6 @@ export default function MagicLinkVerify() {
                 <Input id="confirmNewPassword" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="Re-enter your password" className="bg-white/10 border-white/20 text-white placeholder:text-white/40" />
               </div>
-              {errorMsg && <p className="text-sm text-red-300">{errorMsg}</p>}
               <Button type="button" className="w-full bg-blue-600 hover:bg-blue-500" onClick={handleResetPassword} disabled={submitting}>
                 {submitting ? 'Resetting...' : 'Reset Password'}
               </Button>

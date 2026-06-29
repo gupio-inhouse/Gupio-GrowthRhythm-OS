@@ -17,6 +17,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { cn, getInitials } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/api/client';
+import { toast } from '@/hooks/use-toast';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type StandupCard = {
@@ -184,7 +185,6 @@ function ScheduleDialog({ open, onClose, onCreated }: { open: boolean; onClose: 
   const [date, setDate]       = useState(today);
   const [time, setTime]       = useState('09:00');
   const [meetUrl, setMeetUrl] = useState('');
-  const [error, setError]     = useState('');
 
   const { data: depts = [] } = useQuery<Department[]>({
     queryKey: ['departments-list'],
@@ -198,13 +198,12 @@ function ScheduleDialog({ open, onClose, onCreated }: { open: boolean; onClose: 
       return api.post('/standups', { departmentId: deptId, scheduledAt, meetUrl: meetUrl.trim() || undefined });
     },
     onSuccess: () => { onCreated(); onClose(); },
-    onError: (e: any) => setError(e.response?.data?.error || 'Failed to schedule standup'),
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Failed to schedule standup'),
   });
 
   const handleSubmit = () => {
-    setError('');
-    if (!deptId) { setError('Select a department'); return; }
-    if (!date)   { setError('Pick a date'); return; }
+    if (!deptId) { toast.error('Select a department'); return; }
+    if (!date)   { toast.error('Pick a date'); return; }
     mutation.mutate();
   };
 
@@ -255,11 +254,6 @@ function ScheduleDialog({ open, onClose, onCreated }: { open: boolean; onClose: 
             <p className="text-[10px] text-muted-foreground">Everyone in the standup will see a Join button.</p>
           </div>
 
-          {error && (
-            <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 font-medium">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {error}
-            </div>
-          )}
         </div>
 
         <DialogFooter>

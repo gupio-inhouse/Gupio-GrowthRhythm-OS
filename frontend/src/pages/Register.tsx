@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/api/client';
+import { toast } from '@/hooks/use-toast';
 
 const schema = z.object({
   name: z.string().min(2, 'Name too short'),
@@ -31,7 +32,6 @@ const industries = [
 ];
 
 export default function Register() {
-  const [error, setError] = useState('');
   const [registered, setRegistered] = useState(false);
   const navigate = useNavigate();
   const setAuth = useAuthStore((s) => s.setAuth);
@@ -41,15 +41,13 @@ export default function Register() {
   });
 
   const onSubmit = async (data: FormData) => {
-    setError('');
     try {
       const res = await api.post('/auth/register', data);
       setAuth(res.data.token, res.data.user, res.data.org);
       setRegistered(true);
-      // Owner accounts are immediately active — redirect after short delay
       setTimeout(() => navigate('/cockpit'), 2000);
     } catch (err: unknown) {
-      setError((err as { response?: { data?: { error?: string } } }).response?.data?.error || 'Registration failed');
+      toast.error((err as { response?: { data?: { error?: string } } }).response?.data?.error || 'Registration failed');
     }
   };
 
@@ -154,12 +152,6 @@ export default function Register() {
                     <strong>Workspace created!</strong> Check your email — we sent a magic link to sign in.
                     Redirecting you now&hellip;
                   </span>
-                </div>
-              )}
-
-              {!registered && error && (
-                <div className="rounded-md bg-red-500/20 border border-red-500/30 px-3 py-2 text-sm text-red-300">
-                  {error}
                 </div>
               )}
 

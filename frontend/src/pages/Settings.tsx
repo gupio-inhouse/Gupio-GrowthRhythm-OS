@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   User, Building2, Bell, Shield, CheckCircle2, Camera,
 } from 'lucide-react';
+import { toast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -43,15 +44,6 @@ const notificationOptions = [
   { key: 'weeklyDigest', label: 'Weekly Digest', description: 'Sunday summary of team performance' },
   { key: 'reviewDue', label: 'Review Due', description: 'When a review is scheduled for your team' },
 ];
-
-function SavedBanner() {
-  return (
-    <div className="flex items-center gap-2 text-sm text-green-600 font-medium">
-      <CheckCircle2 className="h-4 w-4" />
-      Saved successfully
-    </div>
-  );
-}
 
 const DEFAULT_NOTIF_PREFS: Record<string, boolean> = {
   taskAssigned: true, taskBlocked: true, standupReminder: true,
@@ -156,9 +148,6 @@ function MfaSection() {
 export default function Settings() {
   const { user, org, setAuth, token } = useAuthStore();
   const qc = useQueryClient();
-  const [profileSaved, setProfileSaved] = useState(false);
-  const [passwordSaved, setPasswordSaved] = useState(false);
-  const [notifSaved, setNotifSaved] = useState(false);
 
   // Fetch user detail to get notificationPrefs
   const { data: userDetail } = useQuery({
@@ -191,8 +180,7 @@ export default function Settings() {
         setAuth(token, { ...user, ...updated }, org);
       }
       qc.invalidateQueries({ queryKey: ['me'] });
-      setProfileSaved(true);
-      setTimeout(() => setProfileSaved(false), 3000);
+      toast.success('Profile saved');
     },
   });
 
@@ -201,8 +189,7 @@ export default function Settings() {
       api.patch(`/users/${user?.id}`, { password: data.newPassword }).then((r) => r.data),
     onSuccess: () => {
       resetPwd();
-      setPasswordSaved(true);
-      setTimeout(() => setPasswordSaved(false), 3000);
+      toast.success('Password updated');
     },
   });
 
@@ -210,8 +197,7 @@ export default function Settings() {
     mutationFn: () => api.patch(`/users/${user?.id}`, { notificationPrefs: notifications }).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user-me', user?.id] });
-      setNotifSaved(true);
-      setTimeout(() => setNotifSaved(false), 3000);
+      toast.success('Preferences saved');
     },
   });
 
@@ -311,7 +297,7 @@ export default function Settings() {
                 </div>
 
                 <div className="flex items-center justify-between pt-2">
-                  {profileSaved ? <SavedBanner /> : <span />}
+                  <span />
                   <Button type="submit" disabled={updateProfile.isPending}>
                     {updateProfile.isPending ? 'Saving...' : 'Save Changes'}
                   </Button>
@@ -345,7 +331,7 @@ export default function Settings() {
                 </div>
               ))}
               <div className="pt-4 flex items-center justify-between">
-                {notifSaved ? <SavedBanner /> : <span />}
+                <span />
                 <Button size="sm" onClick={() => saveNotifPrefs.mutate()} disabled={saveNotifPrefs.isPending}>
                   {saveNotifPrefs.isPending ? 'Saving...' : 'Save Preferences'}
                 </Button>
@@ -385,7 +371,7 @@ export default function Settings() {
                   )}
                 </div>
                 <div className="flex items-center justify-between pt-2">
-                  {passwordSaved ? <SavedBanner /> : <span />}
+                  <span />
                   <Button type="submit" disabled={changePassword.isPending}>
                     {changePassword.isPending ? 'Updating...' : 'Update Password'}
                   </Button>

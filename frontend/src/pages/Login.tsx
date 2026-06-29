@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { useAuthStore } from '@/store/authStore';
 import { getRoleRedirect } from '@/lib/roleRedirect';
 import api from '@/api/client';
+import { toast } from '@/hooks/use-toast';
 
 const schema = z.object({
   email: z.string().email('Invalid email'),
@@ -22,7 +23,6 @@ type FormData = z.infer<typeof schema>;
 
 export default function Login() {
   const [showPw, setShowPw] = useState(false);
-  const [error, setError] = useState('');
   const [forgotOpen, setForgotOpen] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotSent, setForgotSent] = useState(false);
@@ -52,7 +52,6 @@ export default function Login() {
   });
 
   const onSubmit = async (data: FormData) => {
-    setError('');
     try {
       const res = await api.post('/auth/login', data);
       setAuth(res.data.token, res.data.user, res.data.org);
@@ -61,7 +60,7 @@ export default function Login() {
         : getRoleRedirect(res.data.user.role, res.data.user.departmentSlug);
       navigate(destination, { replace: true });
     } catch (err: unknown) {
-      setError((err as { response?: { data?: { error?: string } } }).response?.data?.error || 'Login failed');
+      toast.error((err as { response?: { data?: { error?: string } } }).response?.data?.error || 'Login failed');
     }
   };
 
@@ -118,12 +117,6 @@ export default function Login() {
                 </div>
                 {errors.password && <p className="text-red-400 text-xs mt-1">{errors.password.message}</p>}
               </div>
-
-              {error && (
-                <div className="rounded-md bg-red-500/20 border border-red-500/30 px-3 py-2 text-sm text-red-300">
-                  {error}
-                </div>
-              )}
 
               <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-500" disabled={isSubmitting}>
                 {isSubmitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Signing in...</> : 'Sign in'}
