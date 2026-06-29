@@ -9,6 +9,31 @@ router.use(authenticate, requireRole('OWNER', 'COMPANY_ADMIN', 'SUPER_ADMIN'));
 // GET /owner/cockpit — company-wide overview
 router.get('/cockpit', async (req: AuthRequest, res: Response) => {
   const orgId = req.user!.orgId;
+  const { departmentId, assigneeId, status: statusFilter, from: fromStr, to: toStr } =
+    req.query as Record<string, string | undefined>;
+
+  // Base task filter (department + member + date)
+  const taskBase: Record<string, unknown> = { orgId };
+  if (departmentId) taskBase.departmentId = departmentId;
+  if (assigneeId) taskBase.assigneeUserId = assigneeId;
+  if (fromStr || toStr) {
+    const dueDateFilter: Record<string, unknown> = {};
+    if (fromStr) dueDateFilter.gte = new Date(fromStr);
+    if (toStr) dueDateFilter.lte = new Date(toStr);
+    taskBase.dueDate = dueDateFilter;
+  }
+
+  // Total tasks — respects status filter for the "total" denominator
+  let totalWhere: Record<string, unknown> = { ...taskBase };
+  if (statusFilter === 'overdue') {
+    totalWhere = { ...taskBase, status: { notIn: ['DONE', 'CANCELLED'] }, dueDate: { lt: new Date() } };
+  } else if (statusFilter === 'due_today') {
+    const start = new Date(); start.setUTCHours(0, 0, 0, 0);
+    const end   = new Date(); end.setUTCHours(23, 59, 59, 999);
+    totalWhere  = { ...taskBase, dueDate: { gte: start, lte: end } };
+  } else if (statusFilter) {
+    totalWhere = { ...taskBase, status: statusFilter };
+  }
 
   const [
     totalUsers,
@@ -27,15 +52,13 @@ router.get('/cockpit', async (req: AuthRequest, res: Response) => {
       orderBy: { lastLoginAt: 'desc' },
     }),
     prisma.department.findMany({
-      where: { orgId, isActive: true },
-      include: {
-        _count: { select: { users: true, tasks: true } },
-      },
+      where: { orgId, isActive: true, ...(departmentId ? { id: departmentId } : {}) },
+      include: { _count: { select: { users: true, tasks: true } } },
     }),
-    prisma.task.count({ where: { orgId } }),
-    prisma.task.count({ where: { orgId, status: 'DONE' } }),
-    prisma.task.count({ where: { orgId, status: { notIn: ['DONE', 'CANCELLED'] }, dueDate: { lt: new Date() } } }),
-    prisma.task.count({ where: { orgId, status: 'BLOCKED' } }),
+    prisma.task.count({ where: totalWhere }),
+    prisma.task.count({ where: { ...taskBase, status: 'DONE' } }),
+    prisma.task.count({ where: { ...taskBase, status: { notIn: ['DONE', 'CANCELLED'] }, dueDate: { lt: new Date() } } }),
+    prisma.task.count({ where: { ...taskBase, status: 'BLOCKED' } }),
     prisma.standup.findMany({
       where: {
         orgId,
@@ -82,22 +105,30 @@ router.get('/cockpit', async (req: AuthRequest, res: Response) => {
 
 // GET /owner/cockpit/blockers
 router.get('/cockpit/blockers', async (req: AuthRequest, res: Response) => {
-  const blockers = await prisma.task.groupBy({
-    by: ['blockerType'],
-    where: { orgId: req.user!.orgId, status: 'BLOCKED', blockerType: { not: null } },
-    _count: true,
-    orderBy: { _count: { blockerType: 'desc' } },
-  });
+  const orgId = req.user!.orgId;
+  const { departmentId, assigneeId } = req.query as Record<string, string | undefined>;
 
-  const repeatedBlockers = await prisma.task.findMany({
-    where: { orgId: req.user!.orgId, blockerCount: { gte: 3 } },
-    include: {
-      assignee: { select: { id: true, name: true } },
-      department: { select: { id: true, name: true } },
-    },
-    orderBy: { blockerCount: 'desc' },
-    take: 10,
-  });
+  const base: Record<string, unknown> = { orgId };
+  if (departmentId) base.departmentId = departmentId;
+  if (assigneeId) base.assigneeUserId = assigneeId;
+
+  const [blockers, repeatedBlockers] = await Promise.all([
+    prisma.task.groupBy({
+      by: ['blockerType'],
+      where: { ...base, status: 'BLOCKED', blockerType: { not: null } },
+      _count: true,
+      orderBy: { _count: { blockerType: 'desc' } },
+    }),
+    prisma.task.findMany({
+      where: { ...base, blockerCount: { gte: 3 } },
+      include: {
+        assignee: { select: { id: true, name: true } },
+        department: { select: { id: true, name: true } },
+      },
+      orderBy: { blockerCount: 'desc' },
+      take: 10,
+    }),
+  ]);
 
   res.json({ blockersByType: blockers, repeatedBlockers });
 });
@@ -106,10 +137,15 @@ router.get('/cockpit/blockers', async (req: AuthRequest, res: Response) => {
 router.get('/cockpit/weekly-summary', async (req: AuthRequest, res: Response) => {
   const weekAgo = new Date(Date.now() - 7 * 86400000);
   const orgId = req.user!.orgId;
+  const { departmentId, assigneeId } = req.query as Record<string, string | undefined>;
+
+  const base: Record<string, unknown> = { orgId };
+  if (departmentId) base.departmentId = departmentId;
+  if (assigneeId) base.assigneeUserId = assigneeId;
 
   const [completedThisWeek, newBlockers, standupCount] = await Promise.all([
-    prisma.task.count({ where: { orgId, status: 'DONE', completedAt: { gte: weekAgo } } }),
-    prisma.task.count({ where: { orgId, status: 'BLOCKED', createdAt: { gte: weekAgo } } }),
+    prisma.task.count({ where: { ...base, status: 'DONE', completedAt: { gte: weekAgo } } }),
+    prisma.task.count({ where: { ...base, status: 'BLOCKED', createdAt: { gte: weekAgo } } }),
     prisma.standup.count({ where: { orgId, status: 'COMPLETED', scheduledAt: { gte: weekAgo } } }),
   ]);
 

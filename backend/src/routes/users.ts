@@ -157,14 +157,19 @@ router.get('/workload', async (req: AuthRequest, res: Response) => {
     return;
   }
 
+  const { departmentId: deptFilter, assigneeId } = req.query as Record<string, string | undefined>;
+
+  // Determine department scope: role-based restriction takes precedence for non-owners
+  const isOwnerLevel = ['OWNER', 'COMPANY_ADMIN', 'SUPER_ADMIN'].includes(viewer.role);
+  const scopedDeptId = !isOwnerLevel && viewer.departmentId ? viewer.departmentId : (deptFilter || undefined);
+
   const users = await prisma.user.findMany({
     where: {
       orgId: req.user!.orgId,
       status: 'ACTIVE',
       role: { notIn: ['SUPER_ADMIN', 'COACH_ADVISOR'] },
-      ...(viewer.role !== 'OWNER' && viewer.role !== 'COMPANY_ADMIN' && viewer.role !== 'SUPER_ADMIN' && viewer.departmentId
-        ? { departmentId: viewer.departmentId }
-        : {}),
+      ...(scopedDeptId ? { departmentId: scopedDeptId } : {}),
+      ...(assigneeId ? { id: assigneeId } : {}),
     },
     select: {
       id: true,
@@ -202,7 +207,7 @@ router.get('/workload', async (req: AuthRequest, res: Response) => {
     return a.name.localeCompare(b.name);
   });
 
-  res.json(workload.slice(0, 5));
+  res.json(workload.slice(0, 20));
 });
 
 // GET /users/:id

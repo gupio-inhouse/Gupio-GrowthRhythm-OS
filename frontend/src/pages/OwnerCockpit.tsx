@@ -8,13 +8,14 @@ import {
 import {
   AlertTriangle, CheckSquare, Users, Building2, TrendingUp, Zap,
   Target, ExternalLink, ChevronRight, Activity, ArrowUpRight,
-  Shield, Flame,
+  Shield, Flame, Filter, X, SlidersHorizontal,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn, getInitials, formatRelative } from '@/lib/utils';
 import api from '@/api/client';
 
@@ -133,20 +134,24 @@ function GaugeArc({ percent, color }: { percent: number; color: string }) {
 }
 
 // ── Workload chart ────────────────────────────────────────────────────────────
-function WorkloadChart() {
+function WorkloadChart({ filterQs }: { filterQs: string }) {
   const navigate = useNavigate();
   const { data: workload = [], isLoading } = useQuery<Array<{
     id: string; name: string; email: string; role: string;
     departmentName: string | null; activeTaskCount: number;
   }>>({
-    queryKey: ['users-workload'],
-    queryFn: () => api.get('/users/workload').then((r) => r.data),
+    queryKey: ['users-workload', filterQs],
+    queryFn: () => api.get(`/users/workload${filterQs ? `?${filterQs}` : ''}`).then((r) => r.data),
   });
 
   const chartData = [...workload]
     .sort((a, b) => b.activeTaskCount - a.activeTaskCount)
     .slice(0, 8)
     .map((m) => ({ name: m.name.split(' ')[0], tasks: m.activeTaskCount, id: m.id }));
+
+  const yAxisWidth = chartData.length
+    ? Math.max(64, Math.min(130, Math.max(...chartData.map((d) => d.name.length)) * 7 + 10))
+    : 64;
 
   if (isLoading) {
     return (
@@ -178,7 +183,7 @@ function WorkloadChart() {
       <BarChart
         data={chartData}
         layout="vertical"
-        margin={{ top: 0, right: 20, left: 0, bottom: 0 }}
+        margin={{ top: 0, right: 20, left: 4, bottom: 0 }}
         onClick={(d) => {
           if (d?.activePayload?.[0])
             navigate(`/team/${(d.activePayload[0].payload as { id: string }).id}/report`);
@@ -201,8 +206,8 @@ function WorkloadChart() {
         <YAxis
           type="category"
           dataKey="name"
-          tick={{ fontSize: 11, fill: '#64748b', fontWeight: 500 }}
-          width={58}
+          tick={{ fontSize: 11, fill: '#1e293b', fontWeight: 600 }}
+          width={yAxisWidth}
           axisLine={false}
           tickLine={false}
         />
@@ -241,18 +246,50 @@ export default function OwnerCockpit() {
   const navigate = useNavigate();
   const [activeUsersOpen, setActiveUsersOpen] = useState(false);
 
+  // ── Filter state ────────────────────────────────────────────────────────────
+  const [departmentFilter, setDepartmentFilter] = useState('');
+  const [memberFilter, setMemberFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [dateFilter, setDateFilter] = useState('');
+
+  // Build query string from active filters
+  const filterQs = (() => {
+    const p = new URLSearchParams();
+    if (departmentFilter) p.set('departmentId', departmentFilter);
+    if (memberFilter) p.set('assigneeId', memberFilter);
+    if (statusFilter) p.set('status', statusFilter);
+    if (dateFilter) {
+      p.set('from', new Date(dateFilter + 'T00:00:00').toISOString());
+      p.set('to',   new Date(dateFilter + 'T23:59:59').toISOString());
+    }
+    return p.toString();
+  })();
+  const qs = filterQs ? `?${filterQs}` : '';
+
+  const activeFilterCount = [departmentFilter, memberFilter, statusFilter, dateFilter].filter(Boolean).length;
+
   const { data, isLoading } = useQuery({
-    queryKey: ['cockpit'],
-    queryFn: () => api.get('/owner/cockpit').then((r) => r.data),
+    queryKey: ['cockpit', filterQs],
+    queryFn: () => api.get(`/owner/cockpit${qs}`).then((r) => r.data),
   });
   const { data: weekly } = useQuery({
-    queryKey: ['cockpit-weekly'],
-    queryFn: () => api.get('/owner/cockpit/weekly-summary').then((r) => r.data),
+    queryKey: ['cockpit-weekly', filterQs],
+    queryFn: () => api.get(`/owner/cockpit/weekly-summary${qs}`).then((r) => r.data),
   });
   const { data: blockers } = useQuery({
-    queryKey: ['cockpit-blockers'],
-    queryFn: () => api.get('/owner/cockpit/blockers').then((r) => r.data),
+    queryKey: ['cockpit-blockers', filterQs],
+    queryFn: () => api.get(`/owner/cockpit/blockers${qs}`).then((r) => r.data),
   });
+
+  // Users list for member filter
+  const { data: allUsers = [] } = useQuery<{ id: string; name: string; departmentId?: string }[]>({
+    queryKey: ['users-list'],
+    queryFn: () => api.get('/users').then((r) => r.data),
+  });
+
+  const membersInDept = departmentFilter
+    ? allUsers.filter((u) => u.departmentId === departmentFilter)
+    : allUsers;
 
   // ── Loading skeleton ──────────────────────────────────────────────────────
   if (isLoading) {
@@ -274,7 +311,7 @@ export default function OwnerCockpit() {
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const tasks      = data?.tasks ?? { total: 0, done: 0, overdue: 0, blocked: 0 };
-  const taskHealth = tasks.total > 0 ? Math.round((tasks.done / tasks.total) * 100) : 0;
+  const taskHealth = tasks.total > 0 ? Math.min(100, Math.round((tasks.done / tasks.total) * 100)) : 0;
   const activeAmt  = Math.max(tasks.total - tasks.done - tasks.blocked - tasks.overdue, 0);
   const hasData    = (data?.departments?.length ?? 0) > 0 || (data?.totalUsers ?? 0) > 0;
 
@@ -373,6 +410,105 @@ export default function OwnerCockpit() {
             <Button asChild size="sm" className="rounded-xl bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 hover:to-violet-700 border-0 shadow-md shadow-indigo-200 text-xs sm:text-sm">
               <Link to="/team">Manage Team</Link>
             </Button>
+          </div>
+        </div>
+
+        {/* ══ Filter Bar ════════════════════════════════════════════════════ */}
+        <div className="rounded-2xl border border-border/60 bg-white shadow-sm p-3 sm:p-4 space-y-3">
+          {/* Row 1: dropdowns + date + clear */}
+          <div className="flex flex-wrap gap-2 items-center">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground shrink-0">
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              Filters
+            </div>
+
+            {/* Department */}
+            <Select
+              value={departmentFilter || '__all__'}
+              onValueChange={(v) => {
+                setDepartmentFilter(v === '__all__' ? '' : v);
+                setMemberFilter('');
+              }}
+            >
+              <SelectTrigger className="h-8 w-full sm:w-44 text-xs rounded-xl border-border/60">
+                <SelectValue placeholder="All Departments" />
+              </SelectTrigger>
+              <SelectContent className="rounded-xl">
+                <SelectItem value="__all__">All Departments</SelectItem>
+                {(data?.departments ?? []).map((d: { id: string; name: string }) => (
+                  <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* Member */}
+            <Select
+              value={memberFilter || '__all__'}
+              onValueChange={(v) => setMemberFilter(v === '__all__' ? '' : v)}
+              disabled={membersInDept.length === 0}
+            >
+              <SelectTrigger className="h-8 w-full sm:w-44 text-xs rounded-xl border-border/60">
+                <SelectValue placeholder="All Members" />
+              </SelectTrigger>
+              <SelectContent className="rounded-xl">
+                <SelectItem value="__all__">All Members</SelectItem>
+                {membersInDept.map((u) => (
+                  <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* Date */}
+            <input
+              type="date"
+              value={dateFilter}
+              onChange={(e) => setDateFilter(e.target.value)}
+              className="h-8 rounded-xl border border-border/60 px-3 text-xs text-foreground bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 w-full sm:w-auto"
+            />
+
+            {/* Clear */}
+            {activeFilterCount > 0 && (
+              <button
+                onClick={() => { setDepartmentFilter(''); setMemberFilter(''); setStatusFilter(''); setDateFilter(''); }}
+                className="inline-flex items-center gap-1.5 h-8 rounded-xl border border-border/60 px-3 text-xs font-semibold text-muted-foreground hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-all shrink-0"
+              >
+                <X className="h-3 w-3" />
+                Clear{activeFilterCount > 0 && ` (${activeFilterCount})`}
+              </button>
+            )}
+          </div>
+
+          {/* Row 2: status pills */}
+          <div className="flex gap-1.5 overflow-x-auto pb-0.5 flex-nowrap">
+            {[
+              { val: '',            label: 'All',         dot: '' },
+              { val: 'overdue',     label: 'Overdue',     dot: '#ef4444' },
+              { val: 'due_today',   label: 'Due Today',   dot: '#f59e0b' },
+              { val: 'TODO',        label: 'To Do',       dot: '#94a3b8' },
+              { val: 'IN_PROGRESS', label: 'In Progress', dot: '#3b82f6' },
+              { val: 'BLOCKED',     label: 'Blocked',     dot: '#ef4444' },
+              { val: 'IN_REVIEW',   label: 'In Review',   dot: '#f59e0b' },
+              { val: 'DONE',        label: 'Done',        dot: '#22c55e' },
+              { val: 'CANCELLED',   label: 'Cancelled',   dot: '#d1d5db' },
+            ].map(({ val, label, dot }) => {
+              const active = statusFilter === val;
+              return (
+                <button
+                  key={val}
+                  onClick={() => setStatusFilter(val)}
+                  className={cn(
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all whitespace-nowrap shrink-0',
+                    active
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                      : 'border-border/60 bg-white text-muted-foreground hover:border-indigo-200 hover:text-indigo-700 hover:bg-indigo-50/50',
+                  )}
+                >
+                  {dot && <span className="h-2 w-2 rounded-full shrink-0" style={{ background: dot }} />}
+                  {!dot && <Filter className="h-3 w-3" />}
+                  {label}
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -502,7 +638,7 @@ export default function OwnerCockpit() {
                     { label: 'Overdue', value: tasks.overdue, color: C.amber,   nav: '/tasks'                },
                     { label: 'Blocked', value: tasks.blocked, color: C.red,     nav: '/tasks?status=BLOCKED' },
                   ].map((s) => {
-                    const pct = tasks.total > 0 ? Math.round((s.value / tasks.total) * 100) : 0;
+                    const pct = tasks.total > 0 ? Math.min(100, Math.round((s.value / tasks.total) * 100)) : 0;
                     return (
                       <button
                         key={s.label}
@@ -585,7 +721,7 @@ export default function OwnerCockpit() {
                   </div>
                   <div className="flex-1 w-full space-y-3">
                     {taskDonut.map((d) => {
-                      const pct = tasks.total > 0 ? Math.round((d.value / tasks.total) * 100) : 0;
+                      const pct = tasks.total > 0 ? Math.min(100, Math.round((d.value / tasks.total) * 100)) : 0;
                       return (
                         <div key={d.name}>
                           <div className="flex items-center justify-between mb-1.5">
@@ -692,7 +828,7 @@ export default function OwnerCockpit() {
               </CardTitle>
             </CardHeader>
             <CardContent className="px-3 sm:px-4 pb-5 pt-3">
-              <WorkloadChart />
+              <WorkloadChart filterQs={filterQs} />
             </CardContent>
           </Card>
         </div>
