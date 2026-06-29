@@ -130,9 +130,22 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
   });
   const canEdit = canEditAsManager || (user?.role === 'TEAM_MEMBER' && !!task && task.assignee?.id === user?.id);
 
+  const STATUS_TOAST: Record<string, string> = {
+    IN_PROGRESS: 'Task moved to In Progress',
+    IN_REVIEW:   'Submitted for review',
+    DONE:        'Task marked as Done',
+    BLOCKED:     'Task blocked',
+    CANCELLED:   'Task cancelled',
+    TODO:        'Task moved back to To Do',
+  };
   const updateMutation = useMutation({
     mutationFn: (patch: Record<string, unknown>) => api.patch(`/tasks/${taskId}`, patch),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['tasks'] }); qc.invalidateQueries({ queryKey: ['task', taskId] }); },
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['tasks'] });
+      qc.invalidateQueries({ queryKey: ['task', taskId] });
+      const newStatus = variables.status as string | undefined;
+      if (newStatus) toast.success(STATUS_TOAST[newStatus] ?? 'Status updated');
+    },
   });
   const commentMutation = useMutation({
     mutationFn: (content: string) => api.post(`/tasks/${taskId}/comments`, { content }),

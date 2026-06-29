@@ -80,7 +80,7 @@ function PremiumToast({
         'shadow-[0_8px_40px_-8px_rgba(0,0,0,0.18),0_2px_8px_-2px_rgba(0,0,0,0.08)]',
         v.bg,
         // Enter animation
-        'data-[state=open]:animate-in data-[state=open]:slide-in-from-right-full data-[state=open]:fade-in-0 data-[state=open]:duration-300',
+        'data-[state=open]:animate-in data-[state=open]:slide-in-from-top-2 data-[state=open]:fade-in-0 data-[state=open]:duration-300',
         // Exit animation
         'data-[state=closed]:animate-out data-[state=closed]:slide-out-to-right-full data-[state=closed]:fade-out-0 data-[state=closed]:duration-200',
         // Swipe
@@ -138,16 +138,15 @@ export function Toaster() {
   const { toasts } = useToasts();
 
   return (
-    <ToastPrimitive.Provider swipeDirection="right">
+    <ToastPrimitive.Provider swipeDirection="up">
       {toasts.map((t) => (
         <PremiumToast key={t.id} {...t} />
       ))}
 
       <ToastPrimitive.Viewport
         className={cn(
-          'fixed bottom-5 right-5 z-[9999] flex flex-col gap-2.5 outline-none',
+          'fixed top-5 right-5 z-[9999] flex flex-col gap-2.5 outline-none',
           'w-[360px] max-w-[calc(100vw-2rem)]',
-          // Stacking
           '[&>li]:list-none',
         )}
       />

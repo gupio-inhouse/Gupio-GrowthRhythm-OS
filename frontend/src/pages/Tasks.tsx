@@ -22,6 +22,7 @@ import { NewTaskDialog } from '@/components/tasks/NewTaskDialog';
 import { TaskDetailDrawer } from '@/components/tasks/TaskDetailDrawer';
 import api from '@/api/client';
 import { useAuthStore } from '@/store/authStore';
+import { toast } from '@/hooks/use-toast';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type Task = {
@@ -178,10 +179,22 @@ export default function Tasks() {
     enabled: canFilterByDept,
   });
 
+  const STATUS_TOAST: Record<string, string> = {
+    IN_PROGRESS: 'Task moved to In Progress',
+    IN_REVIEW:   'Submitted for review',
+    DONE:        'Task marked as Done',
+    BLOCKED:     'Task blocked',
+    CANCELLED:   'Task cancelled',
+    TODO:        'Task moved back to To Do',
+  };
   const updateMutation = useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: Record<string, unknown> }) =>
       api.patch(`/tasks/${id}`, patch),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['tasks'] });
+      const newStatus = variables.patch.status as string | undefined;
+      if (newStatus) toast.success(STATUS_TOAST[newStatus] ?? 'Status updated');
+    },
   });
 
   const handleStatusChange = (task: Task, newStatus: string) => {

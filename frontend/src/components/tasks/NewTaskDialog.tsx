@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import api from '@/api/client';
 import { useAuthStore } from '@/store/authStore';
+import { toast } from '@/hooks/use-toast';
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
 
@@ -177,14 +178,20 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
           dueDate:         dueDateIso,
         };
 
-    if (isEditMode && taskToEdit) {
-      await api.patch(`/tasks/${taskToEdit.id}`, payload);
-    } else {
-      await api.post('/tasks', payload);
+    try {
+      if (isEditMode && taskToEdit) {
+        await api.patch(`/tasks/${taskToEdit.id}`, payload);
+        toast.success('Task updated');
+      } else {
+        await api.post('/tasks', payload);
+        toast.success('Task created');
+      }
+      reset();
+      onCreated();
+      onClose();
+    } catch (err: unknown) {
+      toast.error((err as { response?: { data?: { error?: string } } }).response?.data?.error || 'Failed to save task');
     }
-    reset();
-    onCreated();
-    onClose();
   };
 
   // Filtered user list for assignee search
