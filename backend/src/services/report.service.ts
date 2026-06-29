@@ -1,43 +1,46 @@
 import prisma from '../lib/prisma';
 
 // ── IST helpers ───────────────────────────────────────────────────────────────
-const IST_MS = 5.5 * 3600 * 1000; // UTC+5:30
+const IST_MS = 5.5 * 3600 * 1000;
 
 function toIST(d: Date) { return new Date(d.getTime() + IST_MS); }
 function fromIST(d: Date) { return new Date(d.getTime() - IST_MS); }
 
 function istStartOfDay(d: Date): Date {
-  const ist = new Date(d);
-  ist.setUTCHours(0, 0, 0, 0);
-  return fromIST(ist);
+  const ist = new Date(d); ist.setUTCHours(0, 0, 0, 0); return fromIST(ist);
 }
 function istEndOfDay(d: Date): Date {
-  const ist = new Date(d);
-  ist.setUTCHours(23, 59, 59, 999);
-  return fromIST(ist);
+  const ist = new Date(d); ist.setUTCHours(23, 59, 59, 999); return fromIST(ist);
 }
 
 export function getPeriodRange(period: 'daily' | 'weekly' | 'monthly') {
   const now = toIST(new Date());
-
-  if (period === 'daily') {
-    return { from: istStartOfDay(now), to: istEndOfDay(now) };
-  }
-
+  if (period === 'daily') return { from: istStartOfDay(now), to: istEndOfDay(now) };
   if (period === 'weekly') {
-    const dow = now.getUTCDay(); // 0=Sun
-    const monday = new Date(now);
-    monday.setUTCDate(now.getUTCDate() - (dow === 0 ? 6 : dow - 1));
-    const sunday = new Date(monday);
-    sunday.setUTCDate(monday.getUTCDate() + 6);
+    const dow = now.getUTCDay();
+    const monday = new Date(now); monday.setUTCDate(now.getUTCDate() - (dow === 0 ? 6 : dow - 1));
+    const sunday = new Date(monday); sunday.setUTCDate(monday.getUTCDate() + 6);
     return { from: istStartOfDay(monday), to: istEndOfDay(sunday) };
   }
-
-  // monthly
   const first = new Date(now); first.setUTCDate(1);
-  const last = new Date(now);
-  last.setUTCMonth(last.getUTCMonth() + 1); last.setUTCDate(0);
+  const last = new Date(now); last.setUTCMonth(last.getUTCMonth() + 1); last.setUTCDate(0);
   return { from: istStartOfDay(first), to: istEndOfDay(last) };
+}
+
+function getPriorPeriodRange(period: 'daily' | 'weekly' | 'monthly', currentFrom: Date) {
+  const istFrom = toIST(currentFrom);
+  if (period === 'daily') {
+    const prev = new Date(istFrom); prev.setUTCDate(istFrom.getUTCDate() - 1);
+    return { from: istStartOfDay(prev), to: istEndOfDay(prev) };
+  }
+  if (period === 'weekly') {
+    const prevMon = new Date(istFrom); prevMon.setUTCDate(istFrom.getUTCDate() - 7);
+    const prevSun = new Date(prevMon); prevSun.setUTCDate(prevMon.getUTCDate() + 6);
+    return { from: istStartOfDay(prevMon), to: istEndOfDay(prevSun) };
+  }
+  const lastOfPrev = new Date(istFrom); lastOfPrev.setUTCDate(0);
+  const firstOfPrev = new Date(lastOfPrev); firstOfPrev.setUTCDate(1);
+  return { from: istStartOfDay(firstOfPrev), to: istEndOfDay(lastOfPrev) };
 }
 
 export function isLastDayOfMonthIST(): boolean {
@@ -48,66 +51,63 @@ export function isLastDayOfMonthIST(): boolean {
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 export type TaskInfo = {
-  id: string;
-  title: string;
-  status: string;
-  priority: string;
-  dueDate: Date | null;
-  completedAt: Date | null;
-  completionSubmittedAt: Date | null;
-  teamName: string | null;
-  // Derived
-  doneInPeriod: boolean;
-  daysLate: number | null;  // null = on time; positive = days late
-  overdueDays: number | null; // for not-done tasks overdue by N days
+  id: string; title: string; status: string; priority: string;
+  dueDate: Date | null; completedAt: Date | null; completionSubmittedAt: Date | null;
+  teamName: string | null; doneInPeriod: boolean;
+  daysLate: number | null; overdueDays: number | null;
 };
 
 export type MemberReport = {
-  userId: string;
-  name: string;
-  role: string;
+  userId: string; name: string; role: string;
   doneTasks: TaskInfo[];
-  reviewPendingTasks: TaskInfo[]; // IN_REVIEW + submitted on time — waiting for reviewer
-  pendingTasks: TaskInfo[];       // due in period, not submitted yet
-  overdueTasks: TaskInfo[];       // due BEFORE period, not submitted
-  doneCount: number;
-  onTimeCount: number;
-  lateCount: number;
-  reviewPendingCount: number;
-  pendingCount: number;
-  overdueCount: number;
+  reviewPendingTasks: TaskInfo[]; // IN_REVIEW + submitted on time — reviewer delay
+  pendingTasks: TaskInfo[];       // due in period, not submitted
+  overdueTasks: TaskInfo[];       // due before period, not submitted
+  doneCount: number; onTimeCount: number; lateCount: number;
+  reviewPendingCount: number; pendingCount: number; overdueCount: number;
+  doneDelta: number | null;
+  onTimeDelta: number | null;
 };
 
 export type DeptReport = {
-  deptId: string;
-  deptName: string;
-  headName: string | null;
-  headEmail: string | null;
+  deptId: string; deptName: string; headName: string | null; headEmail: string | null;
   members: MemberReport[];
-  // dept-level stats
-  totalDone: number;
-  totalOnTime: number;
-  totalLate: number;
-  totalReviewPending: number;
-  totalPending: number;
-  totalOverdue: number;
+  totalDone: number; totalOnTime: number; totalLate: number;
+  totalReviewPending: number; totalPending: number; totalOverdue: number;
+  doneDelta: number | null; onTimeDelta: number | null;
 };
 
 export type OrgReport = {
-  orgId: string;
-  orgName: string;
-  period: 'daily' | 'weekly' | 'monthly';
-  from: Date;
-  to: Date;
-  departments: DeptReport[];
-  // org-level totals
-  totalDone: number;
-  totalOnTime: number;
-  totalLate: number;
-  totalReviewPending: number;
-  totalPending: number;
-  totalOverdue: number;
+  orgId: string; orgName: string; period: 'daily' | 'weekly' | 'monthly';
+  from: Date; to: Date; departments: DeptReport[];
+  totalDone: number; totalOnTime: number; totalLate: number;
+  totalReviewPending: number; totalPending: number; totalOverdue: number;
 };
+
+// ── Prior-period stats for delta ───────────────────────────────────────────────
+async function buildPriorStats(
+  orgId: string,
+  period: 'daily' | 'weekly' | 'monthly',
+  currentFrom: Date,
+): Promise<Map<string, { doneCount: number; onTimeCount: number }>> {
+  const prior = getPriorPeriodRange(period, currentFrom);
+  const tasks = await prisma.task.findMany({
+    where: { orgId, status: 'DONE', completedAt: { gte: prior.from, lte: prior.to }, assigneeUserId: { not: null } },
+    select: { assigneeUserId: true, dueDate: true, completedAt: true, completionSubmittedAt: true },
+  });
+  const map = new Map<string, { doneCount: number; onTimeCount: number }>();
+  for (const t of tasks) {
+    if (!t.assigneeUserId || !t.completedAt) continue;
+    const s = map.get(t.assigneeUserId) ?? { doneCount: 0, onTimeCount: 0 };
+    s.doneCount++;
+    if (t.dueDate) {
+      const submitted = t.completionSubmittedAt ?? t.completedAt;
+      if (submitted <= t.dueDate) s.onTimeCount++;
+    }
+    map.set(t.assigneeUserId, s);
+  }
+  return map;
+}
 
 // ── Data builder ───────────────────────────────────────────────────────────────
 export async function buildOrgReport(
@@ -118,11 +118,9 @@ export async function buildOrgReport(
   const now = new Date();
 
   const org = await prisma.organization.findUniqueOrThrow({
-    where: { id: orgId },
-    select: { id: true, name: true },
+    where: { id: orgId }, select: { id: true, name: true },
   });
 
-  // Fetch all active departments with head and active members
   const departments = await prisma.department.findMany({
     where: { orgId, isActive: true },
     orderBy: { name: 'asc' },
@@ -136,38 +134,24 @@ export async function buildOrgReport(
     },
   });
 
-  // Fetch all relevant tasks in one query
-  // Done in period: completedAt within [from, to]
-  // Pending/overdue: dueDate set, not done/cancelled, dueDate <= to
   const tasks = await prisma.task.findMany({
     where: {
-      orgId,
-      assigneeUserId: { not: null },
+      orgId, assigneeUserId: { not: null },
       OR: [
-        // Done within the period
         { status: 'DONE', completedAt: { gte: from, lte: to } },
-        // Not done but due on or before end of period
-        {
-          status: { notIn: ['DONE', 'CANCELLED'] },
-          dueDate: { lte: to },
-        },
+        { status: { notIn: ['DONE', 'CANCELLED'] }, dueDate: { lte: to } },
       ],
     },
     select: {
-      id: true,
-      title: true,
-      status: true,
-      priority: true,
-      dueDate: true,
-      completedAt: true,
-      completionSubmittedAt: true,
-      assigneeUserId: true,
-      departmentId: true,
+      id: true, title: true, status: true, priority: true,
+      dueDate: true, completedAt: true, completionSubmittedAt: true,
+      assigneeUserId: true, departmentId: true,
       team: { select: { name: true } },
     },
   });
 
-  // Index tasks by assigneeUserId
+  const priorStats = await buildPriorStats(orgId, period, from);
+
   const tasksByUser = new Map<string, typeof tasks>();
   for (const t of tasks) {
     if (!t.assigneeUserId) continue;
@@ -179,12 +163,10 @@ export async function buildOrgReport(
 
   for (const dept of departments) {
     if (dept.users.length === 0) continue;
-
     const memberReports: MemberReport[] = [];
 
     for (const user of dept.users) {
       const userTasks = tasksByUser.get(user.id) ?? [];
-
       const doneTasks: TaskInfo[] = [];
       const reviewPendingTasks: TaskInfo[] = [];
       const pendingTasks: TaskInfo[] = [];
@@ -194,8 +176,6 @@ export async function buildOrgReport(
         const isTaskDone = t.status === 'DONE' && t.completedAt && t.completedAt >= from && t.completedAt <= to;
 
         if (isTaskDone && t.completedAt) {
-          // Use completionSubmittedAt (when member submitted) not completedAt (when reviewer approved)
-          // so reviewer delays never count against the member
           let daysLate: number | null = null;
           if (t.dueDate) {
             const submitted = t.completionSubmittedAt ?? t.completedAt;
@@ -206,27 +186,19 @@ export async function buildOrgReport(
             id: t.id, title: t.title, status: t.status, priority: t.priority,
             dueDate: t.dueDate, completedAt: t.completedAt,
             completionSubmittedAt: t.completionSubmittedAt,
-            teamName: t.team?.name ?? null,
-            doneInPeriod: true,
-            daysLate,
-            overdueDays: null,
+            teamName: t.team?.name ?? null, doneInPeriod: true, daysLate, overdueDays: null,
           });
         } else if (t.status !== 'DONE' && t.status !== 'CANCELLED' && t.dueDate) {
-          // Check if member already submitted for review on time — reviewer delay, not member's fault
-          const submittedOnTime =
-            t.status === 'IN_REVIEW' &&
-            t.completionSubmittedAt !== null &&
-            t.completionSubmittedAt <= t.dueDate;
+          // Any IN_REVIEW task with completionSubmittedAt set = member submitted; awaiting reviewer
+          const isInReviewSubmitted = t.status === 'IN_REVIEW' && t.completionSubmittedAt !== null;
 
-          if (submittedOnTime) {
-            // Member did their part — waiting for reviewer
+          if (isInReviewSubmitted) {
+            const diff = Math.floor((t.completionSubmittedAt!.getTime() - t.dueDate.getTime()) / 86400000);
             reviewPendingTasks.push({
               id: t.id, title: t.title, status: t.status, priority: t.priority,
-              dueDate: t.dueDate, completedAt: null,
-              completionSubmittedAt: t.completionSubmittedAt,
-              teamName: t.team?.name ?? null,
-              doneInPeriod: false,
-              daysLate: null,
+              dueDate: t.dueDate, completedAt: null, completionSubmittedAt: t.completionSubmittedAt,
+              teamName: t.team?.name ?? null, doneInPeriod: false,
+              daysLate: diff > 0 ? diff : null, // null = on time, >0 = submitted late
               overdueDays: null,
             });
           } else {
@@ -234,21 +206,15 @@ export async function buildOrgReport(
             const info: TaskInfo = {
               id: t.id, title: t.title, status: t.status, priority: t.priority,
               dueDate: t.dueDate, completedAt: null, completionSubmittedAt: t.completionSubmittedAt,
-              teamName: t.team?.name ?? null,
-              doneInPeriod: false,
-              daysLate: null,
+              teamName: t.team?.name ?? null, doneInPeriod: false, daysLate: null,
               overdueDays: overdueDays > 0 ? overdueDays : null,
             };
-            if (t.dueDate < from) {
-              overdueTasks.push(info);
-            } else {
-              pendingTasks.push(info);
-            }
+            if (t.dueDate < from) overdueTasks.push(info);
+            else pendingTasks.push(info);
           }
         }
       }
 
-      // Sort
       doneTasks.sort((a, b) => (b.daysLate ?? -1) - (a.daysLate ?? -1));
       reviewPendingTasks.sort((a, b) => (a.dueDate?.getTime() ?? 0) - (b.dueDate?.getTime() ?? 0));
       pendingTasks.sort((a, b) => (a.dueDate?.getTime() ?? 0) - (b.dueDate?.getTime() ?? 0));
@@ -256,21 +222,16 @@ export async function buildOrgReport(
 
       const onTimeCount = doneTasks.filter((t) => t.daysLate === null).length;
       const lateCount = doneTasks.filter((t) => t.daysLate !== null).length;
+      const prior = priorStats.get(user.id);
 
       memberReports.push({
-        userId: user.id,
-        name: user.name,
-        role: user.role,
-        doneTasks,
-        reviewPendingTasks,
-        pendingTasks,
-        overdueTasks,
-        doneCount: doneTasks.length,
-        onTimeCount,
-        lateCount,
+        userId: user.id, name: user.name, role: user.role,
+        doneTasks, reviewPendingTasks, pendingTasks, overdueTasks,
+        doneCount: doneTasks.length, onTimeCount, lateCount,
         reviewPendingCount: reviewPendingTasks.length,
-        pendingCount: pendingTasks.length,
-        overdueCount: overdueTasks.length,
+        pendingCount: pendingTasks.length, overdueCount: overdueTasks.length,
+        doneDelta: prior != null ? doneTasks.length - prior.doneCount : null,
+        onTimeDelta: prior != null ? onTimeCount - prior.onTimeCount : null,
       });
     }
 
@@ -280,23 +241,22 @@ export async function buildOrgReport(
     const totalReviewPending = memberReports.reduce((s, m) => s + m.reviewPendingCount, 0);
     const totalPending = memberReports.reduce((s, m) => s + m.pendingCount, 0);
     const totalOverdue = memberReports.reduce((s, m) => s + m.overdueCount, 0);
+    const doneDelta = memberReports.some((m) => m.doneDelta !== null)
+      ? memberReports.reduce((s, m) => s + (m.doneDelta ?? 0), 0) : null;
+    const onTimeDelta = memberReports.some((m) => m.onTimeDelta !== null)
+      ? memberReports.reduce((s, m) => s + (m.onTimeDelta ?? 0), 0) : null;
 
     deptReports.push({
-      deptId: dept.id,
-      deptName: dept.name,
-      headName: dept.head?.name ?? null,
-      headEmail: dept.head?.email ?? null,
+      deptId: dept.id, deptName: dept.name,
+      headName: dept.head?.name ?? null, headEmail: dept.head?.email ?? null,
       members: memberReports,
       totalDone, totalOnTime, totalLate, totalReviewPending, totalPending, totalOverdue,
+      doneDelta, onTimeDelta,
     });
   }
 
   return {
-    orgId,
-    orgName: org.name,
-    period,
-    from,
-    to,
+    orgId, orgName: org.name, period, from, to,
     departments: deptReports,
     totalDone: deptReports.reduce((s, d) => s + d.totalDone, 0),
     totalOnTime: deptReports.reduce((s, d) => s + d.totalOnTime, 0),
@@ -307,7 +267,7 @@ export async function buildOrgReport(
   };
 }
 
-// ── Formatters ─────────────────────────────────────────────────────────────────
+// ── Shared formatters ──────────────────────────────────────────────────────────
 function fmtDate(d: Date | null | undefined): string {
   if (!d) return '—';
   return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
@@ -323,106 +283,80 @@ const ROLE_LABEL: Record<string, string> = {
   DEPARTMENT_HEAD: 'Dept Head', MANAGER: 'Manager',
   TEAM_MEMBER: 'Team Member', COACH_ADVISOR: 'Advisor',
 };
-
 const PRIORITY_COLOR: Record<string, string> = {
   CRITICAL: '#ef4444', HIGH: '#f97316', MEDIUM: '#f59e0b', LOW: '#22c55e',
 };
-
 const STATUS_LABEL: Record<string, string> = {
   TODO: 'To Do', IN_PROGRESS: 'In Progress', IN_REVIEW: 'In Review',
   BLOCKED: 'Blocked', CANCELLED: 'Cancelled', DONE: 'Done',
 };
-
 const STATUS_COLOR: Record<string, string> = {
   TODO: '#64748b', IN_PROGRESS: '#3b82f6', IN_REVIEW: '#8b5cf6',
   BLOCKED: '#ef4444', DONE: '#22c55e', CANCELLED: '#94a3b8',
 };
 
-// ── HTML template ──────────────────────────────────────────────────────────────
+// ── HTML renderer ──────────────────────────────────────────────────────────────
 export function renderReportHtml(
   report: OrgReport,
   recipientRole: 'OWNER' | 'DEPT_HEAD',
   recipientName: string,
-  filterDeptId?: string, // dept heads see only their dept
+  filterDeptId?: string,
+  appUrl = 'https://app.growthrhythm.in',
 ): string {
   const firstName = recipientName.split(' ')[0];
   const periodLabel = fmtPeriodLabel(report.period, report.from, report.to);
   const reportTitle = report.period === 'daily' ? 'Daily Report' :
     report.period === 'weekly' ? 'Weekly Report' : 'Monthly Report';
+  const periodWord = report.period === 'daily' ? 'day' : report.period === 'weekly' ? 'week' : 'month';
 
   const depts = filterDeptId
     ? report.departments.filter((d) => d.deptId === filterDeptId)
     : report.departments;
 
   const grandStats = filterDeptId
-    ? depts[0] ?? { totalDone: 0, totalOnTime: 0, totalLate: 0, totalPending: 0, totalOverdue: 0 }
+    ? depts[0] ?? { totalDone: 0, totalOnTime: 0, totalLate: 0, totalReviewPending: 0, totalPending: 0, totalOverdue: 0 }
     : report;
 
-  // ── Top 3 performers (on-time tasks desc, total done as tiebreaker) ────────
-  const allMembers = depts.flatMap((d) =>
-    d.members.map((m) => ({ ...m, deptName: d.deptName })),
-  );
-  const top3 = allMembers
-    .filter((m) => m.onTimeCount > 0)
-    .sort((a, b) => b.onTimeCount - a.onTimeCount || b.doneCount - a.doneCount)
-    .slice(0, 3);
+  // ── 9. Preheader text ──────────────────────────────────────────────────────
+  const preheader = `${grandStats.totalDone} done · ${grandStats.totalOnTime} on time · ${grandStats.totalOverdue} overdue — ${report.orgName} ${reportTitle}`;
 
-  const MEDALS = ['&#129351;', '&#129352;', '&#129353;']; // 🥇🥈🥉
-  const MEDAL_GRADIENTS = [
-    'linear-gradient(135deg,#78350f,#1e293b)',
-    'linear-gradient(135deg,#374151,#1e293b)',
-    'linear-gradient(135deg,#431407,#1e293b)',
-  ];
-  const MEDAL_BORDERS = ['#d97706', '#6b7280', '#b45309'];
-  const MEDAL_LABEL_COLOR = ['#fbbf24', '#9ca3af', '#f97316'];
-
-  function leaderCard(m: typeof top3[0], rank: number): string {
-    const onTimePct = m.doneCount > 0 ? Math.round((m.onTimeCount / m.doneCount) * 100) : 0;
-    const width = rank === 0 ? '200px' : rank === 1 ? '185px' : '170px';
-    return `
-    <td style="padding:0 6px;vertical-align:bottom;width:${width};">
-      <table width="100%" cellpadding="0" cellspacing="0" style="background:${MEDAL_GRADIENTS[rank]};border-radius:14px;border:1px solid ${MEDAL_BORDERS[rank]}40;">
-        <tr><td style="padding:16px 14px 14px;text-align:center;">
-          <p style="margin:0 0 4px;font-size:26px;line-height:1;">${MEDALS[rank]}</p>
-          <p style="margin:0 0 2px;font-size:13px;font-weight:700;color:#f1f5f9;">${m.name}</p>
-          <p style="margin:0 0 10px;font-size:10px;color:#64748b;">${m.deptName}</p>
-          <p style="margin:0 0 2px;font-size:22px;font-weight:800;color:${MEDAL_LABEL_COLOR[rank]};">${m.onTimeCount}</p>
-          <p style="margin:0 0 8px;font-size:10px;color:#94a3b8;font-weight:500;">tasks on time</p>
-          <div style="background-color:rgba(255,255,255,0.06);border-radius:6px;padding:4px 8px;display:inline-block;">
-            <span style="font-size:11px;color:${MEDAL_LABEL_COLOR[rank]};font-weight:600;">${onTimePct}% on-time rate</span>
-          </div>
-          <p style="margin:6px 0 0;font-size:10px;color:#475569;">${m.doneCount} total done</p>
-        </td></tr>
-      </table>
-    </td>`;
+  // ── 3. Delta indicator ─────────────────────────────────────────────────────
+  function delta(d: number | null, invert = false): string {
+    if (d === null || d === 0) return '';
+    const up = invert ? d < 0 : d > 0;
+    const color = up ? '#22c55e' : '#ef4444';
+    const arrow = d > 0 ? '&#8593;' : '&#8595;';
+    return `<span style="font-size:10px;font-weight:700;color:${color};margin-left:3px;">${arrow}${Math.abs(d)}</span>`;
   }
 
-  const leaderboardSection = top3.length === 0 ? '' : `
-  <!-- Top 3 Leaderboard -->
-  <tr><td style="padding-bottom:20px;">
-    <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#1e293b;border-radius:14px;border:1px solid rgba(255,255,255,0.07);overflow:hidden;">
-      <tr><td style="padding:16px 20px 12px;border-bottom:1px solid rgba(255,255,255,0.06);">
-        <p style="margin:0;font-size:13px;font-weight:700;color:#f1f5f9;letter-spacing:0.3px;">
-          &#127942; Top Performers — Most On-Time Tasks
-        </p>
-        <p style="margin:3px 0 0;font-size:11px;color:#475569;">Ranked by tasks completed on time this ${report.period === 'daily' ? 'day' : report.period === 'weekly' ? 'week' : 'month'}</p>
-      </td></tr>
-      <tr><td style="padding:16px 14px;">
-        <table width="100%" cellpadding="0" cellspacing="0"><tr align="center">
-          ${top3.map((m, i) => leaderCard(m, i)).join('')}
-        </tr></table>
-      </td></tr>
-    </table>
-  </td></tr>`;
-
   // ── Stat pill ──────────────────────────────────────────────────────────────
-  function statPill(value: number, label: string, color: string): string {
-    return `<td style="padding:0 8px 0 0;white-space:nowrap;">
-      <div style="display:inline-block;background-color:${color}18;border:1px solid ${color}30;border-radius:8px;padding:6px 12px;text-align:center;">
-        <p style="margin:0;font-size:18px;font-weight:700;color:${color};">${value}</p>
+  function statPill(value: number, label: string, color: string, d: number | null = null, invert = false): string {
+    return `<td style="padding:0 6px 0 0;white-space:nowrap;">
+      <div style="display:inline-block;background-color:${color}18;border:1px solid ${color}30;border-radius:8px;padding:5px 10px;text-align:center;min-width:44px;">
+        <p style="margin:0;font-size:17px;font-weight:700;color:${color};">${value}${delta(d, invert)}</p>
         <p style="margin:0;font-size:10px;color:#94a3b8;font-weight:500;">${label}</p>
       </div>
     </td>`;
+  }
+
+  // ── 1. Inline bar chart per member ─────────────────────────────────────────
+  function inlineBar(onTimeCount: number, lateCount: number, totalDone: number): string {
+    if (totalDone === 0) return '';
+    const onTimePct = Math.round((onTimeCount / totalDone) * 100);
+    const latePct = 100 - onTimePct;
+    return `
+    <table cellpadding="0" cellspacing="0" style="margin-top:9px;width:100%;max-width:300px;">
+      <tr>
+        <td style="font-size:10px;color:#94a3b8;padding-bottom:3px;" colspan="2">
+          <span style="color:#22c55e;font-weight:600;">${onTimeCount} on time</span>
+          ${lateCount > 0 ? `&nbsp;&nbsp;<span style="color:#ef4444;font-weight:600;">${lateCount} late</span>` : ''}
+        </td>
+      </tr>
+      <tr>
+        ${onTimePct > 0 ? `<td style="width:${onTimePct}%;background-color:#22c55e;height:6px;border-radius:${latePct === 0 ? '4px' : '4px 0 0 4px'};"></td>` : ''}
+        ${latePct > 0 ? `<td style="background-color:#ef4444;height:6px;border-radius:${onTimePct === 0 ? '4px' : '0 4px 4px 0'};"></td>` : ''}
+      </tr>
+    </table>`;
   }
 
   // ── Task row ───────────────────────────────────────────────────────────────
@@ -433,14 +367,14 @@ export function renderReportHtml(
         ? `<span style="display:inline-block;padding:2px 8px;border-radius:5px;font-size:10px;font-weight:700;background-color:#22c55e20;color:#22c55e;border:1px solid #22c55e30;">&#10003; On Time</span>`
         : `<span style="display:inline-block;padding:2px 8px;border-radius:5px;font-size:10px;font-weight:700;background-color:#ef444420;color:#ef4444;border:1px solid #ef444430;">${t.daysLate}d late</span>`
       : type === 'review-pending'
-        ? `<span style="display:inline-block;padding:2px 8px;border-radius:5px;font-size:10px;font-weight:700;background-color:#8b5cf620;color:#a78bfa;border:1px solid #8b5cf640;">&#9203; Submitted On Time — Awaiting Review</span>`
+        ? t.daysLate === null
+          ? `<span style="display:inline-block;padding:2px 8px;border-radius:5px;font-size:10px;font-weight:700;background-color:#8b5cf620;color:#a78bfa;border:1px solid #8b5cf640;">&#9203; Submitted On Time — Awaiting Review</span>`
+          : `<span style="display:inline-block;padding:2px 8px;border-radius:5px;font-size:10px;font-weight:700;background-color:#f9731620;color:#fb923c;border:1px solid #f9731640;">&#9203; Submitted ${t.daysLate}d Late — In Review</span>`
       : type === 'overdue'
         ? `<span style="display:inline-block;padding:2px 8px;border-radius:5px;font-size:10px;font-weight:700;background-color:#ef444420;color:#ef4444;border:1px solid #ef444430;">&#9888; ${t.overdueDays}d overdue</span>`
         : `<span style="display:inline-block;padding:2px 8px;border-radius:5px;font-size:10px;font-weight:700;background-color:${STATUS_COLOR[t.status] ?? '#64748b'}20;color:${STATUS_COLOR[t.status] ?? '#64748b'};border:1px solid ${STATUS_COLOR[t.status] ?? '#64748b'}30;">${STATUS_LABEL[t.status] ?? t.status}</span>`;
 
-    const dueLine = t.dueDate
-      ? `<span style="font-size:10px;color:#64748b;margin-left:8px;">Due: ${fmtDate(t.dueDate)}</span>`
-      : '';
+    const dueLine = t.dueDate ? `<span style="font-size:10px;color:#64748b;margin-left:6px;">Due: ${fmtDate(t.dueDate)}</span>` : '';
     const projectBadge = t.teamName
       ? `<span style="display:inline-block;padding:2px 8px;border-radius:5px;font-size:10px;font-weight:700;background-color:#2563eb22;color:#60a5fa;border:1px solid #2563eb40;margin-right:6px;">&#128193; ${t.teamName}</span>`
       : `<span style="display:inline-block;padding:2px 8px;border-radius:5px;font-size:10px;font-weight:600;background-color:#47556920;color:#64748b;border:1px solid #47556940;margin-right:6px;">&#128203; Individual</span>`;
@@ -460,6 +394,26 @@ export function renderReportHtml(
 
   // ── Member card ────────────────────────────────────────────────────────────
   function memberCard(m: MemberReport): string {
+    // 8. Zero-activity — compact visible row
+    if (m.doneCount === 0 && m.reviewPendingCount === 0 && m.pendingCount === 0 && m.overdueCount === 0) {
+      return `
+      <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:8px;background-color:#1e293b;border-radius:10px;border:1px solid rgba(255,255,255,0.08);">
+        <tr><td style="padding:10px 16px;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td>
+              <p style="margin:0;font-size:13px;font-weight:600;color:#94a3b8;">${m.name}</p>
+              <p style="margin:1px 0 0;font-size:10px;color:#475569;">${ROLE_LABEL[m.role] ?? m.role}</p>
+            </td>
+            <td align="right">
+              <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background-color:#0f172a;color:#475569;border:1px solid rgba(255,255,255,0.1);">
+                0 done &nbsp;&bull;&nbsp; 0 overdue
+              </span>
+            </td>
+          </tr></table>
+        </td></tr>
+      </table>`;
+    }
+
     const onTimePct = m.doneCount > 0 ? Math.round((m.onTimeCount / m.doneCount) * 100) : 0;
     const barColor = onTimePct >= 80 ? '#22c55e' : onTimePct >= 50 ? '#f59e0b' : '#ef4444';
 
@@ -469,24 +423,29 @@ export function renderReportHtml(
 
     const reviewPendingSection = m.reviewPendingTasks.length > 0
       ? `<tr><td style="padding:10px 0 4px;">
-          <p style="margin:0;font-size:11px;font-weight:700;color:#a78bfa;letter-spacing:0.5px;">&#9203; SUBMITTED ON TIME — AWAITING REVIEW (${m.reviewPendingTasks.length})</p>
+          <p style="margin:0;font-size:11px;font-weight:700;color:#a78bfa;letter-spacing:0.5px;">&#9203; IN REVIEW — AWAITING APPROVAL (${m.reviewPendingTasks.length})</p>
         </td></tr>
-        ${m.reviewPendingTasks.map((t) => taskRow(t, 'review-pending')).join('')}`
-      : '';
+        ${m.reviewPendingTasks.map((t) => taskRow(t, 'review-pending')).join('')}` : '';
 
     const pendingSection = m.pendingTasks.length > 0
       ? `<tr><td style="padding:10px 0 4px;">
           <p style="margin:0;font-size:11px;font-weight:700;color:#f59e0b;letter-spacing:0.5px;">DUE THIS PERIOD — NOT SUBMITTED (${m.pendingTasks.length})</p>
         </td></tr>
-        ${m.pendingTasks.map((t) => taskRow(t, 'pending')).join('')}`
-      : '';
+        ${m.pendingTasks.map((t) => taskRow(t, 'pending')).join('')}` : '';
 
     const overdueSection = m.overdueTasks.length > 0
       ? `<tr><td style="padding:10px 0 4px;">
           <p style="margin:0;font-size:11px;font-weight:700;color:#ef4444;letter-spacing:0.5px;">OVERDUE — NOT SUBMITTED (${m.overdueTasks.length})</p>
         </td></tr>
-        ${m.overdueTasks.map((t) => taskRow(t, 'overdue')).join('')}`
-      : '';
+        ${m.overdueTasks.map((t) => taskRow(t, 'overdue')).join('')}` : '';
+
+    // 6. CTA link
+    const ctaLink = (m.overdueCount > 0 || m.pendingCount > 0)
+      ? `<tr><td style="padding-top:10px;text-align:right;">
+          <a href="${appUrl}/tasks" style="display:inline-block;padding:6px 14px;background-color:#1e3a5f;border:1px solid #2563eb40;border-radius:8px;font-size:11px;font-weight:600;color:#60a5fa;text-decoration:none;">
+            View ${m.overdueCount + m.pendingCount} Pending Tasks &#8594;
+          </a>
+        </td></tr>` : '';
 
     return `
     <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:12px;background-color:#0f172a;border-radius:12px;border:1px solid rgba(255,255,255,0.07);">
@@ -496,16 +455,18 @@ export function renderReportHtml(
             <td>
               <p style="margin:0;font-size:14px;font-weight:700;color:#f1f5f9;">${m.name}</p>
               <p style="margin:2px 0 0;font-size:11px;color:#64748b;">${ROLE_LABEL[m.role] ?? m.role}</p>
+              <!-- 1. Inline bar chart -->
+              ${inlineBar(m.onTimeCount, m.lateCount, m.doneCount)}
             </td>
-            <td align="right">
+            <td align="right" style="vertical-align:top;">
               <p style="margin:0;font-size:11px;color:#94a3b8;">On-time rate</p>
               <p style="margin:2px 0 0;font-size:16px;font-weight:700;color:${barColor};">${onTimePct}%</p>
             </td>
           </tr></table>
-          <!-- mini stats -->
+          <!-- 3. Delta stat pills -->
           <table cellpadding="0" cellspacing="0" style="margin-top:10px;"><tr>
-            ${statPill(m.doneCount, 'Done', '#22c55e')}
-            ${statPill(m.onTimeCount, 'On Time', '#3b82f6')}
+            ${statPill(m.doneCount, 'Done', '#22c55e', m.doneDelta)}
+            ${statPill(m.onTimeCount, 'On Time', '#3b82f6', m.onTimeDelta)}
             ${statPill(m.lateCount, 'Late', '#f97316')}
             ${m.reviewPendingCount > 0 ? statPill(m.reviewPendingCount, 'In Review', '#8b5cf6') : ''}
             ${statPill(m.pendingCount, 'Pending', '#f59e0b')}
@@ -522,6 +483,7 @@ export function renderReportHtml(
           ${reviewPendingSection}
           ${pendingSection}
           ${overdueSection}
+          ${ctaLink}
         </table>
       </td></tr>
     </table>`;
@@ -529,33 +491,71 @@ export function renderReportHtml(
 
   // ── Department section ─────────────────────────────────────────────────────
   function deptSection(d: DeptReport): string {
-    const completionPct = (d.totalDone + d.totalPending + d.totalOverdue) > 0
-      ? Math.round((d.totalDone / (d.totalDone + d.totalPending + d.totalOverdue)) * 100)
-      : 0;
+    const total = d.totalDone + d.totalReviewPending + d.totalPending + d.totalOverdue;
+    const completionPct = total > 0 ? Math.round((d.totalDone / total) * 100) : 0;
+
+    // 4. Critical / High overdue callout
+    const criticalTasks = d.members.flatMap((m) =>
+      m.overdueTasks
+        .filter((t) => t.priority === 'CRITICAL' || t.priority === 'HIGH')
+        .map((t) => ({ ...t, memberName: m.name }))
+    );
+    const criticalCallout = criticalTasks.length > 0 ? `
+    <tr><td style="padding:12px 16px 0;">
+      <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#1a0505;border:1px solid #ef444450;border-radius:10px;">
+        <tr><td style="padding:12px 16px;">
+          <p style="margin:0 0 8px;font-size:11px;font-weight:700;color:#ef4444;letter-spacing:0.5px;">
+            &#9888; CRITICAL / HIGH PRIORITY OVERDUE — IMMEDIATE ATTENTION (${criticalTasks.length})
+          </p>
+          <table width="100%" cellpadding="0" cellspacing="0">
+            ${criticalTasks.map((t) => `
+            <tr><td style="padding:4px 0;border-bottom:1px solid rgba(239,68,68,0.1);">
+              <table width="100%" cellpadding="0" cellspacing="0"><tr>
+                <td style="width:4px;background-color:${PRIORITY_COLOR[t.priority]};border-radius:2px;">&nbsp;</td>
+                <td style="padding-left:10px;">
+                  <p style="margin:0;font-size:12px;font-weight:600;color:#fca5a5;">${t.title}</p>
+                  <p style="margin:2px 0 0;font-size:10px;color:#94a3b8;">
+                    ${t.memberName} &bull; ${t.overdueDays}d overdue &bull; Due: ${fmtDate(t.dueDate)}
+                    ${t.teamName ? ` &bull; &#128193; ${t.teamName}` : ''}
+                  </p>
+                </td>
+              </tr></table>
+            </td></tr>`).join('')}
+          </table>
+        </td></tr>
+      </table>
+    </td></tr>` : '';
 
     return `
-    <!-- DEPT: ${d.deptName} -->
     <tr><td style="padding:0 0 20px;">
       <table width="100%" cellpadding="0" cellspacing="0">
-        <!-- dept header -->
-        <tr><td style="background:linear-gradient(135deg,#1e3a5f,#1e293b);border-radius:12px 12px 0 0;padding:16px 20px;border-bottom:2px solid #2563eb;">
+
+        <!-- 2. Dept header with completion bar -->
+        <tr><td style="background:linear-gradient(135deg,#1e3a5f,#1e293b);border-radius:12px 12px 0 0;padding:16px 20px;">
           <table width="100%" cellpadding="0" cellspacing="0"><tr>
             <td>
               <p style="margin:0;font-size:16px;font-weight:700;color:#ffffff;">&#127970; ${d.deptName}</p>
               ${d.headName ? `<p style="margin:3px 0 0;font-size:12px;color:#93c5fd;">Head: ${d.headName}</p>` : ''}
             </td>
-            <td align="right">
-              <p style="margin:0;font-size:11px;color:#93c5fd;">Completion</p>
-              <p style="margin:2px 0 0;font-size:20px;font-weight:800;color:#60a5fa;">${completionPct}%</p>
+            <td align="right" style="vertical-align:top;">
+              <p style="margin:0;font-size:11px;color:#93c5fd;">Completion${delta(d.doneDelta)}</p>
+              <p style="margin:2px 0 0;font-size:22px;font-weight:800;color:#60a5fa;">${completionPct}%</p>
             </td>
           </tr></table>
+          <!-- 2. Segmented completion bar -->
+          <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:10px;">
+            <tr>
+              ${completionPct > 0 ? `<td style="width:${completionPct}%;background-color:#22c55e;height:4px;border-radius:${completionPct === 100 ? '4px' : '4px 0 0 4px'};"></td>` : ''}
+              ${completionPct < 100 ? `<td style="background-color:rgba(255,255,255,0.1);height:4px;border-radius:${completionPct === 0 ? '4px' : '0 4px 4px 0'};"></td>` : ''}
+            </tr>
+          </table>
         </td></tr>
 
-        <!-- dept stats bar -->
+        <!-- Dept stats bar -->
         <tr><td style="background-color:#172033;padding:12px 20px;border-bottom:1px solid rgba(255,255,255,0.06);">
           <table cellpadding="0" cellspacing="0"><tr>
-            ${statPill(d.totalDone, 'Done', '#22c55e')}
-            ${statPill(d.totalOnTime, 'On Time', '#3b82f6')}
+            ${statPill(d.totalDone, 'Done', '#22c55e', d.doneDelta)}
+            ${statPill(d.totalOnTime, 'On Time', '#3b82f6', d.onTimeDelta)}
             ${statPill(d.totalLate, 'Late', '#f97316')}
             ${d.totalReviewPending > 0 ? statPill(d.totalReviewPending, 'In Review', '#8b5cf6') : ''}
             ${statPill(d.totalPending, 'Pending', '#f59e0b')}
@@ -563,30 +563,112 @@ export function renderReportHtml(
           </tr></table>
         </td></tr>
 
-        <!-- members -->
+        <!-- 4. Critical callout -->
+        ${criticalCallout}
+
+        <!-- Member cards -->
         <tr><td style="background-color:#1e293b;padding:16px 16px;border-radius:0 0 12px 12px;">
           ${d.members.map(memberCard).join('')}
         </td></tr>
+
       </table>
     </td></tr>`;
   }
 
+  // ── Top 3 leaderboard ──────────────────────────────────────────────────────
+  const allMembers = depts.flatMap((d) => d.members.map((m) => ({ ...m, deptName: d.deptName })));
+  const top3 = allMembers
+    .filter((m) => m.onTimeCount > 0)
+    .sort((a, b) => b.onTimeCount - a.onTimeCount || b.doneCount - a.doneCount)
+    .slice(0, 3);
+
+  const MEDALS = ['&#129351;', '&#129352;', '&#129353;'];
+  const MEDAL_GRAD = ['linear-gradient(135deg,#78350f,#1e293b)', 'linear-gradient(135deg,#374151,#1e293b)', 'linear-gradient(135deg,#431407,#1e293b)'];
+  const MEDAL_BORDER = ['#d97706', '#6b7280', '#b45309'];
+  const MEDAL_COLOR = ['#fbbf24', '#9ca3af', '#f97316'];
+
+  function leaderCard(m: typeof top3[0], rank: number): string {
+    const pct = m.doneCount > 0 ? Math.round((m.onTimeCount / m.doneCount) * 100) : 0;
+    return `<td style="padding:0 5px;vertical-align:bottom;">
+      <table width="100%" cellpadding="0" cellspacing="0" style="background:${MEDAL_GRAD[rank]};border-radius:12px;border:1px solid ${MEDAL_BORDER[rank]}40;">
+        <tr><td style="padding:14px 12px;text-align:center;">
+          <p style="margin:0 0 4px;font-size:24px;line-height:1;">${MEDALS[rank]}</p>
+          <p style="margin:0 0 2px;font-size:12px;font-weight:700;color:#f1f5f9;">${m.name}</p>
+          <p style="margin:0 0 8px;font-size:10px;color:#64748b;">${m.deptName}</p>
+          <p style="margin:0 0 1px;font-size:20px;font-weight:800;color:${MEDAL_COLOR[rank]};">${m.onTimeCount}</p>
+          <p style="margin:0 0 6px;font-size:10px;color:#94a3b8;">tasks on time</p>
+          <span style="display:inline-block;padding:3px 8px;border-radius:5px;font-size:10px;font-weight:600;background-color:${MEDAL_COLOR[rank]}20;color:${MEDAL_COLOR[rank]};border:1px solid ${MEDAL_COLOR[rank]}40;">${pct}% rate</span>
+          <p style="margin:5px 0 0;font-size:10px;color:#475569;">${m.doneCount} total done</p>
+        </td></tr>
+      </table>
+    </td>`;
+  }
+
+  const leaderboardSection = top3.length === 0 ? '' : `
+  <tr><td style="padding-bottom:20px;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#1e293b;border-radius:14px;border:1px solid rgba(255,255,255,0.07);">
+      <tr><td style="padding:14px 20px 12px;border-bottom:1px solid rgba(255,255,255,0.06);">
+        <p style="margin:0;font-size:13px;font-weight:700;color:#f1f5f9;">&#127942; Top Performers — Most On-Time Tasks</p>
+        <p style="margin:3px 0 0;font-size:11px;color:#475569;">Ranked by tasks completed on time this ${periodWord}</p>
+      </td></tr>
+      <tr><td style="padding:14px 12px;">
+        <table width="100%" cellpadding="0" cellspacing="0"><tr align="center">
+          ${top3.map((m, i) => leaderCard(m, i)).join('')}
+        </tr></table>
+      </td></tr>
+    </table>
+  </td></tr>`;
+
+  // ── 7. Executive summary table ─────────────────────────────────────────────
+  const summaryTable = depts.length > 1 ? `
+  <tr><td style="padding-bottom:20px;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#1e293b;border-radius:14px;border:1px solid rgba(255,255,255,0.07);">
+      <tr><td colspan="6" style="padding:14px 20px 12px;border-bottom:1px solid rgba(255,255,255,0.06);">
+        <p style="margin:0;font-size:13px;font-weight:700;color:#f1f5f9;">&#128202; Department Summary</p>
+      </td></tr>
+      <tr style="background-color:#172033;">
+        <td style="padding:8px 16px;font-size:10px;font-weight:700;color:#64748b;letter-spacing:0.5px;">DEPARTMENT</td>
+        <td style="padding:8px 8px;font-size:10px;font-weight:700;color:#22c55e;letter-spacing:0.5px;text-align:center;">DONE</td>
+        <td style="padding:8px 8px;font-size:10px;font-weight:700;color:#3b82f6;letter-spacing:0.5px;text-align:center;">ON TIME</td>
+        <td style="padding:8px 8px;font-size:10px;font-weight:700;color:#f97316;letter-spacing:0.5px;text-align:center;">LATE</td>
+        <td style="padding:8px 8px;font-size:10px;font-weight:700;color:#f59e0b;letter-spacing:0.5px;text-align:center;">PENDING</td>
+        <td style="padding:8px 16px 8px 8px;font-size:10px;font-weight:700;color:#ef4444;letter-spacing:0.5px;text-align:center;">OVERDUE</td>
+      </tr>
+      ${depts.map((d, i) => `
+      <tr style="background-color:${i % 2 === 0 ? '#1e293b' : '#1a2540'};">
+        <td style="padding:9px 16px;font-size:12px;font-weight:600;color:#e2e8f0;border-top:1px solid rgba(255,255,255,0.04);">${d.deptName}</td>
+        <td style="padding:9px 8px;font-size:13px;font-weight:700;color:#22c55e;text-align:center;border-top:1px solid rgba(255,255,255,0.04);">${d.totalDone}${delta(d.doneDelta)}</td>
+        <td style="padding:9px 8px;font-size:13px;font-weight:700;color:#3b82f6;text-align:center;border-top:1px solid rgba(255,255,255,0.04);">${d.totalOnTime}${delta(d.onTimeDelta)}</td>
+        <td style="padding:9px 8px;font-size:12px;color:${d.totalLate > 0 ? '#f97316' : '#475569'};text-align:center;border-top:1px solid rgba(255,255,255,0.04);">${d.totalLate || '—'}</td>
+        <td style="padding:9px 8px;font-size:12px;color:${d.totalPending > 0 ? '#f59e0b' : '#475569'};text-align:center;border-top:1px solid rgba(255,255,255,0.04);">${d.totalPending || '—'}</td>
+        <td style="padding:9px 16px 9px 8px;font-size:12px;font-weight:${d.totalOverdue > 0 ? '700' : '400'};color:${d.totalOverdue > 0 ? '#ef4444' : '#475569'};text-align:center;border-top:1px solid rgba(255,255,255,0.04);">${d.totalOverdue || '—'}</td>
+      </tr>`).join('')}
+    </table>
+  </td></tr>` : '';
+
   // ── Full email ─────────────────────────────────────────────────────────────
-  return `
-<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
+  <!-- 5. Mobile responsive viewport -->
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
   <title>${reportTitle} — ${report.orgName}</title>
 </head>
 <body style="margin:0;padding:0;background-color:#0f172a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="background-color:#0f172a;padding:40px 16px;">
-<tr><td align="center">
-<table width="620" cellpadding="0" cellspacing="0" style="max-width:620px;width:100%;">
 
-  <!-- Logo header -->
-  <tr><td align="center" style="padding-bottom:28px;">
+<!-- 9. Preheader (inbox preview text) -->
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;color:#0f172a;">
+  ${preheader}&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;
+</div>
+
+<!-- 5. Mobile-first outer wrapper: max-width instead of fixed width -->
+<table width="100%" cellpadding="0" cellspacing="0" style="background-color:#0f172a;padding:32px 12px;">
+<tr><td align="center">
+<table cellpadding="0" cellspacing="0" style="max-width:620px;width:100%;">
+
+  <!-- Logo -->
+  <tr><td align="center" style="padding-bottom:24px;">
     <table cellpadding="0" cellspacing="0"><tr>
       <td style="background-color:#2563eb;border-radius:12px;width:44px;height:44px;text-align:center;vertical-align:middle;">
         <span style="font-size:22px;line-height:44px;">&#9889;</span>
@@ -599,26 +681,29 @@ export function renderReportHtml(
   </td></tr>
 
   <!-- Report title card -->
-  <tr><td style="background:linear-gradient(135deg,#1e3a8a,#1e293b);border-radius:16px;border:1px solid rgba(255,255,255,0.1);padding:32px 36px;margin-bottom:20px;">
-    <p style="margin:0 0 4px;font-size:12px;font-weight:600;color:#93c5fd;letter-spacing:1px;text-transform:uppercase;">
+  <tr><td style="background:linear-gradient(135deg,#1e3a8a,#1e293b);border-radius:16px;border:1px solid rgba(255,255,255,0.1);padding:28px 28px 24px;">
+    <p style="margin:0 0 4px;font-size:11px;font-weight:600;color:#93c5fd;letter-spacing:1px;text-transform:uppercase;">
       ${report.period === 'daily' ? '&#128197;' : report.period === 'weekly' ? '&#128336;' : '&#128200;'}
       ${reportTitle} &bull; ${report.orgName}
     </p>
-    <h1 style="margin:0 0 6px;font-size:26px;font-weight:800;color:#ffffff;">${periodLabel}</h1>
-    <p style="margin:0 0 24px;font-size:14px;color:#94a3b8;">Hi ${firstName}, here is your ${report.period} performance summary across all departments.</p>
-
-    <!-- Org-level summary stats -->
+    <h1 style="margin:0 0 6px;font-size:24px;font-weight:800;color:#ffffff;">${periodLabel}</h1>
+    <p style="margin:0 0 20px;font-size:13px;color:#94a3b8;">Hi ${firstName}, here is your ${periodWord} performance summary.</p>
     <table cellpadding="0" cellspacing="0"><tr>
       ${statPill(grandStats.totalDone, 'Total Done', '#22c55e')}
       ${statPill(grandStats.totalOnTime, 'On Time', '#3b82f6')}
-      ${statPill(grandStats.totalLate, 'Submitted Late', '#f97316')}
-      ${statPill(grandStats.totalPending, 'Still Pending', '#f59e0b')}
+      ${statPill(grandStats.totalLate, 'Late', '#f97316')}
+      ${grandStats.totalReviewPending > 0 ? statPill(grandStats.totalReviewPending, 'In Review', '#8b5cf6') : ''}
+      ${statPill(grandStats.totalPending, 'Pending', '#f59e0b')}
       ${statPill(grandStats.totalOverdue, 'Overdue', '#ef4444')}
     </tr></table>
   </td></tr>
 
   <tr><td style="height:20px;"></td></tr>
 
+  <!-- 7. Executive summary table -->
+  ${summaryTable}
+
+  <!-- Top 3 leaderboard -->
   ${leaderboardSection}
 
   <!-- Department sections -->
@@ -629,11 +714,9 @@ export function renderReportHtml(
   </td></tr>
 
   <!-- Footer -->
-  <tr><td align="center" style="padding-top:28px;border-top:1px solid rgba(255,255,255,0.06);">
-    <p style="margin:0 0 6px;font-size:12px;color:#334155;">
-      This is an automated ${report.period} report from GrowthRhythm OS.
-    </p>
-    <p style="margin:0;font-size:12px;color:#334155;">
+  <tr><td align="center" style="padding-top:24px;border-top:1px solid rgba(255,255,255,0.06);">
+    <p style="margin:0 0 4px;font-size:11px;color:#334155;">Automated ${report.period} report from GrowthRhythm OS.</p>
+    <p style="margin:0;font-size:11px;color:#334155;">
       &copy; 2026 GrowthRhythm OS by Gupio &bull;
       <a href="https://mygupio.com" style="color:#3b82f6;text-decoration:none;">mygupio.com</a>
     </p>
@@ -644,4 +727,43 @@ export function renderReportHtml(
 </table>
 </body>
 </html>`.trim();
+}
+
+// ── 10. Plain-text fallback ────────────────────────────────────────────────────
+export function renderReportText(report: OrgReport): string {
+  const lines: string[] = [];
+  lines.push(`${report.period.toUpperCase()} PERFORMANCE REPORT — ${report.orgName}`);
+  lines.push(`Period: ${fmtPeriodLabel(report.period, report.from, report.to)}`);
+  lines.push('');
+  lines.push(`SUMMARY | Done: ${report.totalDone} | On Time: ${report.totalOnTime} | Late: ${report.totalLate} | In Review: ${report.totalReviewPending} | Pending: ${report.totalPending} | Overdue: ${report.totalOverdue}`);
+  lines.push('');
+
+  for (const dept of report.departments) {
+    lines.push('='.repeat(52));
+    lines.push(`  ${dept.deptName.toUpperCase()}${dept.headName ? ` (Head: ${dept.headName})` : ''}`);
+    lines.push(`  Done: ${dept.totalDone} | On Time: ${dept.totalOnTime} | Late: ${dept.totalLate} | Overdue: ${dept.totalOverdue}`);
+    lines.push('');
+
+    for (const m of dept.members) {
+      if (m.doneCount === 0 && m.reviewPendingCount === 0 && m.pendingCount === 0 && m.overdueCount === 0) {
+        lines.push(`  ${m.name} — No activity this period`);
+        continue;
+      }
+      lines.push(`  ${m.name} (${ROLE_LABEL[m.role] ?? m.role})`);
+      lines.push(`    Done: ${m.doneCount} | On Time: ${m.onTimeCount} | Late: ${m.lateCount} | In Review: ${m.reviewPendingCount} | Overdue: ${m.overdueCount}`);
+      for (const t of m.doneTasks)
+        lines.push(`    ✓ ${t.title} ${t.daysLate ? `[${t.daysLate}d late]` : '[on time]'}${t.teamName ? ` — ${t.teamName}` : ''}`);
+      for (const t of m.reviewPendingTasks)
+        lines.push(`    ⏳ ${t.title} [submitted on time, awaiting review]${t.teamName ? ` — ${t.teamName}` : ''}`);
+      for (const t of m.overdueTasks)
+        lines.push(`    ⚠ ${t.title} [${t.overdueDays}d overdue, due: ${fmtDate(t.dueDate)}]${t.teamName ? ` — ${t.teamName}` : ''}`);
+      for (const t of m.pendingTasks)
+        lines.push(`    ○ ${t.title} [pending, due: ${fmtDate(t.dueDate)}]${t.teamName ? ` — ${t.teamName}` : ''}`);
+      lines.push('');
+    }
+  }
+
+  lines.push('---');
+  lines.push('Automated report from GrowthRhythm OS by Gupio — mygupio.com');
+  return lines.join('\n');
 }

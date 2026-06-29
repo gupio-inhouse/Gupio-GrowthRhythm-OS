@@ -6,7 +6,7 @@
  */
 import 'dotenv/config';
 import prisma from '../lib/prisma';
-import { buildOrgReport, renderReportHtml } from '../services/report.service';
+import { buildOrgReport, renderReportHtml, renderReportText } from '../services/report.service';
 import { sendEmail } from '../services/email.service';
 
 const ORG_ID = process.env.TEST_ORG_ID || 'cmpkqgv71001zvzxstj19fr1f';
@@ -21,9 +21,10 @@ async function run() {
     const report = await buildOrgReport(ORG_ID, period);
     const periodLabel = period === 'daily' ? 'Daily' : period === 'weekly' ? 'Weekly' : 'Monthly';
     const subject = `[TEST] ${periodLabel} Performance Report — ${report.orgName}`;
-    const html = renderReportHtml(report, 'OWNER', RECIPIENT_NAME);
+    const html = renderReportHtml(report, 'OWNER', RECIPIENT_NAME, undefined, 'http://localhost:5173');
+    const text = renderReportText(report);
 
-    const ok = await sendEmail({ to: TO_EMAIL, subject, html });
+    const ok = await sendEmail({ to: TO_EMAIL, subject, html, text });
     console.log(`  ${period} → ${ok ? 'sent ✓' : 'logged to console (SMTP not configured)'}`);
   }
 

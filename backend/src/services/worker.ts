@@ -6,7 +6,7 @@ import { generateWeeklyDigest } from './ai.service';
 import { generateMeetUrl } from './meet.service';
 import { sendTaskDueTodayEmail, sendTaskDueReminderEmail, sendTaskOverdueEmail, sendStandupReminderEmail, deliverEmail, setEmailQueue, sendEmail } from './email.service';
 import { emailQueue, reportQueue } from './queues';
-import { buildOrgReport, renderReportHtml, isLastDayOfMonthIST } from './report.service';
+import { buildOrgReport, renderReportHtml, renderReportText, isLastDayOfMonthIST } from './report.service';
 
 const APP_URL = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();
 
@@ -404,10 +404,12 @@ export const reportWorker = new Worker('report', async (job: Job) => {
       const periodLabel = period === 'daily' ? 'Daily' : period === 'weekly' ? 'Weekly' : 'Monthly';
       const subject = `${periodLabel} Performance Report — ${org.name}`;
 
+      const text = renderReportText(report);
+
       // Send to each owner (full org view)
       for (const owner of owners) {
-        const html = renderReportHtml(report, 'OWNER', owner.name);
-        sendEmail({ to: owner.email, subject, html }).catch(console.error);
+        const html = renderReportHtml(report, 'OWNER', owner.name, undefined, APP_URL);
+        sendEmail({ to: owner.email, subject, html, text }).catch(console.error);
       }
 
       // For weekly + monthly: send dept heads their department's section
@@ -419,8 +421,8 @@ export const reportWorker = new Worker('report', async (job: Job) => {
 
         for (const head of deptHeads) {
           if (!head.departmentId) continue;
-          const html = renderReportHtml(report, 'DEPT_HEAD', head.name, head.departmentId);
-          sendEmail({ to: head.email, subject, html }).catch(console.error);
+          const html = renderReportHtml(report, 'DEPT_HEAD', head.name, head.departmentId, APP_URL);
+          sendEmail({ to: head.email, subject, html, text }).catch(console.error);
         }
       }
 
