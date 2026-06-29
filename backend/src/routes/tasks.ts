@@ -396,6 +396,15 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
     data.completedAt = null;
   }
 
+  // Enforce delivery proof before a team member can submit their work
+  if (actor.role === 'TEAM_MEMBER' && requestedStatus === 'DONE') {
+    const deliveryCount = await prisma.taskAttachment.count({ where: { taskId: existingTask.id } });
+    if (deliveryCount === 0) {
+      res.status(400).json({ error: 'Please upload at least one delivery item (screenshot, document, or PR link) before submitting your work.' });
+      return;
+    }
+  }
+
   const reviewerId = requestedStatus === 'DONE'
     ? await getCompletionReviewer(existingTask.id, req.user!.orgId)
     : null;

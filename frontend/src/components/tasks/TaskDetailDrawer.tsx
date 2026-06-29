@@ -146,6 +146,7 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
       const newStatus = variables.status as string | undefined;
       if (newStatus) toast.success(STATUS_TOAST[newStatus] ?? 'Status updated');
     },
+    onError: (e) => toast.error(formatTaskError(e)),
   });
   const commentMutation = useMutation({
     mutationFn: (content: string) => api.post(`/tasks/${taskId}/comments`, { content }),
@@ -186,9 +187,17 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
     onError: (e) => toast.error(formatTaskError(e)),
   });
 
+  const isOwnTask = user?.role === 'TEAM_MEMBER' && task?.assignee?.id === user?.id;
+  const totalDeliveries = (task?.attachments ?? []).length;
+
   const handleStatusChange = (newStatus: string) => {
-    if (newStatus === 'BLOCKED') { setPendingStatus(newStatus); setBlockerOpen(true); }
-    else updateMutation.mutate({ status: newStatus });
+    if (newStatus === 'BLOCKED') { setPendingStatus(newStatus); setBlockerOpen(true); return; }
+    if (newStatus === 'DONE' && isOwnTask && totalDeliveries === 0) {
+      toast.error('Delivery proof required', 'Upload a screenshot, document, or PR link before submitting your work.');
+      deliverySectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    updateMutation.mutate({ status: newStatus });
   };
   const handleBlockerConfirm = (data: { blockerType: string; blockerDescription: string; blockerExpectedResolution?: string }) => {
     updateMutation.mutate({
@@ -507,7 +516,15 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
                 )}
 
                 {/* ── Delivery ── */}
-                <div ref={deliverySectionRef} className="rounded-2xl border border-border/60 bg-white shadow-sm overflow-hidden">
+                <div
+                  ref={deliverySectionRef}
+                  className={cn(
+                    'rounded-2xl border shadow-sm overflow-hidden',
+                    isOwnTask && totalDeliveries === 0 && !['DONE', 'CANCELLED', 'IN_REVIEW'].includes(task.status)
+                      ? 'border-amber-300 bg-white ring-2 ring-amber-200/60'
+                      : 'border-border/60 bg-white',
+                  )}
+                >
                   <div className="px-4 py-3 border-b border-border/40 bg-muted/20 flex items-center justify-between flex-wrap gap-2">
                     <div>
                       <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Delivery</p>
@@ -558,6 +575,15 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
                   </div>
 
                   <div className="p-4 space-y-3">
+                    {/* Required delivery warning for own open tasks */}
+                    {isOwnTask && totalDeliveries === 0 && !['DONE', 'CANCELLED', 'IN_REVIEW'].includes(task.status) && (
+                      <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs text-amber-800 font-medium">
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-600" />
+                        <span>
+                          <span className="font-bold">Required before submitting —</span> Upload at least one screenshot, document, or PR link to prove delivery.
+                        </span>
+                      </div>
+                    )}
                     {/* Delivery hint */}
                     {initialDeliveryAction && (
                       <div className="flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700 font-medium">
