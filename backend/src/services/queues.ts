@@ -17,6 +17,13 @@ export const emailQueue = new Queue('email', { connection, defaultJobOptions: {
   removeOnFail: 200,
 } });
 
+export const reportQueue = new Queue('report', { connection, defaultJobOptions: {
+  attempts: 2,
+  backoff: { type: 'exponential', delay: 120000 },
+  removeOnComplete: 100,
+  removeOnFail: 50,
+} });
+
 export async function scheduleRecurringJobs() {
   // Nightly standup card generation — every day 11 PM IST (17:30 UTC)
   await standupQueue.add('generate-cards', {}, {
@@ -64,5 +71,24 @@ export async function scheduleRecurringJobs() {
   await taskReminderQueue.add('check-due-today', {}, {
     repeat: { pattern: '30 3 * * *', tz: 'UTC' },
     jobId: 'daily-task-due-today',
+  });
+
+  // Daily performance report — 8 PM IST (14:30 UTC) every day → Owner only
+  await reportQueue.add('daily-report', {}, {
+    repeat: { pattern: '30 14 * * *', tz: 'UTC' },
+    jobId: 'daily-performance-report',
+  });
+
+  // Weekly performance report — 8 PM IST every Sunday (14:30 UTC Sun) → Owner + all Dept Heads
+  await reportQueue.add('weekly-report', {}, {
+    repeat: { pattern: '30 14 * * 0', tz: 'UTC' },
+    jobId: 'weekly-performance-report',
+  });
+
+  // Monthly performance report — 8 PM IST on the last day of each month → Owner + all Dept Heads
+  // We schedule it daily but the worker checks isLastDayOfMonthIST() before running
+  await reportQueue.add('monthly-report-check', {}, {
+    repeat: { pattern: '30 14 * * *', tz: 'UTC' },
+    jobId: 'monthly-performance-report-check',
   });
 }
