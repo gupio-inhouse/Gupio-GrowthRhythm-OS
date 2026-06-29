@@ -412,8 +412,8 @@ export const reportWorker = new Worker('report', async (job: Job) => {
         sendEmail({ to: owner.email, subject, html, text }).catch(console.error);
       }
 
-      // For weekly + monthly: send dept heads their department's section
-      if (period !== 'daily') {
+      // Send dept heads their department's section (daily + weekly + monthly)
+      {
         const deptHeads = await prisma.user.findMany({
           where: { orgId: org.id, role: 'DEPARTMENT_HEAD', status: 'ACTIVE' },
           select: { id: true, name: true, email: true, departmentId: true },
