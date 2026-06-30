@@ -7,7 +7,7 @@ import {
 } from 'recharts';
 import {
   CheckSquare, AlertTriangle, Zap, TrendingUp, Users, Clock, Target,
-  Calendar, X, ChevronRight, Building2, CheckCircle2, Lock, ArrowDown,
+  Calendar, X, ChevronRight, Building2,
   FolderKanban, ArrowUpRight, Activity, Flame, Shield, SlidersHorizontal,
   ExternalLink,
 } from 'lucide-react';
@@ -39,7 +39,6 @@ type Task = {
   dueDate?: string; blockerType?: string;
   assignee?: { id: string; name: string };
 };
-type Checks = Record<string, boolean>;
 type DeptDashboard = {
   overdueCount: number; blockedCount: number; dueTodayCount: number;
   recentStandup: { id: string; status: string; scheduledAt: string; _count: { cards: number } } | null;
@@ -242,13 +241,6 @@ function OwnerHome() {
     queryFn: () => api.get('/users').then((r) => r.data),
   });
 
-  const checksReady = !!data;
-  const setupChecks: Checks = {
-    hasDepts:   (data?.departments?.length  ?? 0) > 0,
-    hasMembers: (data?.totalUsers           ?? 0) > 1,
-    hasTasks:   (data?.tasks?.total         ?? 0) > 0,
-    hasStandup: false,
-  };
 
   const now = new Date();
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
@@ -520,8 +512,6 @@ function OwnerHome() {
           </div>
         )}
 
-        {/* ── Setup guide ── */}
-        {user?.role && checksReady && <SetupGuide role={user.role} checks={setupChecks} />}
 
         {/* ── Task Health by Department ── */}
         <Card className="rounded-2xl border border-border/60 bg-white shadow-sm overflow-hidden">
@@ -1209,175 +1199,6 @@ function TaskList({
   );
 }
 
-// ── Setup Guide ───────────────────────────────────────────────────────────────
-type SetupStep = { num: number; title: string; desc: string; href: string; doneKey: string };
-
-const CEO_STEPS: SetupStep[] = [
-  { num: 1, title: 'Create your first Department', desc: 'Organise your company into functional teams (e.g. Engineering, Sales).', href: '/departments', doneKey: 'hasDepts' },
-  { num: 2, title: 'Invite Team Members', desc: 'Add people and assign them to departments.', href: '/team', doneKey: 'hasMembers' },
-  { num: 3, title: 'Assign the first Task', desc: 'Assign tasks to drive execution.', href: '/tasks', doneKey: 'hasTasks' },
-];
-const DEPT_HEAD_STEPS: SetupStep[] = [
-  { num: 1, title: 'Assign Tasks to your Team', desc: 'Assign tasks to members and track progress.', href: '/tasks', doneKey: 'hasTasks' },
-  { num: 2, title: 'Run a Daily Meeting', desc: '15-minute ritual to keep your team aligned.', href: '/standup', doneKey: 'hasStandup' },
-];
-const MANAGER_STEPS: SetupStep[] = [
-  { num: 1, title: 'Assign Tasks to your Team', desc: 'Create tasks for your direct reports.', href: '/tasks', doneKey: 'hasTasks' },
-  { num: 2, title: 'Run a Daily Meeting', desc: 'Schedule a 15-minute meeting.', href: '/standup', doneKey: 'hasStandup' },
-];
-const STEP_ICONS: Record<string, React.ElementType> = {
-  hasDepts: Building2, hasMembers: Users, hasTasks: CheckSquare, hasStandup: Zap,
-};
-
-function SetupGuide({ role, checks }: { role: string; checks: Checks }) {
-  const [dismissed, setDismissed] = useState(() => localStorage.getItem(`gr_setup_${role}`) === '1');
-
-  const steps =
-    ['OWNER', 'COMPANY_ADMIN'].includes(role) ? CEO_STEPS
-    : role === 'DEPARTMENT_HEAD' ? DEPT_HEAD_STEPS
-    : role === 'MANAGER' ? MANAGER_STEPS
-    : null;
-
-  if (!steps || dismissed) return null;
-
-  const doneCount = steps.filter((s) => checks[s.doneKey]).length;
-  const allDone   = doneCount === steps.length;
-  const pct       = Math.round((doneCount / steps.length) * 100);
-
-  return (
-    <Card className={cn(
-      'rounded-2xl border overflow-hidden',
-      allDone
-        ? 'border-emerald-200 bg-gradient-to-br from-emerald-50/60 to-green-50/40'
-        : 'border-indigo-200 bg-gradient-to-br from-indigo-50/60 to-blue-50/40',
-    )}>
-      <CardContent className="p-5">
-        <div className="flex items-start justify-between mb-5">
-          <div>
-            <p className="font-semibold text-sm flex items-center gap-2">
-              {allDone
-                ? <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                : <Zap className="h-4 w-4 text-indigo-500" />}
-              {allDone ? 'Setup Complete!' : 'Getting Started'}
-              <span className="text-xs font-normal text-muted-foreground">{doneCount} of {steps.length} done</span>
-            </p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {allDone
-                ? 'Your workspace is fully set up.'
-                : 'Follow these steps in order to unlock the next.'}
-            </p>
-          </div>
-          <button
-            onClick={() => { localStorage.setItem(`gr_setup_${role}`, '1'); setDismissed(true); }}
-            className="text-muted-foreground hover:text-foreground transition-colors p-1.5 rounded-lg hover:bg-white/60"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="flex flex-col sm:flex-row sm:items-stretch gap-2">
-          {steps.map((step, idx) => {
-            const done    = checks[step.doneKey];
-            const prevDone = steps.slice(0, idx).every((s) => checks[s.doneKey]);
-            const isNext  = !done && prevDone;
-            const isLast  = idx === steps.length - 1;
-            const Icon    = STEP_ICONS[step.doneKey] || Target;
-
-            return (
-              <div key={step.num} className="flex flex-col sm:flex-row sm:items-stretch flex-1 min-w-0">
-                <div className={cn(
-                  'flex-1 flex flex-col items-center text-center p-3 sm:p-4 rounded-2xl border transition-all',
-                  done    ? 'bg-emerald-50/80 border-emerald-200'
-                  : isNext ? 'bg-white border-indigo-300 shadow-md ring-1 ring-indigo-100'
-                  :          'bg-white/50 border-dashed border-border',
-                )}>
-                  <div className={cn(
-                    'relative flex h-11 w-11 items-center justify-center rounded-full mb-2 shrink-0',
-                    done ? 'bg-gradient-to-br from-emerald-400 to-green-500'
-                    : isNext ? 'bg-gradient-to-br from-indigo-500 to-blue-600'
-                    : 'bg-muted',
-                  )}>
-                    {done ? (
-                      <CheckCircle2 className="h-5 w-5 text-white" />
-                    ) : (
-                      <>
-                        <Icon className={cn('h-5 w-5', isNext ? 'text-white' : 'text-muted-foreground/50')} />
-                        {!isNext && (
-                          <Lock className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 text-muted-foreground bg-white rounded-full border border-border p-0.5" />
-                        )}
-                      </>
-                    )}
-                    {isNext && (
-                      <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75" />
-                        <span className="relative inline-flex h-3 w-3 rounded-full bg-indigo-500" />
-                      </span>
-                    )}
-                  </div>
-
-                  <span className={cn(
-                    'text-[10px] font-bold uppercase tracking-widest mb-0.5',
-                    done ? 'text-emerald-600' : isNext ? 'text-indigo-500' : 'text-muted-foreground/40',
-                  )}>Step {step.num}</span>
-
-                  <p className={cn(
-                    'text-xs font-semibold leading-snug mb-1',
-                    done ? 'line-through text-muted-foreground' : isNext ? 'text-foreground' : 'text-muted-foreground',
-                  )}>
-                    {step.title}
-                  </p>
-                  <p className="hidden sm:block text-[10px] text-muted-foreground leading-relaxed flex-1 mb-2">{step.desc}</p>
-
-                  {done ? (
-                    <span className="text-[10px] font-semibold text-emerald-600 flex items-center gap-0.5 mt-auto">
-                      <CheckCircle2 className="h-3 w-3" /> Done
-                    </span>
-                  ) : (
-                    <Link
-                      to={isNext ? step.href : '#'}
-                      className={cn(
-                        'mt-auto text-[10px] px-3 py-1.5 rounded-xl font-semibold transition-colors',
-                        isNext
-                          ? 'bg-gradient-to-r from-indigo-500 to-blue-600 text-white hover:from-indigo-600 hover:to-blue-700'
-                          : 'bg-muted text-muted-foreground pointer-events-none opacity-40',
-                      )}
-                    >
-                      {isNext ? '→ Start' : 'Locked'}
-                    </Link>
-                  )}
-                </div>
-
-                {!isLast && (
-                  <>
-                    <div className="hidden sm:flex items-center justify-center w-6 shrink-0 self-center">
-                      <ChevronRight className={cn('h-4 w-4', done ? 'text-emerald-400' : 'text-border')} />
-                    </div>
-                    <div className="flex sm:hidden items-center justify-center h-5 self-center">
-                      <ArrowDown className={cn('h-3.5 w-3.5', done ? 'text-emerald-400' : 'text-border')} />
-                    </div>
-                  </>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="mt-4 space-y-1.5">
-          <div className="flex justify-between text-xs text-muted-foreground">
-            <span>Setup progress</span>
-            <span className="font-semibold">{pct}%</span>
-          </div>
-          <div className="h-2 bg-white/60 rounded-full overflow-hidden border border-white/80">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-blue-500 transition-all duration-700"
-              style={{ width: `${pct}%` }}
-            />
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
 
 // ── Resource Capacity ─────────────────────────────────────────────────────────
 function ResourceCapacityCard() {
@@ -1839,8 +1660,6 @@ export default function Dashboard() {
   if (isCeo) return <OwnerHome />;
 
   const allTasks: Task[] = tasks || [];
-  const checksReady = !tasksLoading && (!isCeo || !cockpitLoading);
-
   const now        = new Date();
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const todayEnd   = new Date(); todayEnd.setHours(23, 59, 59, 999);
@@ -1855,13 +1674,6 @@ export default function Dashboard() {
   const doneTasks     = allTasks.filter((t) => t.status === 'DONE');
   const myOpenTasks   = openTasks.filter((t) => t.assignee?.id === user?.id);
   const teamOpenTasks = openTasks.filter((t) => t.assignee?.id !== user?.id);
-
-  const setupChecks: Checks = {
-    hasDepts:   (cockpit?.departments?.length  ?? 0) > 0,
-    hasMembers: (cockpit?.totalUsers           ?? 0) > 1,
-    hasTasks:   (cockpit?.tasks?.total ?? allTasks.length) > 0,
-    hasStandup: false,
-  };
 
   type ProjTeam = { id: string; name: string; description?: string; memberCount: number; department?: { name: string; slug?: string } };
   const projectTeams = (myProjectTeams as ProjTeam[] | undefined) ?? [];
@@ -1905,9 +1717,6 @@ export default function Dashboard() {
             </Link>
           </div>
         </div>
-
-        {/* ── Setup guide ── */}
-        {user?.role && checksReady && <SetupGuide role={user.role} checks={setupChecks} />}
 
         {/* ── Overdue alert ── */}
         {(isCeo || isManagerOrHead) && overdueTasks.length > 0 && (
