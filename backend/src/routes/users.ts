@@ -597,6 +597,50 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
   res.json({ ...user, phone: decryptField(user.phone) });
 });
 
+// POST /users/:id/resend-invite — regenerate magic link and resend invite email
+router.post('/:id/resend-invite', requireRole('OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'), async (req: AuthRequest, res: Response) => {
+  const targetId = req.params.id as string;
+
+  const target = await prisma.user.findFirst({
+    where: { id: targetId, orgId: req.user!.orgId },
+    select: { id: true, email: true, name: true, role: true, status: true },
+  });
+
+  if (!target) { res.status(404).json({ error: 'User not found' }); return; }
+  if (target.status !== 'INVITED') {
+    res.status(400).json({ error: 'User has already accepted the invitation' });
+    return;
+  }
+
+  let emailSent = false;
+  let inviteLink: string | null = null;
+  try {
+    const purpose =
+      target.role === 'DEPARTMENT_HEAD'
+        ? ('DEPARTMENT_HEAD_INVITE' as const)
+        : ('MEMBER_INVITE' as const);
+
+    const { link } = await generateMagicLink({
+      userId: target.id,
+      orgId: req.user!.orgId,
+      purpose,
+      expiresInHours: 48,
+    });
+    inviteLink = link;
+
+    emailSent = await sendMagicLinkEmail({
+      to: target.email,
+      name: target.name,
+      magicLinkUrl: link,
+      purpose,
+    });
+  } catch (err) {
+    console.error('[users/resend-invite] email error:', err);
+  }
+
+  res.json({ success: true, emailSent, inviteLink });
+});
+
 // DELETE /users/:id — hard delete (OWNER/ADMIN: any non-owner; DEPT_HEAD: own dept TEAM_MEMBER/MANAGER only)
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   const actor = await getViewerScope(req.user!.userId);
@@ -632,7 +676,28 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     }
   }
 
-  await prisma.user.delete({ where: { id: targetId } });
+  await prisma.$transaction([
+    // Remove records with required FK to this user (no cascade defined)
+    prisma.magicLink.deleteMany({ where: { userId: targetId } }),
+    prisma.notification.deleteMany({ where: { userId: targetId } }),
+    prisma.auditLog.deleteMany({ where: { userId: targetId } }),
+    prisma.standupCard.deleteMany({ where: { userId: targetId } }),
+    prisma.taskComment.deleteMany({ where: { userId: targetId } }),
+    prisma.onboardingChecklist.deleteMany({ where: { userId: targetId } }),
+    prisma.appFeedback.deleteMany({ where: { userId: targetId } }),
+    prisma.interviewScorecard.deleteMany({ where: { interviewerId: targetId } }),
+    prisma.teamDocument.deleteMany({ where: { uploadedById: targetId } }),
+    // Nullify optional FKs that reference this user
+    prisma.task.updateMany({ where: { assigneeUserId: targetId }, data: { assigneeUserId: null } }),
+    prisma.task.updateMany({ where: { assignedByUserId: targetId }, data: { assignedByUserId: null } }),
+    prisma.task.updateMany({ where: { completionReviewedByUserId: targetId }, data: { completionReviewedByUserId: null } }),
+    prisma.department.updateMany({ where: { headUserId: targetId }, data: { headUserId: null } }),
+    prisma.team.updateMany({ where: { managerUserId: targetId }, data: { managerUserId: null } }),
+    prisma.team.updateMany({ where: { departmentHeadUserId: targetId }, data: { departmentHeadUserId: null } }),
+    prisma.user.updateMany({ where: { managerId: targetId }, data: { managerId: null } }),
+    // Finally delete the user (TeamMember + TaskStatusHistory cascade automatically)
+    prisma.user.delete({ where: { id: targetId } }),
+  ]);
   res.json({ success: true });
 });
 

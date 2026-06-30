@@ -40,7 +40,7 @@ type PasswordForm = z.infer<typeof passwordSchema>;
 const notificationOptions = [
   { key: 'taskAssigned', label: 'Task Assigned to Me', description: 'When someone assigns a task to you' },
   { key: 'taskBlocked', label: 'Task Blocked', description: 'When one of your tasks gets blocked' },
-  { key: 'standupReminder', label: 'Standup Reminder', description: 'Daily reminder 15 minutes before standup' },
+  { key: 'standupReminder', label: 'Meeting Reminder', description: 'Daily reminder 15 minutes before meeting' },
   { key: 'weeklyDigest', label: 'Weekly Digest', description: 'Sunday summary of team performance' },
   { key: 'reviewDue', label: 'Review Due', description: 'When a review is scheduled for your team' },
 ];
@@ -448,7 +448,7 @@ export default function Settings() {
               <CardContent className="space-y-4">
                 <div className="rounded-md border p-4 space-y-2">
                   <p className="text-sm font-medium">Export Organisation Data</p>
-                  <p className="text-xs text-muted-foreground">Download a full JSON export of all users, tasks, standups, and audit logs. This file may be used for compliance, migration, or backup purposes.</p>
+                  <p className="text-xs text-muted-foreground">Download a full JSON export of all users, tasks, meetings, and audit logs. This file may be used for compliance, migration, or backup purposes.</p>
                   <a
                     href="/api/owner/data-export"
                     download

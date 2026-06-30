@@ -304,7 +304,7 @@ export default function DepartmentPage() {
                       <>
                         <span className="text-muted-foreground/40">·</span>
                         <span className="text-xs text-muted-foreground flex items-center gap-1">
-                          <Clock className="h-3 w-3" /> {dept.standupTime} · {dept.standupDuration ?? 15}m standup
+                          <Clock className="h-3 w-3" /> {dept.standupTime} · {dept.standupDuration ?? 15}m meeting
                         </span>
                       </>
                     )}
@@ -512,7 +512,7 @@ export default function DepartmentPage() {
                       <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-sm shadow-amber-200/60">
                         <Zap className="h-4 w-4 text-white" />
                       </div>
-                      <span className="text-sm font-bold">Last Standup</span>
+                      <span className="text-sm font-bold">Last Meeting</span>
                     </div>
                     {dash?.recentStandup ? (
                       <div className="space-y-3">
@@ -540,7 +540,7 @@ export default function DepartmentPage() {
                     ) : (
                       <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-2">
                         <Zap className="h-8 w-8 opacity-20" />
-                        <p className="text-sm">No standups yet</p>
+                        <p className="text-sm">No meetings yet</p>
                       </div>
                     )}
                   </div>

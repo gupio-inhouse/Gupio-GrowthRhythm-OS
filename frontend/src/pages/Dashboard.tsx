@@ -236,11 +236,11 @@ const CEO_STEPS: SetupStep[] = [
 ];
 const DEPT_HEAD_STEPS: SetupStep[] = [
   { num: 1, title: 'Assign Tasks to your Team', desc: 'Assign tasks to members and track progress.', href: '/tasks', doneKey: 'hasTasks' },
-  { num: 2, title: 'Run a Daily Standup', desc: '15-minute ritual to keep your team aligned.', href: '/standup', doneKey: 'hasStandup' },
+  { num: 2, title: 'Run a Daily Meeting', desc: '15-minute ritual to keep your team aligned.', href: '/standup', doneKey: 'hasStandup' },
 ];
 const MANAGER_STEPS: SetupStep[] = [
   { num: 1, title: 'Assign Tasks to your Team', desc: 'Create tasks for your direct reports.', href: '/tasks', doneKey: 'hasTasks' },
-  { num: 2, title: 'Run a Daily Standup', desc: 'Schedule a 15-minute standup.', href: '/standup', doneKey: 'hasStandup' },
+  { num: 2, title: 'Run a Daily Meeting', desc: 'Schedule a 15-minute meeting.', href: '/standup', doneKey: 'hasStandup' },
 ];
 const STEP_ICONS: Record<string, React.ElementType> = {
   hasDepts: Building2, hasMembers: Users, hasTasks: CheckSquare, hasStandup: Zap,
@@ -720,7 +720,7 @@ function DepartmentDashboard({ slug }: { slug: string }) {
                 <CardHeader className="px-5 pt-4 pb-0">
                   <CardTitle className="text-sm font-semibold flex items-center gap-2">
                     <CIcon icon={Zap} bg="bg-yellow-100" cls="text-yellow-600" />
-                    Last Standup
+                    Last Meeting
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="px-5 pb-5 pt-3">
@@ -746,7 +746,7 @@ function DepartmentDashboard({ slug }: { slug: string }) {
                   ) : (
                     <div className="flex flex-col items-center py-8 gap-2 text-muted-foreground">
                       <Zap className="h-8 w-8 opacity-20" />
-                      <p className="text-sm">No standups yet</p>
+                      <p className="text-sm">No meetings yet</p>
                     </div>
                   )}
                 </CardContent>
@@ -912,7 +912,7 @@ export default function Dashboard() {
               to="/standup"
               className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-600 px-3 py-2 text-xs font-semibold text-white hover:from-indigo-600 hover:to-violet-700 shadow-sm shadow-indigo-200 transition-all"
             >
-              <Zap className="h-3.5 w-3.5" /> Standup
+              <Zap className="h-3.5 w-3.5" /> Meeting
             </Link>
           </div>
         </div>

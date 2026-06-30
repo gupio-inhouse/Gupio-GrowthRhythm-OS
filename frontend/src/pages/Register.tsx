@@ -157,7 +157,7 @@ export default function Register() {
 
               <div className="rounded-md bg-white/5 border border-white/10 px-3 py-3 text-xs text-blue-200/70 space-y-1">
                 <p className="font-medium text-blue-200/90">Data & Privacy Notice</p>
-                <p>By creating a workspace, you agree that GrowthRhythm OS will process and store your organisation's data (including employee information, tasks, and standups) in accordance with applicable Indian data protection laws (IT Act 2000, DPDPA 2023).</p>
+                <p>By creating a workspace, you agree that GrowthRhythm OS will process and store your organisation's data (including employee information, tasks, and meetings) in accordance with applicable Indian data protection laws (IT Act 2000, DPDPA 2023).</p>
                 <p>Employee data is collected only for legitimate business operations and may be exported or deleted upon request. You are responsible for obtaining consent from employees you invite.</p>
               </div>
 

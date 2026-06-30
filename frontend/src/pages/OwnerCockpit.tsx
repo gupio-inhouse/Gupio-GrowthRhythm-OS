@@ -579,7 +579,7 @@ export default function OwnerCockpit() {
             {[
               { label: 'Completed this week', value: weekly.completedThisWeek, icon: CheckSquare, from: 'from-emerald-500', to: 'to-green-400', to2: '/tasks?status=DONE' },
               { label: 'New blockers',         value: weekly.newBlockers,        icon: AlertTriangle, from: 'from-red-500',    to: 'to-rose-400',  to2: '/tasks?status=BLOCKED' },
-              { label: 'Standups held',        value: weekly.standupCount,       icon: Zap,          from: 'from-blue-500',   to: 'to-indigo-400',to2: '/standup' },
+              { label: 'Meetings held',         value: weekly.standupCount,       icon: Zap,          from: 'from-blue-500',   to: 'to-indigo-400',to2: '/standup' },
             ].map(({ label, value, icon: Icon, from, to, to2 }) => (
               <Link key={label} to={to2} className="group">
                 <Card className="rounded-2xl border border-border/60 bg-white hover:shadow-lg hover:border-primary/20 transition-all duration-200">
@@ -902,7 +902,7 @@ export default function OwnerCockpit() {
             <CardHeader className="px-5 sm:px-6 pt-5 pb-0">
               <CardTitle className="text-sm font-semibold flex items-center gap-2.5">
                 <CardIcon icon={Zap} bg="bg-yellow-100" iconCls="text-yellow-600" />
-                Standup Attendance
+                Meeting Attendance
                 <span className="ml-auto text-[10px] text-muted-foreground bg-muted/60 rounded-full px-2 py-0.5">
                   {(data?.standupAttendance ?? []).filter((s: { status: string }) => s.status === 'COMPLETED').length}
                   /{(data?.standupAttendance ?? []).length} done
@@ -915,7 +915,7 @@ export default function OwnerCockpit() {
                   <div className="h-14 w-14 rounded-2xl bg-yellow-50 flex items-center justify-center">
                     <Zap className="h-7 w-7 text-yellow-300" />
                   </div>
-                  <p className="text-sm font-medium">No standups scheduled today</p>
+                  <p className="text-sm font-medium">No meetings scheduled today</p>
                 </div>
               ) : (
                 <div className="space-y-4 pt-3">

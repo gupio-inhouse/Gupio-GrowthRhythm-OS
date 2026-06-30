@@ -41,7 +41,7 @@ const ENTITY_LABELS: Record<string, string> = {
   Task: 'Task',
   Department: 'Department',
   User: 'User',
-  Standup: 'Standup',
+  Standup: 'Meeting',
   Team: 'Team',
   Feedback: 'Feedback',
 };

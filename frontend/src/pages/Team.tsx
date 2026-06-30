@@ -5,7 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
   UserPlus, Search, Users, Shield, Crown, Briefcase, User as UserIcon,
-  Mail, Phone, Building2, CheckCircle2, UserX, UserCheck, Pencil, Trash2, FileText,
+  Mail, Phone, Building2, CheckCircle2, UserX, UserCheck, Pencil, Trash2, FileText, RefreshCw,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -19,6 +19,7 @@ import { Link } from 'react-router-dom';
 import { cn, getInitials } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/api/client';
+import { toast } from '@/hooks/use-toast';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -185,6 +186,29 @@ export default function Team() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['users'] });
       setConfirmDeleteMemberId(null);
+      toast.success('Member removed', 'Team member has been deleted.');
+    },
+    onError: (e: unknown) => {
+      const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error ?? 'Failed to delete member';
+      toast.error('Delete failed', msg);
+    },
+  });
+
+  const reinviteMember = useMutation({
+    mutationFn: (id: string) => api.post(`/users/${id}/resend-invite`).then((r) => r.data as { emailSent: boolean; inviteLink?: string | null }),
+    onSuccess: (data) => {
+      if (data.emailSent) {
+        toast.success('Invite resent', 'A new invite email has been sent.');
+      } else if (data.inviteLink) {
+        navigator.clipboard.writeText(data.inviteLink).catch(() => {});
+        toast.warning('Email not configured', 'Invite link copied to clipboard.');
+      } else {
+        toast.error('Resend failed', 'Could not resend the invite.');
+      }
+    },
+    onError: (e: unknown) => {
+      const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error ?? 'Failed to resend invite';
+      toast.error('Resend failed', msg);
     },
   });
 
@@ -418,8 +442,8 @@ export default function Team() {
                       <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-gray-100 text-gray-500">Deactivated</span>
                     )}
 
-                    {/* Action buttons (appear on hover) */}
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {/* Action buttons */}
+                    <div className="flex items-center gap-1">
                       <Link
                         to={`/team/${member.id}/report`}
                         className="p-1.5 rounded-lg hover:bg-slate-100 text-muted-foreground hover:text-slate-700 transition-colors"
@@ -427,6 +451,16 @@ export default function Team() {
                       >
                         <FileText className="h-3.5 w-3.5" />
                       </Link>
+                      {canInvite && member.status === 'INVITED' && (
+                        <button
+                          onClick={() => reinviteMember.mutate(member.id)}
+                          disabled={reinviteMember.isPending}
+                          className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-500 hover:text-amber-600 transition-colors disabled:opacity-50"
+                          title="Resend invite"
+                        >
+                          <RefreshCw className={cn('h-3.5 w-3.5', reinviteMember.isPending && 'animate-spin')} />
+                        </button>
+                      )}
                       {canEditUser && member.id !== me?.id && (
                         <button
                           onClick={() => openEditMember(member)}

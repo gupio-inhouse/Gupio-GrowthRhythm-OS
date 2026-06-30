@@ -129,7 +129,7 @@ function DailyScheduleCard({ dept, onUpdated }: { dept: Department; onUpdated: (
             <p className="text-xs text-muted-foreground mt-0.5">
               {configured
                 ? `Daily at ${dept.standupTime} · ${dept.standupDuration ?? 15} min${dept.standupMeetUrl ? ' · Meet link set ✓' : ''}`
-                : 'No schedule set — cards won\'t auto-create'}
+                : 'No schedule set — meetings won\'t auto-create'}
             </p>
           </div>
         </div>
@@ -162,7 +162,7 @@ function DailyScheduleCard({ dept, onUpdated }: { dept: Department; onUpdated: (
           <div className="space-y-1">
             <Label className="text-xs font-semibold">Meeting Link <span className="text-muted-foreground font-normal">(optional)</span></Label>
             <Input placeholder="https://meet.google.com/…" value={meetUrl} onChange={(e) => setMeetUrl(e.target.value)} className="h-9 rounded-xl text-sm border-border/60" />
-            <p className="text-[10px] text-muted-foreground">Used on every auto-created standup for this department.</p>
+            <p className="text-[10px] text-muted-foreground">Used on every auto-created meeting for this department.</p>
           </div>
           <div className="flex gap-2 justify-end">
             <button onClick={() => setEditing(false)} className="h-8 px-3 rounded-xl border border-border/60 text-xs text-muted-foreground hover:bg-muted transition-colors">Cancel</button>
@@ -198,7 +198,7 @@ function ScheduleDialog({ open, onClose, onCreated }: { open: boolean; onClose: 
       return api.post('/standups', { departmentId: deptId, scheduledAt, meetUrl: meetUrl.trim() || undefined });
     },
     onSuccess: () => { onCreated(); onClose(); },
-    onError: (e: any) => toast.error(e.response?.data?.error || 'Failed to schedule standup'),
+    onError: (e: any) => toast.error(e.response?.data?.error || 'Failed to schedule meeting'),
   });
 
   const handleSubmit = () => {
@@ -251,7 +251,7 @@ function ScheduleDialog({ open, onClose, onCreated }: { open: boolean; onClose: 
           <div className="space-y-1.5">
             <Label className="text-xs font-semibold">Meeting Link <span className="text-muted-foreground font-normal">(optional)</span></Label>
             <Input placeholder="https://meet.google.com/…" value={meetUrl} onChange={(e) => setMeetUrl(e.target.value)} className="h-9 rounded-xl border-border/60 text-sm" />
-            <p className="text-[10px] text-muted-foreground">Everyone in the standup will see a Join button.</p>
+            <p className="text-[10px] text-muted-foreground">Everyone in the meeting will see a Join button.</p>
           </div>
 
         </div>
@@ -333,7 +333,7 @@ export default function Standup() {
               <Zap className="h-6 w-6 text-white" />
             </div>
             <div>
-              <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Daily Standup</h1>
+              <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Daily Meeting</h1>
               <p className="text-xs text-muted-foreground mt-0.5">15-minute daily operating ritual</p>
             </div>
           </div>
@@ -342,7 +342,7 @@ export default function Standup() {
               onClick={() => setScheduleOpen(true)}
               className="inline-flex items-center gap-1.5 h-9 px-4 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-600 text-white text-xs font-bold hover:from-indigo-600 hover:to-violet-700 shadow-sm shadow-indigo-200 transition-all"
             >
-              <Plus className="h-4 w-4" /> Schedule Standup
+              <Plus className="h-4 w-4" /> Schedule Meeting
             </button>
           )}
         </div>
@@ -363,7 +363,7 @@ export default function Standup() {
                 <p className="text-white/60 text-xs font-bold uppercase tracking-widest mb-1">
                   {activeStandup.status === 'IN_PROGRESS' ? '🔴 Live Now' : activeStandup.status === 'COMPLETED' ? '✓ Completed' : '🕐 Scheduled'}
                 </p>
-                <h2 className="text-white text-xl sm:text-2xl font-black">{activeStandup.department.name} Standup</h2>
+                <h2 className="text-white text-xl sm:text-2xl font-black">{activeStandup.department.name} Meeting</h2>
                 <div className="flex items-center gap-3 mt-2 flex-wrap">
                   <span className="text-white/70 text-xs flex items-center gap-1">
                     <Calendar className="h-3.5 w-3.5" />
@@ -428,7 +428,7 @@ export default function Standup() {
               {(activeStandup.cards ?? []).length === 0 ? (
                 <div className="flex flex-col items-center py-12 gap-3 text-white/60">
                   <Users className="h-10 w-10 opacity-40" />
-                  <p className="text-sm font-medium">No standup cards yet for this session</p>
+                  <p className="text-sm font-medium">No meeting cards yet for this session</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -455,7 +455,7 @@ export default function Standup() {
                 <Zap className="h-8 w-8 text-orange-300" />
               </div>
               <div className="text-center">
-                <p className="font-semibold text-foreground/60">No active standup</p>
+                <p className="font-semibold text-foreground/60">No active meeting</p>
                 <p className="text-sm mt-1">Select one from below or schedule a new one</p>
               </div>
               {canSchedule && (
@@ -463,7 +463,7 @@ export default function Standup() {
                   onClick={() => setScheduleOpen(true)}
                   className="inline-flex items-center gap-1.5 h-9 px-4 rounded-xl border border-indigo-300 text-indigo-700 bg-indigo-50 text-sm font-semibold hover:bg-indigo-100 transition-colors mt-1"
                 >
-                  <Plus className="h-4 w-4" /> Schedule Standup
+                  <Plus className="h-4 w-4" /> Schedule Meeting
                 </button>
               )}
             </div>
@@ -475,7 +475,7 @@ export default function Standup() {
           {/* Tab bar */}
           <div className="flex items-center gap-1 p-1 rounded-2xl bg-white border border-border/60 shadow-sm mb-4 w-fit">
             {([
-              { key: 'recent'   as const, label: 'Recent Standups', icon: Calendar, hidden: false },
+              { key: 'recent'   as const, label: 'Recent Meetings', icon: Calendar, hidden: false },
               { key: 'schedule' as const, label: 'Daily Schedule',  icon: Clock,    hidden: !canConfigureSchedule },
             ]).filter((t) => !t.hidden).map(({ key, label, icon: Icon }) => (
               <button
@@ -516,13 +516,13 @@ export default function Standup() {
               <div className="rounded-2xl border border-dashed border-border/60 bg-white/60 flex flex-col items-center py-14 gap-3 text-muted-foreground">
                 <Zap className="h-9 w-9 opacity-20" />
                 <div className="text-center">
-                  <p className="text-sm font-medium">No standups scheduled yet</p>
+                  <p className="text-sm font-medium">No meetings scheduled yet</p>
                   {canSchedule && (
                     <button
                       onClick={() => setScheduleOpen(true)}
                       className="mt-2 text-xs text-primary hover:underline font-semibold"
                     >
-                      Schedule your first standup →
+                      Schedule your first meeting →
                     </button>
                   )}
                 </div>
@@ -783,7 +783,7 @@ function StandupCardView({
                 onClick={() => setEditing(true)}
                 className="w-full text-left text-xs text-muted-foreground border border-dashed border-border/60 rounded-xl p-2.5 hover:border-indigo-300 hover:text-indigo-700 hover:bg-indigo-50/40 transition-all"
               >
-                Click to fill in your standup update…
+                Click to fill in your meeting update…
               </button>
             ) : null}
 
