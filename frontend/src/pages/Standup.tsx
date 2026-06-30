@@ -495,7 +495,7 @@ export default function Standup() {
                     'text-[10px] font-black rounded-full px-1.5 py-0.5 min-w-[18px] text-center',
                     mainTab === key ? 'bg-white/25 text-white' : 'bg-muted text-muted-foreground',
                   )}>
-                    {standups.length}
+                    {standups.filter((s) => isToday(s.scheduledAt)).length}
                   </span>
                 )}
                 {key === 'schedule' && schedulableDepts.length > 0 && (
@@ -512,27 +512,29 @@ export default function Standup() {
 
           {/* ── Recent tab ── */}
           {mainTab === 'recent' && (
-            standups.length === 0 ? (
+            (() => {
+              const todayMeetings = standups.filter((s) => isToday(s.scheduledAt));
+              return todayMeetings.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-border/60 bg-white/60 flex flex-col items-center py-14 gap-3 text-muted-foreground">
                 <Zap className="h-9 w-9 opacity-20" />
                 <div className="text-center">
-                  <p className="text-sm font-medium">No meetings scheduled yet</p>
+                  <p className="text-sm font-medium">No meetings scheduled today</p>
                   {canSchedule && (
                     <button
                       onClick={() => setScheduleOpen(true)}
                       className="mt-2 text-xs text-primary hover:underline font-semibold"
                     >
-                      Schedule your first meeting →
+                      Schedule a meeting →
                     </button>
                   )}
                 </div>
               </div>
             ) : (
               <div className="space-y-2">
-                {standups.map((s) => {
+                {todayMeetings.map((s) => {
                   const tok = statusConfig[s.status] ?? statusConfig.SCHEDULED;
                   const selected = activeId === s.id;
-                  const standupIsToday = isToday(s.scheduledAt);
+                  const standupIsToday = true;
 
                   return (
                     <div
@@ -626,7 +628,8 @@ export default function Standup() {
                   );
                 })}
               </div>
-            )
+            );
+            })()
           )}
 
           {/* ── Daily Schedule tab ── */}
