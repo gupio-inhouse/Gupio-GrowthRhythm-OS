@@ -8,7 +8,7 @@ import {
 import {
   AlertTriangle, CheckSquare, Users, Building2, TrendingUp, Zap,
   Target, ExternalLink, ChevronRight, Activity, ArrowUpRight,
-  Shield, Flame, Filter, X, SlidersHorizontal,
+  Shield, Flame, X, SlidersHorizontal,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -249,7 +249,6 @@ export default function OwnerCockpit() {
   // ── Filter state ────────────────────────────────────────────────────────────
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [memberFilter, setMemberFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
 
   // Build query string from active filters
@@ -257,7 +256,6 @@ export default function OwnerCockpit() {
     const p = new URLSearchParams();
     if (departmentFilter) p.set('departmentId', departmentFilter);
     if (memberFilter) p.set('assigneeId', memberFilter);
-    if (statusFilter) p.set('status', statusFilter);
     if (dateFilter) {
       p.set('from', new Date(dateFilter + 'T00:00:00').toISOString());
       p.set('to',   new Date(dateFilter + 'T23:59:59').toISOString());
@@ -266,7 +264,7 @@ export default function OwnerCockpit() {
   })();
   const qs = filterQs ? `?${filterQs}` : '';
 
-  const activeFilterCount = [departmentFilter, memberFilter, statusFilter, dateFilter].filter(Boolean).length;
+  const activeFilterCount = [departmentFilter, memberFilter, dateFilter].filter(Boolean).length;
 
   const { data, isLoading } = useQuery({
     queryKey: ['cockpit', filterQs],
@@ -469,7 +467,7 @@ export default function OwnerCockpit() {
             {/* Clear */}
             {activeFilterCount > 0 && (
               <button
-                onClick={() => { setDepartmentFilter(''); setMemberFilter(''); setStatusFilter(''); setDateFilter(''); }}
+                onClick={() => { setDepartmentFilter(''); setMemberFilter(''); setDateFilter(''); }}
                 className="inline-flex items-center gap-1.5 h-8 rounded-xl border border-border/60 px-3 text-xs font-semibold text-muted-foreground hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-all shrink-0"
               >
                 <X className="h-3 w-3" />
@@ -478,38 +476,6 @@ export default function OwnerCockpit() {
             )}
           </div>
 
-          {/* Row 2: status pills */}
-          <div className="flex gap-1.5 overflow-x-auto pb-0.5 flex-nowrap">
-            {[
-              { val: '',            label: 'All',         dot: '' },
-              { val: 'overdue',     label: 'Overdue',     dot: '#ef4444' },
-              { val: 'due_today',   label: 'Due Today',   dot: '#f59e0b' },
-              { val: 'TODO',        label: 'To Do',       dot: '#94a3b8' },
-              { val: 'IN_PROGRESS', label: 'In Progress', dot: '#3b82f6' },
-              { val: 'BLOCKED',     label: 'Blocked',     dot: '#ef4444' },
-              { val: 'IN_REVIEW',   label: 'In Review',   dot: '#f59e0b' },
-              { val: 'DONE',        label: 'Done',        dot: '#22c55e' },
-              { val: 'CANCELLED',   label: 'Cancelled',   dot: '#d1d5db' },
-            ].map(({ val, label, dot }) => {
-              const active = statusFilter === val;
-              return (
-                <button
-                  key={val}
-                  onClick={() => setStatusFilter(val)}
-                  className={cn(
-                    'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all whitespace-nowrap shrink-0',
-                    active
-                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                      : 'border-border/60 bg-white text-muted-foreground hover:border-indigo-200 hover:text-indigo-700 hover:bg-indigo-50/50',
-                  )}
-                >
-                  {dot && <span className="h-2 w-2 rounded-full shrink-0" style={{ background: dot }} />}
-                  {!dot && <Filter className="h-3 w-3" />}
-                  {label}
-                </button>
-              );
-            })}
-          </div>
         </div>
 
         {/* ── Empty state ── */}
