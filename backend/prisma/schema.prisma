@@ -310,6 +310,7 @@ model Task {
   blockerCount   Int          @default(0) @map("blocker_count")
   dependencyId   String?      @map("dependency_id")
   sourceType     String?      @map("source_type")
+  recurrence     String?      @map("recurrence")
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
 

@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useAuthStore } from '@/store/authStore';
-import { cn, formatDate, getInitials, formatRelative } from '@/lib/utils';
+import { cn, formatDate, getInitials, formatRelative, isEngineeringDept } from '@/lib/utils';
 import api from '@/api/client';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -490,9 +490,12 @@ function DepartmentDashboard({ slug }: { slug: string }) {
     queryKey: ['dept-detail', slug],
     queryFn: () => api.get(`/departments/${slug}`).then((r) => r.data),
   });
+  const isEngDept = isEngineeringDept(dept?.name);
+
   const { data: allTeams = [] } = useQuery<TeamSummary[]>({
     queryKey: ['teams'],
     queryFn: () => api.get('/teams').then((r) => r.data),
+    enabled: !!dept && isEngineeringDept(dept?.name),
   });
 
   const deptTeams   = allTeams.filter((t) => t.department.slug === slug);
@@ -512,46 +515,48 @@ function DepartmentDashboard({ slug }: { slug: string }) {
 
   return (
     <div className="flex h-full min-h-0">
-      {/* Sidebar */}
-      <div className="hidden lg:flex flex-col w-64 shrink-0 border-r bg-gradient-to-b from-slate-50 to-white overflow-y-auto">
-        <div className="px-4 py-4 border-b">
-          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Projects</p>
-          <p className="text-sm font-semibold mt-0.5 truncate">{dept?.name || slug}</p>
-        </div>
-        <div className="flex-1 p-2 space-y-1">
-          {deptTeams.length === 0 ? (
-            <div className="text-center py-10 px-3">
-              <div className="h-10 w-10 rounded-2xl bg-indigo-50 flex items-center justify-center mx-auto mb-2">
-                <FolderKanban className="h-5 w-5 text-indigo-300" />
-              </div>
-              <p className="text-xs text-muted-foreground">No projects yet</p>
-              <Link to="/teams" className="text-xs text-primary hover:underline mt-1 inline-block">Create one →</Link>
-            </div>
-          ) : (
-            deptTeams.map((team) => (
-              <button
-                key={team.id}
-                onClick={() => setSelectedTeamId(selectedTeamId === team.id ? null : team.id)}
-                className={cn(
-                  'w-full text-left rounded-xl px-3 py-2.5 transition-all',
-                  selectedTeamId === team.id
-                    ? 'bg-gradient-to-r from-indigo-500 to-violet-600 text-white shadow-md shadow-indigo-200'
-                    : 'hover:bg-muted text-foreground',
-                )}
-              >
-                <div className="flex items-center gap-2">
-                  <FolderKanban className={cn('h-3.5 w-3.5 shrink-0', selectedTeamId === team.id ? 'text-white' : 'text-indigo-500')} />
-                  <p className="text-sm font-semibold truncate">{team.name}</p>
+      {/* Projects Sidebar — Engineering dept only */}
+      {isEngDept && (
+        <div className="hidden lg:flex flex-col w-64 shrink-0 border-r bg-gradient-to-b from-slate-50 to-white overflow-y-auto">
+          <div className="px-4 py-4 border-b">
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Projects</p>
+            <p className="text-sm font-semibold mt-0.5 truncate">{dept?.name || slug}</p>
+          </div>
+          <div className="flex-1 p-2 space-y-1">
+            {deptTeams.length === 0 ? (
+              <div className="text-center py-10 px-3">
+                <div className="h-10 w-10 rounded-2xl bg-indigo-50 flex items-center justify-center mx-auto mb-2">
+                  <FolderKanban className="h-5 w-5 text-indigo-300" />
                 </div>
-                <p className={cn('text-[10px] mt-0.5', selectedTeamId === team.id ? 'text-white/70' : 'text-muted-foreground')}>
-                  {team.memberCount} member{team.memberCount !== 1 ? 's' : ''}
-                  {team.manager ? ` · ${team.manager.name}` : ''}
-                </p>
-              </button>
-            ))
-          )}
+                <p className="text-xs text-muted-foreground">No projects yet</p>
+                <Link to="/teams" className="text-xs text-primary hover:underline mt-1 inline-block">Create one →</Link>
+              </div>
+            ) : (
+              deptTeams.map((team) => (
+                <button
+                  key={team.id}
+                  onClick={() => setSelectedTeamId(selectedTeamId === team.id ? null : team.id)}
+                  className={cn(
+                    'w-full text-left rounded-xl px-3 py-2.5 transition-all',
+                    selectedTeamId === team.id
+                      ? 'bg-gradient-to-r from-indigo-500 to-violet-600 text-white shadow-md shadow-indigo-200'
+                      : 'hover:bg-muted text-foreground',
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    <FolderKanban className={cn('h-3.5 w-3.5 shrink-0', selectedTeamId === team.id ? 'text-white' : 'text-indigo-500')} />
+                    <p className="text-sm font-semibold truncate">{team.name}</p>
+                  </div>
+                  <p className={cn('text-[10px] mt-0.5', selectedTeamId === team.id ? 'text-white/70' : 'text-muted-foreground')}>
+                    {team.memberCount} member{team.memberCount !== 1 ? 's' : ''}
+                    {team.manager ? ` · ${team.manager.name}` : ''}
+                  </p>
+                </button>
+              ))
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto bg-gradient-to-br from-slate-50 via-white to-indigo-50/30">

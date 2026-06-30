@@ -17,6 +17,8 @@ export const emailQueue = new Queue('email', { connection, defaultJobOptions: {
   removeOnFail: 200,
 } });
 
+export const recurringTaskQueue = new Queue('recurring-task', { connection });
+
 export const reportQueue = new Queue('report', { connection, defaultJobOptions: {
   attempts: 2,
   backoff: { type: 'exponential', delay: 120000 },
@@ -71,6 +73,12 @@ export async function scheduleRecurringJobs() {
   await taskReminderQueue.add('check-due-today', {}, {
     repeat: { pattern: '30 3 * * *', tz: 'UTC' },
     jobId: 'daily-task-due-today',
+  });
+
+  // Recurring task spawn — every day 6 AM IST (00:30 UTC)
+  await recurringTaskQueue.add('spawn-recurring', {}, {
+    repeat: { pattern: '30 0 * * *', tz: 'UTC' },
+    jobId: 'daily-recurring-task-spawn',
   });
 
   // Daily performance report — 8 PM IST (14:30 UTC) every day → Owner + Dept Heads

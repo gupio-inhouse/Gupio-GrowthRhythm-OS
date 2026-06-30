@@ -15,7 +15,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { cn, getInitials, formatDate, priorityColor, statusColor } from '@/lib/utils';
+import { cn, getInitials, formatDate, priorityColor, statusColor, isEngineeringDept } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/api/client';
 import { toast } from '@/hooks/use-toast';
@@ -127,6 +127,24 @@ export default function Teams() {
   const qc = useQueryClient();
   const canManage = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
   const isTeamMember = user?.role === 'TEAM_MEMBER';
+
+  const canAccessProjects =
+    isEngineeringDept(user?.departmentName) ||
+    ['OWNER', 'COMPANY_ADMIN'].includes(user?.role || '');
+
+  if (!canAccessProjects) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full min-h-[60vh] text-center p-8">
+        <div className="h-16 w-16 rounded-2xl bg-muted flex items-center justify-center mx-auto mb-4">
+          <ClipboardList className="h-8 w-8 text-muted-foreground" />
+        </div>
+        <h2 className="text-lg font-semibold mb-1">Projects are for Engineering</h2>
+        <p className="text-sm text-muted-foreground max-w-xs">
+          Project management is only available to the Engineering department.
+        </p>
+      </div>
+    );
+  }
 
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);

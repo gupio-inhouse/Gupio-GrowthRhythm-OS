@@ -5,7 +5,7 @@ import { fanOutNotification, createNotification } from './notification.service';
 import { generateWeeklyDigest } from './ai.service';
 import { generateMeetUrl } from './meet.service';
 import { sendTaskDueTodayEmail, sendTaskDueReminderEmail, sendTaskOverdueEmail, sendStandupReminderEmail, deliverEmail, setEmailQueue, sendEmail } from './email.service';
-import { emailQueue, reportQueue } from './queues';
+import { emailQueue, reportQueue, recurringTaskQueue } from './queues';
 import { buildOrgReport, renderReportHtml, renderReportText, isLastDayOfMonthIST } from './report.service';
 
 const APP_URL = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();
@@ -433,6 +433,94 @@ export const reportWorker = new Worker('report', async (job: Job) => {
   }
 }, { connection });
 
+// ── Recurring task worker: spawns daily/weekly/monthly/yearly/custom copies ───
+export const recurringTaskWorker = new Worker('recurring-task', async (job: Job) => {
+  if (job.name !== 'spawn-recurring') return;
+
+  const now = new Date();
+  const todayUTCStart = new Date(now);
+  todayUTCStart.setUTCHours(0, 0, 0, 0);
+
+  const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const todayDayName  = DAY_NAMES[now.getUTCDay()];
+  const todayDayOfMonth = now.getUTCDate();
+  const todayMonth    = now.getUTCMonth();
+
+  // Only original (non-copy) tasks that have a recurrence set
+  const recurringTasks = await prisma.task.findMany({
+    where: {
+      recurrence: { not: null },
+      status: { not: 'CANCELLED' },
+      NOT: [{ sourceType: { startsWith: 'RECURRING:' } }],
+    },
+    select: {
+      id: true, orgId: true, title: true, description: true, expectedOutcome: true,
+      assigneeUserId: true, assignedByUserId: true, departmentId: true, teamId: true,
+      priority: true, recurrence: true, dueDate: true, createdAt: true,
+    },
+  });
+
+  let spawned = 0;
+
+  for (const task of recurringTasks) {
+    const rec = task.recurrence!;
+    const ref = task.dueDate ?? task.createdAt;
+
+    let shouldSpawn = false;
+    if (rec === 'DAILY') {
+      shouldSpawn = true;
+    } else if (rec === 'WEEKLY') {
+      shouldSpawn = ref.getUTCDay() === now.getUTCDay();
+    } else if (rec === 'MONTHLY') {
+      shouldSpawn = ref.getUTCDate() === todayDayOfMonth;
+    } else if (rec === 'YEARLY') {
+      shouldSpawn = ref.getUTCMonth() === todayMonth && ref.getUTCDate() === todayDayOfMonth;
+    } else if (rec.startsWith('CUSTOM:')) {
+      const days = rec.slice(7).split(',');
+      shouldSpawn = days.includes(todayDayName);
+    }
+
+    if (!shouldSpawn) continue;
+
+    // Idempotency: skip if already spawned today
+    const alreadyExists = await prisma.task.findFirst({
+      where: { sourceType: `RECURRING:${task.id}`, createdAt: { gte: todayUTCStart } },
+    });
+    if (alreadyExists) continue;
+
+    const todayEnd = new Date(todayUTCStart);
+    todayEnd.setUTCHours(23, 59, 59, 999);
+
+    await prisma.task.create({
+      data: {
+        orgId:           task.orgId,
+        title:           task.title,
+        description:     task.description,
+        expectedOutcome: task.expectedOutcome,
+        assigneeUserId:  task.assigneeUserId,
+        assignedByUserId: task.assignedByUserId,
+        departmentId:    task.departmentId,
+        teamId:          task.teamId,
+        priority:        task.priority,
+        dueDate:         todayEnd,
+        sourceType:      `RECURRING:${task.id}`,
+      },
+    });
+
+    // Notify the assignee
+    if (task.assigneeUserId) {
+      createNotification(task.assigneeUserId, 'TASK_ASSIGNED', {
+        taskTitle: task.title,
+        dueDate: todayEnd.toISOString().split('T')[0],
+      }).catch(console.error);
+    }
+
+    spawned++;
+  }
+
+  console.log(`[recurring-task-worker] Spawned ${spawned} recurring tasks`);
+}, { connection });
+
 // Graceful shutdown
 export function shutdownWorkers() {
   return Promise.all([
@@ -444,5 +532,6 @@ export function shutdownWorkers() {
     taskReminderWorker.close(),
     emailWorker.close(),
     reportWorker.close(),
+    recurringTaskWorker.close(),
   ]);
 }

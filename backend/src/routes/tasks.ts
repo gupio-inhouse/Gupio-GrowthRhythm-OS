@@ -81,6 +81,7 @@ const createSchema = z.object({
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).default('MEDIUM'),
   startDate: z.string().datetime().optional(),
   dueDate: z.string().datetime().optional(),
+  recurrence: z.string().optional(),
 });
 
 const updateSchema = createSchema.partial().extend({

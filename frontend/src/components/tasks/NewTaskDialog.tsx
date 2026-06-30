@@ -11,8 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { cn, getInitials, isEngineeringDept } from '@/lib/utils';
 import { WeekdayDatePicker } from '@/components/ui/weekday-date-picker';
 import {
-  ClipboardList, User, Calendar, Clock, Tag, Link2, FolderKanban,
-  ChevronDown, Search, X,
+  ClipboardList, User, Calendar, Clock, Tag, FolderKanban,
+  ChevronDown, Search, X, Repeat,
 } from 'lucide-react';
 import api from '@/api/client';
 import { useAuthStore } from '@/store/authStore';
@@ -29,8 +29,8 @@ const elevatedSchema = z.object({
   teamId:          z.string().optional(),
   dependencyId:    z.string().optional(),
   priority:        z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).default('MEDIUM'),
-  dueDate:         z.string().optional(),
-  dueTime:         z.string().optional(),
+  dueDate:         z.string().min(1, 'Due date is required'),
+  dueTime:         z.string().min(1, 'Due time is required'),
 });
 
 const memberSchema = z.object({
@@ -42,15 +42,14 @@ const memberSchema = z.object({
   teamId:          z.string().optional(),
   dependencyId:    z.string().optional(),
   priority:        z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).default('MEDIUM'),
-  dueDate:         z.string().optional(),
-  dueTime:         z.string().optional(),
+  dueDate:         z.string().min(1, 'Due date is required'),
+  dueTime:         z.string().min(1, 'Due time is required'),
 });
 
 type FormData = z.infer<typeof elevatedSchema>;
 
 type UserItem      = { id: string; name: string; role: string; departmentId?: string };
 type Department    = { id: string; name: string };
-type TaskItem      = { id: string; title: string };
 type TeamItem      = { id: string; name: string; members: { user: { id: string } }[] };
 
 export type TaskToEdit = {
@@ -89,6 +88,8 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
 
   const [userSearch, setUserSearch] = useState('');
   const [userDropOpen, setUserDropOpen] = useState(false);
+  const [recurrence, setRecurrence] = useState('NONE');
+  const [customDays, setCustomDays] = useState<string[]>([]);
 
   const { data: users = [] } = useQuery<UserItem[]>({
     queryKey: ['users-list'],
@@ -99,12 +100,6 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
   const { data: departments = [] } = useQuery<Department[]>({
     queryKey: ['departments'],
     queryFn:  () => api.get('/departments').then((r) => r.data),
-    enabled:  open && canAssignToAny,
-  });
-
-  const { data: allTasks = [] } = useQuery<TaskItem[]>({
-    queryKey: ['tasks-list'],
-    queryFn:  () => api.get('/tasks').then((r) => r.data),
     enabled:  open && canAssignToAny,
   });
 
@@ -121,7 +116,6 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
 
   const watchedPriority    = (watch('priority') || 'MEDIUM') as keyof typeof PRIORITY_CONFIG;
   const watchedAssigneeId  = watch('assigneeUserId') || '';
-  const watchedDependencyId= watch('dependencyId')   || '';
   const watchedTeamId      = watch('teamId')          || '';
   const watchedDeptId      = watch('departmentId')    || '';
 
@@ -129,6 +123,8 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
     if (!open) return;
     setUserSearch('');
     setUserDropOpen(false);
+    setRecurrence('NONE');
+    setCustomDays([]);
     if (taskToEdit) {
       reset({
         title:           taskToEdit.title,
@@ -154,15 +150,10 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
     }
   }, [open, taskToEdit]);
 
-  const handleClose = () => { reset(); setUserSearch(''); setUserDropOpen(false); onClose(); };
+  const handleClose = () => { reset(); setUserSearch(''); setUserDropOpen(false); setRecurrence('NONE'); setCustomDays([]); onClose(); };
 
   const onSubmit = async (data: FormData) => {
-    const dueDate = data.dueDate;
-    const dueTime = data.dueTime;
-    let dueDateIso: string | undefined;
-    if (dueDate) {
-      dueDateIso = new Date(`${dueDate}T${dueTime || '23:59:59'}`).toISOString();
-    }
+    const dueDateIso = new Date(`${data.dueDate}T${data.dueTime}`).toISOString();
 
     const payload: Record<string, unknown> = isTeamMember && isEditMode
       ? { title: data.title, description: data.description || undefined }
@@ -177,6 +168,12 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
           priority:        data.priority,
           dueDate:         dueDateIso,
         };
+
+    if (!isEngInDialog && !isEditMode && recurrence !== 'NONE') {
+      payload.recurrence = recurrence === 'CUSTOM'
+        ? `CUSTOM:${customDays.join(',')}`
+        : recurrence;
+    }
 
     try {
       if (isEditMode && taskToEdit) {
@@ -455,52 +452,87 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-1.5">
                     <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                    <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Due Date</Label>
+                    <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Due Date *</Label>
                   </div>
                   <WeekdayDatePicker
                     value={watch('dueDate') ?? ''}
-                    onChange={(v) => setValue('dueDate', v)}
+                    onChange={(v) => setValue('dueDate', v, { shouldValidate: true })}
                     excludeSat={isEngInDialog}
                     placeholder="Pick due date"
                     inputClassName="w-full"
                   />
+                  {errors.dueDate && <p className="text-xs text-destructive">{errors.dueDate.message}</p>}
                 </div>
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-1.5">
                     <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                    <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Due Time</Label>
+                    <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Due Time *</Label>
                   </div>
                   <Input type="time" {...register('dueTime')} className="rounded-xl border-border/60 h-9 text-sm" />
+                  {errors.dueTime && <p className="text-xs text-destructive">{errors.dueTime.message}</p>}
                 </div>
               </div>
             )}
 
-            {/* Depends On — elevated only */}
-            {canAssignToAny && (
+
+
+            {/* Recurrence — hidden for Engineering, hidden in edit mode */}
+            {!isEngInDialog && !isEditMode && (
               <div className="space-y-1.5">
                 <div className="flex items-center gap-1.5">
-                  <Link2 className="h-3.5 w-3.5 text-muted-foreground" />
-                  <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Depends On</Label>
+                  <Repeat className="h-3.5 w-3.5 text-muted-foreground" />
+                  <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Repeat</Label>
                 </div>
-                <Select
-                  value={watchedDependencyId || '__none__'}
-                  onValueChange={(v) => setValue('dependencyId', v === '__none__' ? '' : v)}
-                >
-                  <SelectTrigger className="h-9 rounded-xl border-border/60 text-sm">
-                    <SelectValue placeholder="None" />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-xl">
-                    <SelectItem value="__none__">None</SelectItem>
-                    {allTasks
-                      .filter((t) => !taskToEdit || t.id !== taskToEdit.id)
-                      .map((t) => <SelectItem key={t.id} value={t.id}>{t.title}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { value: 'NONE',    label: 'Does not repeat' },
+                    { value: 'DAILY',   label: 'Every day' },
+                    { value: 'WEEKLY',  label: 'Every week' },
+                    { value: 'MONTHLY', label: 'Every month' },
+                    { value: 'YEARLY',  label: 'Every year' },
+                    { value: 'CUSTOM',  label: 'Custom' },
+                  ].map(({ value, label }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setRecurrence(value)}
+                      className={cn(
+                        'px-3 py-1.5 rounded-lg text-xs font-medium border transition-all',
+                        recurrence === value
+                          ? 'bg-indigo-100 text-indigo-700 border-indigo-300'
+                          : 'border-border/60 bg-white text-muted-foreground hover:border-indigo-200 hover:text-indigo-600',
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {recurrence === 'CUSTOM' && (
+                  <div className="flex gap-1.5 mt-2">
+                    {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (
+                      <button
+                        key={day}
+                        type="button"
+                        onClick={() => setCustomDays((prev) =>
+                          prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
+                        )}
+                        className={cn(
+                          'flex-1 py-1.5 rounded-lg text-[10px] font-bold border transition-all',
+                          customDays.includes(day)
+                            ? 'bg-indigo-100 text-indigo-700 border-indigo-300'
+                            : 'border-border/60 bg-white text-muted-foreground hover:border-indigo-200',
+                        )}
+                      >
+                        {day}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
-            {/* Project link */}
-            {!isEditMode && availableTeams.length > 0 && (
+            {/* Project link — Engineering dept only */}
+            {isEngInDialog && !isEditMode && availableTeams.length > 0 && (
               <div className="space-y-1.5">
                 <div className="flex items-center gap-1.5">
                   <FolderKanban className="h-3.5 w-3.5 text-muted-foreground" />

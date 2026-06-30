@@ -155,6 +155,7 @@ export default function DepartmentPage() {
   const { data: allTeams = [] } = useQuery<Team[]>({
     queryKey: ['teams'],
     queryFn:  () => api.get('/teams').then((r) => r.data),
+    enabled:  !!dept && isEngineeringDept(dept?.name),
   });
   const { data: deptTasks = [], isLoading: tasksLoading } = useQuery<DeptTask[]>({
     queryKey: ['tasks', 'dept', dept?.id],
@@ -229,8 +230,8 @@ export default function DepartmentPage() {
     );
   }
 
-  // TEAM_MEMBERs see only their project — manager first, then regular member
-  if (user?.role === 'TEAM_MEMBER') {
+  // TEAM_MEMBERs in Engineering see only their project — manager first, then regular member
+  if (user?.role === 'TEAM_MEMBER' && isEngDept) {
     const myTeam =
       deptTeams.find((t) => t.managerUserId === user.id) ||
       deptTeams.find((t) => t.members.some((m) => m.user.id === user.id));
@@ -318,10 +319,10 @@ export default function DepartmentPage() {
             {/* Right: stat chips + actions */}
             <div className="flex items-center gap-2 flex-wrap">
               {([
-                { icon: Users,        value: dept.users.length, label: 'Members',  tab: 'members'  as ActiveTab, grad: 'from-blue-500 to-indigo-600',   shadow: 'shadow-blue-200/60',   ring: 'ring-blue-200' },
-                { icon: FolderKanban, value: deptTeams.length,  label: 'Projects', tab: 'projects' as ActiveTab, grad: 'from-indigo-500 to-violet-600',  shadow: 'shadow-indigo-200/60', ring: 'ring-indigo-200' },
-                { icon: CheckSquare,  value: dept._count.tasks, label: 'Tasks',    tab: 'tasks'    as ActiveTab, grad: 'from-emerald-500 to-teal-600',   shadow: 'shadow-emerald-200/60',ring: 'ring-emerald-200' },
-              ] as Array<{ icon: React.ElementType; value: number; label: string; tab: ActiveTab; grad: string; shadow: string; ring: string }>).map(({ icon: Icon, value, label, tab, grad, shadow, ring }) => (
+                { icon: Users,        value: dept.users.length, label: 'Members',  tab: 'members'  as ActiveTab, grad: 'from-blue-500 to-indigo-600',   shadow: 'shadow-blue-200/60',   ring: 'ring-blue-200',   show: true },
+                { icon: FolderKanban, value: deptTeams.length,  label: 'Projects', tab: 'projects' as ActiveTab, grad: 'from-indigo-500 to-violet-600',  shadow: 'shadow-indigo-200/60', ring: 'ring-indigo-200', show: isEngDept },
+                { icon: CheckSquare,  value: dept._count.tasks, label: 'Tasks',    tab: 'tasks'    as ActiveTab, grad: 'from-emerald-500 to-teal-600',   shadow: 'shadow-emerald-200/60',ring: 'ring-emerald-200', show: true },
+              ] as Array<{ icon: React.ElementType; value: number; label: string; tab: ActiveTab; grad: string; shadow: string; ring: string; show: boolean }>).filter((c) => c.show).map(({ icon: Icon, value, label, tab, grad, shadow, ring }) => (
                 <button
                   key={label}
                   onClick={() => setActiveTab(tab)}
@@ -378,11 +379,11 @@ export default function DepartmentPage() {
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as ActiveTab)}>
           <div className="flex items-center gap-1 p-1 rounded-2xl bg-white border border-border/60 shadow-sm w-fit">
             {([
-              { value: 'overview',  label: 'Overview',  badge: null },
-              { value: 'projects',  label: 'Projects',  badge: deptTeams.length > 0 ? deptTeams.length : null,    badgeCls: 'bg-white/25 text-white' },
-              { value: 'tasks',     label: 'Tasks',     badge: deptTasks.length > 0 ? deptTasks.length : null,    badgeCls: 'bg-white/25 text-white' },
-              { value: 'members',   label: 'Members',   badge: dept.users.length > 0 ? dept.users.length : null,  badgeCls: 'bg-white/25 text-white' },
-            ] as Array<{ value: string; label: string; badge: number | null; badgeCls?: string }>).map(({ value, label, badge, badgeCls }) => (
+              { value: 'overview',  label: 'Overview',  badge: null,                                                               show: true },
+              { value: 'projects',  label: 'Projects',  badge: deptTeams.length > 0 ? deptTeams.length : null,    badgeCls: 'bg-white/25 text-white', show: isEngDept },
+              { value: 'tasks',     label: 'Tasks',     badge: deptTasks.length > 0 ? deptTasks.length : null,    badgeCls: 'bg-white/25 text-white', show: true },
+              { value: 'members',   label: 'Members',   badge: dept.users.length > 0 ? dept.users.length : null,  badgeCls: 'bg-white/25 text-white', show: true },
+            ] as Array<{ value: string; label: string; badge: number | null; badgeCls?: string; show: boolean }>).filter((t) => t.show).map(({ value, label, badge, badgeCls }) => (
               <button
                 key={value}
                 onClick={() => setActiveTab(value as ActiveTab)}

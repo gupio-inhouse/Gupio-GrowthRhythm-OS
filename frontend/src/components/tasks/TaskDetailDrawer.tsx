@@ -445,7 +445,7 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
                       icon: Building2, label: 'Department',
                       content: <span className="text-sm">{task.department.name}</span>,
                     },
-                    task.team && {
+                    task.team && (isEngineeringDept(user?.departmentName) || ['OWNER', 'COMPANY_ADMIN'].includes(user?.role || '')) && {
                       icon: Layers, label: 'Project',
                       content: (
                         <span className="text-xs px-2.5 py-1 rounded-full bg-violet-50 text-violet-700 border border-violet-200 font-semibold">
