@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend,
@@ -49,6 +49,7 @@ type TeamSummary = {
   id: string; name: string; description?: string; memberCount: number;
   manager?: { id: string; name: string };
   department: { id: string; name: string; slug: string };
+  members?: Array<{ user: { id: string; name: string; role: string } }>;
 };
 type DeptDetail = { id: string; name: string; users: DeptMember[]; _count: { tasks: number; standups: number } };
 
@@ -1406,37 +1407,131 @@ function DepartmentDashboard({ slug }: { slug: string }) {
               </Link>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              <Card className="rounded-2xl border border-border/60 bg-white shadow-sm">
-                <CardContent className="p-4">
-                  <p className="text-2xl font-black tabular-nums">{selectedTeam.memberCount}</p>
-                  <p className="text-xs text-muted-foreground mt-1">Members</p>
-                </CardContent>
-              </Card>
-              {selectedTeam.manager && (
-                <Card className="rounded-2xl border border-border/60 bg-white shadow-sm col-span-2 sm:col-span-1">
+            {/* Project-level KPI strip */}
+            {(() => {
+              const selTasks = deptTasks.filter((t) => (t as unknown as { team?: { id: string } }).team?.id === selectedTeam.id);
+              const selDone    = selTasks.filter((t) => t.status === 'DONE').length;
+              const selBlocked = selTasks.filter((t) => t.status === 'BLOCKED').length;
+              const selOverdue = selTasks.filter(isOverdueFn).length;
+              const selInProg  = selTasks.filter((t) => t.status === 'IN_PROGRESS').length;
+              const selPct     = selTasks.length > 0 ? Math.round((selDone / selTasks.length) * 100) : 0;
+              const r = 34; const cxy = 40; const circ = 2 * Math.PI * r;
+              const dashArc = circ * (selPct / 100);
+              const accent = selPct >= 70 ? '#059669' : selPct >= 40 ? '#d97706' : '#dc2626';
+              return (
+                <Card className="rounded-2xl border border-border/60 bg-white shadow-sm overflow-hidden">
+                  <div className="h-1 bg-gradient-to-r from-indigo-400 to-violet-600" />
                   <CardContent className="p-4">
-                    <p className="text-sm font-bold truncate">{selectedTeam.manager.name}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Project Manager</p>
+                    <div className="flex items-center gap-5">
+                      {/* Ring */}
+                      <svg width="80" height="80" className="shrink-0" style={{ filter: `drop-shadow(0 3px 8px ${accent}35)` }}>
+                        <circle cx={cxy} cy={cxy} r={r} fill={`${accent}0d`} />
+                        <circle cx={cxy} cy={cxy} r={r} fill="none" stroke="#e2e8f0" strokeWidth="6" />
+                        <circle cx={cxy} cy={cxy} r={r} fill="none" stroke={accent} strokeWidth="6" strokeLinecap="round"
+                          strokeDasharray={`${dashArc} ${circ}`} strokeDashoffset={circ / 4} />
+                        <text x={cxy} y={cxy - 2} textAnchor="middle" fontSize="16" fontWeight="900" fill={accent}>{selPct}</text>
+                        <text x={cxy} y={cxy + 12} textAnchor="middle" fontSize="9" fontWeight="600" fill="#94a3b8">%</text>
+                      </svg>
+                      {/* Stats */}
+                      <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {[
+                          { label: 'Total',      value: selTasks.length, color: '#6366f1', bg: '#eef2ff' },
+                          { label: 'Done',       value: selDone,         color: '#059669', bg: '#ecfdf5' },
+                          { label: 'In Progress',value: selInProg,       color: '#0ea5e9', bg: '#f0f9ff' },
+                          { label: 'Blocked',    value: selBlocked,      color: '#dc2626', bg: '#fef2f2' },
+                        ].map(({ label, value, color, bg }) => (
+                          <div key={label} className="rounded-xl p-2.5 text-center" style={{ background: bg }}>
+                            <p className="text-xl font-black tabular-nums leading-none" style={{ color }}>{value}</p>
+                            <p className="text-[10px] text-muted-foreground mt-1 font-medium">{label}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    {selOverdue > 0 && (
+                      <div className="mt-3 flex items-center gap-2 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-xs font-semibold text-amber-700">
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />{selOverdue} overdue task{selOverdue > 1 ? 's' : ''} — action needed
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
-              )}
-            </div>
+              );
+            })()}
 
-            <Card className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/60 to-violet-50/30 shadow-sm">
-              <CardContent className="p-4 flex items-center justify-between gap-4">
+            {/* Member progress cards */}
+            {(() => {
+              const selTasks = deptTasks.filter((t) => (t as unknown as { team?: { id: string } }).team?.id === selectedTeam.id);
+              const members = selectedTeam.members ?? [];
+              if (members.length === 0) return null;
+              const accentColors = ['#6366f1','#0ea5e9','#14b8a6','#f59e0b','#f43f5e','#8b5cf6','#10b981','#3b82f6'];
+              return (
                 <div>
-                  <p className="text-sm font-semibold">View full project details</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Members, tasks, documents and more</p>
+                  <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">Member Progress</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {members.map((m: { user: { id: string; name: string; role: string } }, idx: number) => {
+                      const mTasks   = selTasks.filter((t) => t.assignee?.id === m.user.id);
+                      const mDone    = mTasks.filter((t) => t.status === 'DONE').length;
+                      const mInProg  = mTasks.filter((t) => t.status === 'IN_PROGRESS').length;
+                      const mBlocked = mTasks.filter((t) => t.status === 'BLOCKED').length;
+                      const mOverdue = mTasks.filter(isOverdueFn).length;
+                      const mPct     = mTasks.length > 0 ? Math.round((mDone / mTasks.length) * 100) : 0;
+                      const accent   = accentColors[idx % accentColors.length];
+                      const isManager = selectedTeam.manager?.id === m.user.id;
+                      const r = 26; const cxy = 32; const circ = 2 * Math.PI * r;
+                      const dashArc = circ * (mPct / 100);
+                      const statusLabel = mTasks.length === 0 ? 'No tasks' : mPct >= 70 ? 'On Track' : mPct >= 40 ? 'At Risk' : 'Behind';
+                      return (
+                        <Link
+                          key={m.user.id}
+                          to={`/team/${m.user.id}/report`}
+                          className="group block rounded-2xl border border-slate-100 bg-white hover:-translate-y-0.5 transition-all duration-200"
+                          style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}
+                          onMouseEnter={e => (e.currentTarget.style.boxShadow = `0 8px 24px rgba(0,0,0,0.09), 0 0 0 1.5px ${accent}40`)}
+                          onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.06)')}
+                        >
+                          <div className="p-4">
+                            {/* Header */}
+                            <div className="flex items-start justify-between gap-2 mb-3">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5">
+                                  <p className="text-sm font-bold text-slate-800 truncate">{m.user.name}</p>
+                                  {isManager && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-600 shrink-0">PM</span>}
+                                </div>
+                                <p className="text-[10px] text-slate-400 mt-0.5 capitalize">{m.user.role.toLowerCase().replace(/_/g, ' ')}</p>
+                              </div>
+                              <svg width="64" height="64" className="shrink-0 -mt-1" style={{ filter: `drop-shadow(0 2px 6px ${accent}35)` }}>
+                                <circle cx={cxy} cy={cxy} r={r} fill={`${accent}10`} />
+                                <circle cx={cxy} cy={cxy} r={r} fill="none" stroke="#e2e8f0" strokeWidth="5" />
+                                <circle cx={cxy} cy={cxy} r={r} fill="none" stroke={accent} strokeWidth="5" strokeLinecap="round"
+                                  strokeDasharray={`${dashArc} ${circ}`} strokeDashoffset={circ / 4} />
+                                <text x={cxy} y={cxy - 2} textAnchor="middle" fontSize="13" fontWeight="900" fill={accent}>{mPct}</text>
+                                <text x={cxy} y={cxy + 11} textAnchor="middle" fontSize="8" fontWeight="600" fill="#94a3b8">%</text>
+                              </svg>
+                            </div>
+                            {/* Status pill */}
+                            <div className="flex items-center gap-2 mb-3">
+                              <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full" style={{ background: `${accent}15`, color: accent }}>{statusLabel}</span>
+                              <span className="text-[10px] text-slate-400">{mDone} / {mTasks.length} done</span>
+                            </div>
+                            {/* Progress bar */}
+                            <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden mb-3">
+                              <div className="h-full rounded-full transition-all duration-700" style={{ width: `${mPct}%`, background: `linear-gradient(90deg, ${accent}99, ${accent})` }} />
+                            </div>
+                            {/* Stats */}
+                            <div className="flex items-center gap-3 text-[10px] font-semibold">
+                              {mInProg  > 0 && <span className="flex items-center gap-1 text-sky-600"><span className="h-1.5 w-1.5 rounded-full bg-sky-400 shrink-0" />{mInProg} active</span>}
+                              {mOverdue > 0 && <span className="flex items-center gap-1 text-amber-600"><span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />{mOverdue} late</span>}
+                              {mBlocked > 0 && <span className="flex items-center gap-1 text-red-500"><span className="h-1.5 w-1.5 rounded-full bg-red-400 shrink-0" />{mBlocked} blocked</span>}
+                              {mOverdue === 0 && mBlocked === 0 && mTasks.length > 0 && <span className="flex items-center gap-1 text-emerald-600"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0" />On schedule</span>}
+                              <ArrowUpRight className="h-3.5 w-3.5 text-slate-300 group-hover:text-slate-500 transition-colors ml-auto shrink-0" />
+                            </div>
+                          </div>
+                        </Link>
+                      );
+                    })}
+                  </div>
                 </div>
-                <Link
-                  to={`/dashboard/${slug}`}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-600 px-4 py-2 text-xs font-semibold text-white hover:from-indigo-600 hover:to-violet-700 transition-all shadow-sm shrink-0"
-                >
-                  <FolderKanban className="h-3.5 w-3.5" /> Open Department
-                </Link>
-              </CardContent>
-            </Card>
+              );
+            })()}
           </div>
         ) : (
           <div className="p-4 sm:p-6 space-y-5">
@@ -1630,10 +1725,10 @@ function DepartmentDashboard({ slug }: { slug: string }) {
                       const r = 26; const cxy = 32; const circ = 2 * Math.PI * r;
                       const dash = circ * (proj.ptPct / 100);
                       return (
-                        <button
+                        <Link
                           key={proj.id}
-                          onClick={() => setSelectedTeamId(proj.id)}
-                          className="group text-left block rounded-2xl border border-slate-100 bg-white hover:-translate-y-0.5 transition-all duration-200 w-full"
+                          to={`/dashboard/${slug}?projectId=${proj.id}`}
+                          className="group block rounded-2xl border border-slate-100 bg-white hover:-translate-y-0.5 transition-all duration-200"
                           style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}
                           onMouseEnter={e => (e.currentTarget.style.boxShadow = `0 8px 24px rgba(0,0,0,0.09), 0 0 0 1.5px ${accent}40`)}
                           onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.06)')}
@@ -1669,7 +1764,7 @@ function DepartmentDashboard({ slug }: { slug: string }) {
                               <ArrowUpRight className="h-3.5 w-3.5 text-slate-300 group-hover:text-slate-500 transition-colors ml-auto shrink-0" />
                             </div>
                           </div>
-                        </button>
+                        </Link>
                       );
                     })}
                   </div>
@@ -1718,7 +1813,7 @@ function DeptHeadHome() {
   const teamOpenTasks = openTasks.filter((t) => t.assignee?.id !== user?.id);
   const urgentTasks   = openTasks.filter((t) => isOverdue(t) || isDueToday(t) || ['CRITICAL', 'HIGH'].includes(t.priority));
 
-  type ProjTeam = { id: string; name: string; description?: string; memberCount: number; department?: { name: string; slug?: string } };
+  type ProjTeam = { id: string; name: string; description?: string; memberCount: number; manager?: { id: string; name: string }; department?: { name: string; slug?: string }; members?: Array<{ user: { id: string; name: string; role: string } }> };
   const projectTeams = (myProjectTeams as ProjTeam[] | undefined) ?? [];
 
   // Compute per-project progress from existing tasks (tasks include team: { id, name })
@@ -1733,6 +1828,150 @@ function DeptHeadHome() {
   });
 
   const taskDoneRate = tasks.length > 0 ? Math.round((doneTasks.length / tasks.length) * 100) : 0;
+
+  const [searchParams] = useSearchParams();
+  const selectedProjectId = searchParams.get('projectId');
+  const selectedProject = selectedProjectId ? (projectProgress.find(p => p.id === selectedProjectId) ?? null) : null;
+
+  if (selectedProject) {
+    const selTasks   = tasks.filter((t) => (t as unknown as { team?: { id: string } }).team?.id === selectedProject.id);
+    const selDone    = selTasks.filter((t) => t.status === 'DONE').length;
+    const selBlocked = selTasks.filter((t) => t.status === 'BLOCKED').length;
+    const selOverdue = selTasks.filter(isOverdue).length;
+    const selInProg  = selTasks.filter((t) => t.status === 'IN_PROGRESS').length;
+    const selPct     = selTasks.length > 0 ? Math.round((selDone / selTasks.length) * 100) : 0;
+    const r = 34; const cxy = 40; const circ = 2 * Math.PI * r;
+    const dashArc = circ * (selPct / 100);
+    const accent = selPct >= 70 ? '#059669' : selPct >= 40 ? '#d97706' : '#dc2626';
+    const members = selectedProject.members ?? [];
+    const accentColors = ['#6366f1','#0ea5e9','#14b8a6','#f59e0b','#f43f5e','#8b5cf6','#10b981','#3b82f6'];
+
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50/30">
+        <div className="p-4 sm:p-6 lg:p-8 space-y-5 max-w-[1400px] mx-auto">
+          {/* Back + project header */}
+          <div className="flex items-center gap-3">
+            <Link
+              to="/dashboard"
+              className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors rounded-lg px-2.5 py-1.5 hover:bg-slate-100"
+            >
+              ← Back
+            </Link>
+            <div className="flex items-center gap-3 flex-1">
+              <div className="h-11 w-11 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shrink-0 shadow-md shadow-indigo-200">
+                <FolderKanban className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold">{selectedProject.name}</h2>
+                {selectedProject.description && <p className="text-sm text-muted-foreground">{selectedProject.description}</p>}
+              </div>
+            </div>
+          </div>
+
+          {/* Project KPI strip */}
+          <Card className="rounded-2xl border border-border/60 bg-white shadow-sm overflow-hidden">
+            <div className="h-1 bg-gradient-to-r from-indigo-400 to-violet-600" />
+            <CardContent className="p-4">
+              <div className="flex items-center gap-5">
+                <svg width="80" height="80" className="shrink-0" style={{ filter: `drop-shadow(0 3px 8px ${accent}35)` }}>
+                  <circle cx={cxy} cy={cxy} r={r} fill={`${accent}0d`} />
+                  <circle cx={cxy} cy={cxy} r={r} fill="none" stroke="#e2e8f0" strokeWidth="6" />
+                  <circle cx={cxy} cy={cxy} r={r} fill="none" stroke={accent} strokeWidth="6" strokeLinecap="round"
+                    strokeDasharray={`${dashArc} ${circ}`} strokeDashoffset={circ / 4} />
+                  <text x={cxy} y={cxy - 2} textAnchor="middle" fontSize="16" fontWeight="900" fill={accent}>{selPct}</text>
+                  <text x={cxy} y={cxy + 12} textAnchor="middle" fontSize="9" fontWeight="600" fill="#94a3b8">%</text>
+                </svg>
+                <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {[
+                    { label: 'Total',       value: selTasks.length, color: '#6366f1', bg: '#eef2ff' },
+                    { label: 'Done',        value: selDone,         color: '#059669', bg: '#ecfdf5' },
+                    { label: 'In Progress', value: selInProg,       color: '#0ea5e9', bg: '#f0f9ff' },
+                    { label: 'Blocked',     value: selBlocked,      color: '#dc2626', bg: '#fef2f2' },
+                  ].map(({ label, value, color, bg }) => (
+                    <div key={label} className="rounded-xl p-2.5 text-center" style={{ background: bg }}>
+                      <p className="text-xl font-black tabular-nums leading-none" style={{ color }}>{value}</p>
+                      <p className="text-[10px] text-muted-foreground mt-1 font-medium">{label}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {selOverdue > 0 && (
+                <div className="mt-3 flex items-center gap-2 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-xs font-semibold text-amber-700">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />{selOverdue} overdue task{selOverdue > 1 ? 's' : ''} — action needed
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Member progress cards */}
+          {members.length > 0 && (
+            <>
+              <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Member Progress</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {members.map((m, idx) => {
+                  const mTasks   = selTasks.filter((t) => t.assignee?.id === m.user.id);
+                  const mDone    = mTasks.filter((t) => t.status === 'DONE').length;
+                  const mInProg  = mTasks.filter((t) => t.status === 'IN_PROGRESS').length;
+                  const mBlocked = mTasks.filter((t) => t.status === 'BLOCKED').length;
+                  const mOverdue = mTasks.filter(isOverdue).length;
+                  const mPct     = mTasks.length > 0 ? Math.round((mDone / mTasks.length) * 100) : 0;
+                  const mAccent  = accentColors[idx % accentColors.length];
+                  const isManager = selectedProject.manager?.id === m.user.id;
+                  const mr = 26; const mcxy = 32; const mcirc = 2 * Math.PI * mr;
+                  const mDash = mcirc * (mPct / 100);
+                  const mStatusLabel = mTasks.length === 0 ? 'No tasks' : mPct >= 70 ? 'On Track' : mPct >= 40 ? 'At Risk' : 'Behind';
+                  return (
+                    <Link
+                      key={m.user.id}
+                      to={`/team/${m.user.id}/report`}
+                      className="group block rounded-2xl border border-slate-100 bg-white hover:-translate-y-0.5 transition-all duration-200"
+                      style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}
+                      onMouseEnter={e => (e.currentTarget.style.boxShadow = `0 8px 24px rgba(0,0,0,0.09), 0 0 0 1.5px ${mAccent}40`)}
+                      onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.06)')}
+                    >
+                      <div className="p-4">
+                        <div className="flex items-start justify-between gap-2 mb-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <p className="text-sm font-bold text-slate-800 truncate">{m.user.name}</p>
+                              {isManager && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-600 shrink-0">PM</span>}
+                            </div>
+                            <p className="text-[10px] text-slate-400 mt-0.5 capitalize">{m.user.role.toLowerCase().replace(/_/g, ' ')}</p>
+                          </div>
+                          <svg width="64" height="64" className="shrink-0 -mt-1" style={{ filter: `drop-shadow(0 2px 6px ${mAccent}35)` }}>
+                            <circle cx={mcxy} cy={mcxy} r={mr} fill={`${mAccent}10`} />
+                            <circle cx={mcxy} cy={mcxy} r={mr} fill="none" stroke="#e2e8f0" strokeWidth="5" />
+                            <circle cx={mcxy} cy={mcxy} r={mr} fill="none" stroke={mAccent} strokeWidth="5" strokeLinecap="round"
+                              strokeDasharray={`${mDash} ${mcirc}`} strokeDashoffset={mcirc / 4} />
+                            <text x={mcxy} y={mcxy - 2} textAnchor="middle" fontSize="13" fontWeight="900" fill={mAccent}>{mPct}</text>
+                            <text x={mcxy} y={mcxy + 11} textAnchor="middle" fontSize="8" fontWeight="600" fill="#94a3b8">%</text>
+                          </svg>
+                        </div>
+                        <div className="flex items-center gap-2 mb-3">
+                          <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full" style={{ background: `${mAccent}15`, color: mAccent }}>{mStatusLabel}</span>
+                          <span className="text-[10px] text-slate-400">{mDone} / {mTasks.length} done</span>
+                        </div>
+                        <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden mb-3">
+                          <div className="h-full rounded-full transition-all duration-700" style={{ width: `${mPct}%`, background: `linear-gradient(90deg, ${mAccent}99, ${mAccent})` }} />
+                        </div>
+                        <div className="flex items-center gap-3 text-[10px] font-semibold">
+                          {mInProg  > 0 && <span className="flex items-center gap-1 text-sky-600"><span className="h-1.5 w-1.5 rounded-full bg-sky-400 shrink-0" />{mInProg} active</span>}
+                          {mOverdue > 0 && <span className="flex items-center gap-1 text-amber-600"><span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />{mOverdue} late</span>}
+                          {mBlocked > 0 && <span className="flex items-center gap-1 text-red-500"><span className="h-1.5 w-1.5 rounded-full bg-red-400 shrink-0" />{mBlocked} blocked</span>}
+                          {mOverdue === 0 && mBlocked === 0 && mTasks.length > 0 && <span className="flex items-center gap-1 text-emerald-600"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0" />On schedule</span>}
+                          <ArrowUpRight className="h-3.5 w-3.5 text-slate-300 group-hover:text-slate-500 transition-colors ml-auto shrink-0" />
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50/30">
@@ -1840,7 +2079,7 @@ function DeptHeadHome() {
                   return (
                     <Link
                       key={proj.id}
-                      to={proj.department?.slug ? `/departments/${proj.department.slug}` : '/team'}
+                      to={`/dashboard?projectId=${proj.id}`}
                       className="group block rounded-2xl border border-slate-100 bg-white hover:-translate-y-0.5 transition-all duration-200"
                       style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}
                       onMouseEnter={e => (e.currentTarget.style.boxShadow = `0 8px 24px rgba(0,0,0,0.09), 0 0 0 1.5px ${accent}40`)}
