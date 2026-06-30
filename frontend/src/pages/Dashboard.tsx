@@ -1299,11 +1299,27 @@ function DepartmentDashboard({ slug }: { slug: string }) {
   const { data: allTeams = [] } = useQuery<TeamSummary[]>({
     queryKey: ['teams'],
     queryFn: () => api.get('/teams').then((r) => r.data),
-    enabled: !!dept && isEngineeringDept(dept?.name),
+    enabled: !!dept,
+  });
+  const { data: deptTasks = [] } = useQuery<Task[]>({
+    queryKey: ['tasks-dept', dept?.id],
+    queryFn: () => api.get(`/tasks?departmentId=${dept!.id}`).then((r) => r.data),
+    enabled: !!dept?.id,
   });
 
   const deptTeams   = allTeams.filter((t) => t.department.slug === slug);
   const selectedTeam = deptTeams.find((t) => t.id === selectedTeamId) ?? null;
+  const now = new Date();
+  const isOverdueFn = (t: Task) => !!t.dueDate && !['DONE','CANCELLED'].includes(t.status) && new Date(t.dueDate) < now;
+  const deptProjectProgress = deptTeams.map((pt, i) => {
+    const ptTasks   = deptTasks.filter((t) => (t as unknown as { team?: { id: string } }).team?.id === pt.id);
+    const ptDone    = ptTasks.filter((t) => t.status === 'DONE').length;
+    const ptBlocked = ptTasks.filter((t) => t.status === 'BLOCKED').length;
+    const ptOverdue = ptTasks.filter(isOverdueFn).length;
+    const ptInProg  = ptTasks.filter((t) => t.status === 'IN_PROGRESS').length;
+    const ptPct     = ptTasks.length > 0 ? Math.round((ptDone / ptTasks.length) * 100) : 0;
+    return { ...pt, i, ptTasks, ptDone, ptBlocked, ptOverdue, ptInProg, ptPct };
+  });
 
   if (!dash) {
     return (
@@ -1592,32 +1608,73 @@ function DepartmentDashboard({ slug }: { slug: string }) {
               </CardContent>
             </Card>
 
-            {/* Mobile project list */}
-            {deptTeams.length > 0 && (
-              <div className="lg:hidden">
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-sm font-semibold flex items-center gap-2">
-                    <FolderKanban className="h-4 w-4 text-indigo-500" />
-                    Projects ({deptTeams.length})
-                  </h2>
-                  <Link to="/teams" className="text-xs text-primary hover:underline">Manage →</Link>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {deptTeams.map((team) => (
-                    <button
-                      key={team.id}
-                      onClick={() => setSelectedTeamId(team.id)}
-                      className="text-left rounded-2xl border border-border/60 bg-white px-4 py-3.5 hover:border-indigo-300 hover:shadow-md transition-all group"
-                    >
-                      <div className="flex items-center gap-2">
-                        <FolderKanban className="h-4 w-4 text-indigo-500 shrink-0" />
-                        <p className="font-semibold text-sm truncate group-hover:text-primary transition-colors">{team.name}</p>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">{team.memberCount} member{team.memberCount !== 1 ? 's' : ''}</p>
-                    </button>
-                  ))}
-                </div>
-              </div>
+            {/* Project Progress */}
+            {deptProjectProgress.length > 0 && (
+              <Card className="rounded-2xl border border-border/60 bg-white shadow-sm overflow-hidden">
+                <div className="h-1 w-full bg-gradient-to-r from-indigo-400 via-violet-500 to-purple-600" />
+                <CardHeader className="px-5 pt-4 pb-0">
+                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                    <CIcon icon={FolderKanban} bg="bg-indigo-100" cls="text-indigo-600" />
+                    Project Progress
+                    <span className="ml-auto text-[10px] font-bold bg-indigo-50 text-indigo-600 rounded-full px-2.5 py-1">{deptProjectProgress.length} project{deptProjectProgress.length !== 1 ? 's' : ''}</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-5 pb-5 pt-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {deptProjectProgress.map((proj) => {
+                      const accentColors = ['#6366f1','#0ea5e9','#14b8a6','#f59e0b','#f43f5e','#8b5cf6'];
+                      const accent = accentColors[proj.i % accentColors.length];
+                      const isHealthy = proj.ptPct >= 70;
+                      const isWarn    = proj.ptPct >= 40 && proj.ptPct < 70;
+                      const statusLabel = proj.ptTasks.length === 0 ? 'No tasks' : isHealthy ? 'On Track' : isWarn ? 'At Risk' : 'Behind';
+                      const r = 26; const cxy = 32; const circ = 2 * Math.PI * r;
+                      const dash = circ * (proj.ptPct / 100);
+                      return (
+                        <button
+                          key={proj.id}
+                          onClick={() => setSelectedTeamId(proj.id)}
+                          className="group text-left block rounded-2xl border border-slate-100 bg-white hover:-translate-y-0.5 transition-all duration-200 w-full"
+                          style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}
+                          onMouseEnter={e => (e.currentTarget.style.boxShadow = `0 8px 24px rgba(0,0,0,0.09), 0 0 0 1.5px ${accent}40`)}
+                          onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.06)')}
+                        >
+                          <div className="p-4">
+                            {/* Header */}
+                            <div className="flex items-start justify-between gap-2 mb-3">
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-bold text-slate-800 truncate">{proj.name}</p>
+                                <p className="text-[10px] text-slate-400 mt-0.5">{proj.memberCount} member{proj.memberCount !== 1 ? 's' : ''}{proj.manager ? ` · ${proj.manager.name}` : ''}</p>
+                              </div>
+                              <svg width="64" height="64" className="shrink-0 -mt-1" style={{ filter: `drop-shadow(0 2px 6px ${accent}35)` }}>
+                                <circle cx={cxy} cy={cxy} r={r} fill={`${accent}10`} />
+                                <circle cx={cxy} cy={cxy} r={r} fill="none" stroke="#e2e8f0" strokeWidth="5" />
+                                <circle cx={cxy} cy={cxy} r={r} fill="none" stroke={accent} strokeWidth="5" strokeLinecap="round"
+                                  strokeDasharray={`${dash} ${circ}`} strokeDashoffset={circ / 4} />
+                                <text x={cxy} y={cxy - 2} textAnchor="middle" fontSize="13" fontWeight="900" fill={accent}>{proj.ptPct}</text>
+                                <text x={cxy} y={cxy + 11} textAnchor="middle" fontSize="8" fontWeight="600" fill="#94a3b8">%</text>
+                              </svg>
+                            </div>
+                            <div className="flex items-center gap-2 mb-3">
+                              <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full" style={{ background: `${accent}15`, color: accent }}>{statusLabel}</span>
+                              <span className="text-[10px] text-slate-400">{proj.ptDone} / {proj.ptTasks.length} done</span>
+                            </div>
+                            <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden mb-3">
+                              <div className="h-full rounded-full transition-all duration-700" style={{ width: `${proj.ptPct}%`, background: `linear-gradient(90deg, ${accent}99, ${accent})` }} />
+                            </div>
+                            <div className="flex items-center gap-3 text-[10px] font-semibold">
+                              {proj.ptInProg > 0 && <span className="flex items-center gap-1 text-indigo-600"><span className="h-1.5 w-1.5 rounded-full bg-indigo-400 shrink-0" />{proj.ptInProg} active</span>}
+                              {proj.ptOverdue > 0 && <span className="flex items-center gap-1 text-amber-600"><span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />{proj.ptOverdue} late</span>}
+                              {proj.ptBlocked > 0 && <span className="flex items-center gap-1 text-red-500"><span className="h-1.5 w-1.5 rounded-full bg-red-400 shrink-0" />{proj.ptBlocked} blocked</span>}
+                              {proj.ptOverdue === 0 && proj.ptBlocked === 0 && proj.ptTasks.length > 0 && <span className="flex items-center gap-1 text-emerald-600"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0" />On schedule</span>}
+                              <ArrowUpRight className="h-3.5 w-3.5 text-slate-300 group-hover:text-slate-500 transition-colors ml-auto shrink-0" />
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
             )}
           </div>
         )}
@@ -1626,436 +1683,211 @@ function DepartmentDashboard({ slug }: { slug: string }) {
   );
 }
 
-// ── Main Dashboard ────────────────────────────────────────────────────────────
-export default function Dashboard() {
-  const { slug } = useParams<{ slug?: string }>();
-  const navigate  = useNavigate();
-  const { user }  = useAuthStore();
+// ── Dept Head / Manager Dashboard ────────────────────────────────────────────
+function DeptHeadHome() {
+  const navigate = useNavigate();
+  const { user } = useAuthStore();
 
-  const isManagerOrHead = ['DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
-  const isCeo           = ['OWNER', 'COMPANY_ADMIN'].includes(user?.role || '');
-  const departmentLabel = user?.departmentName || departmentNameFromSlug(user?.departmentSlug);
+  const isManagerOrHead  = ['DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
+  const isDeptHead       = user?.role === 'DEPARTMENT_HEAD';
+  const departmentLabel  = user?.departmentName || departmentNameFromSlug(user?.departmentSlug);
   const designationLabel = user?.role?.toLowerCase().replace(/_/g, ' ') || '';
 
-  const [activeUsersOpen, setActiveUsersOpen] = useState(false);
-
-  const { data: cockpit, isLoading: cockpitLoading } = useQuery({
-    queryKey: ['cockpit'],
-    queryFn: () => api.get('/owner/cockpit').then((r) => r.data),
-    enabled: !slug && isCeo,
-  });
-  const { data: tasks, isLoading: tasksLoading } = useQuery({
-    queryKey: ['tasks', 'mine'],
-    queryFn: () => api.get('/tasks').then((r) => r.data),
-    enabled: !slug,
-  });
   const useAllDeptTeams = ['DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'].includes(user?.role || '');
+  const { data: tasks = [], isLoading } = useQuery<Task[]>({
+    queryKey: ['tasks', 'dh'],
+    queryFn: () => api.get('/tasks').then((r) => r.data),
+  });
   const { data: myProjectTeams } = useQuery({
     queryKey: useAllDeptTeams ? ['teams'] : ['teams', 'managed'],
     queryFn: () => (useAllDeptTeams ? api.get('/teams') : api.get('/teams/managed')).then((r) => r.data),
-    enabled: !slug,
   });
 
-  if (slug) return <DepartmentDashboard slug={slug} />;
-  if (isCeo) return <OwnerHome />;
-
-  const allTasks: Task[] = tasks || [];
   const now        = new Date();
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const todayEnd   = new Date(); todayEnd.setHours(23, 59, 59, 999);
-
   const isOverdue  = (t: Task) => !!t.dueDate && !['DONE', 'CANCELLED'].includes(t.status) && new Date(t.dueDate) < now;
   const isDueToday = (t: Task) => !!t.dueDate && !['DONE', 'CANCELLED'].includes(t.status) && new Date(t.dueDate) >= now && new Date(t.dueDate) <= todayEnd;
 
-  const openTasks     = allTasks.filter((t) => !['DONE', 'CANCELLED'].includes(t.status));
-  const dueTodayTasks = allTasks.filter(isDueToday);
-  const overdueTasks  = allTasks.filter(isOverdue);
-  const blockedTasks  = allTasks.filter((t) => t.status === 'BLOCKED');
-  const doneTasks     = allTasks.filter((t) => t.status === 'DONE');
+  const openTasks     = tasks.filter((t) => !['DONE', 'CANCELLED'].includes(t.status));
+  const dueTodayTasks = tasks.filter(isDueToday);
+  const overdueTasks  = tasks.filter(isOverdue);
+  const blockedTasks  = tasks.filter((t) => t.status === 'BLOCKED');
+  const doneTasks     = tasks.filter((t) => t.status === 'DONE');
   const myOpenTasks   = openTasks.filter((t) => t.assignee?.id === user?.id);
   const teamOpenTasks = openTasks.filter((t) => t.assignee?.id !== user?.id);
+  const urgentTasks   = openTasks.filter((t) => isOverdue(t) || isDueToday(t) || ['CRITICAL', 'HIGH'].includes(t.priority));
 
   type ProjTeam = { id: string; name: string; description?: string; memberCount: number; department?: { name: string; slug?: string } };
   const projectTeams = (myProjectTeams as ProjTeam[] | undefined) ?? [];
 
+  // Compute per-project progress from existing tasks (tasks include team: { id, name })
+  const projectProgress = projectTeams.map((pt) => {
+    const ptTasks = tasks.filter((t) => (t as unknown as { team?: { id: string } }).team?.id === pt.id);
+    const ptDone     = ptTasks.filter((t) => t.status === 'DONE').length;
+    const ptBlocked  = ptTasks.filter((t) => t.status === 'BLOCKED').length;
+    const ptOverdue  = ptTasks.filter(isOverdue).length;
+    const ptInProg   = ptTasks.filter((t) => t.status === 'IN_PROGRESS').length;
+    const ptPct      = ptTasks.length > 0 ? Math.round((ptDone / ptTasks.length) * 100) : 0;
+    return { ...pt, ptTasks, ptDone, ptBlocked, ptOverdue, ptInProg, ptPct };
+  });
+
+  const taskDoneRate = tasks.length > 0 ? Math.round((doneTasks.length / tasks.length) * 100) : 0;
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50/40">
-      <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-[1440px] mx-auto">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50/30">
+      <div className="p-4 sm:p-6 lg:p-8 space-y-5 max-w-[1400px] mx-auto">
 
         {/* ── Header ── */}
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="h-11 w-11 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-200">
+          <div className="flex items-center gap-4">
+            <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-200/60 shrink-0">
               <Activity className="h-6 w-6 text-white" />
             </div>
             <div>
-              <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
+              <h1 className="text-xl sm:text-2xl font-bold tracking-tight leading-tight">
                 {greeting()}, {user?.name?.split(' ')[0]}
               </h1>
-              <p className="text-xs sm:text-sm text-muted-foreground">
+              <p className="text-xs text-muted-foreground mt-0.5">
                 {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
               </p>
-              {isManagerOrHead && departmentLabel && (
-                <p className="text-xs font-semibold text-primary mt-0.5 capitalize">
+              {departmentLabel && (
+                <p className="text-xs font-semibold text-indigo-600 mt-0.5 capitalize">
                   {designationLabel} · {departmentLabel}
                 </p>
               )}
             </div>
           </div>
-          <div className="flex gap-2">
-            <Link
-              to="/tasks"
-              className="inline-flex items-center gap-1.5 rounded-xl border border-border/60 bg-white px-3 py-2 text-xs font-semibold hover:border-primary/40 hover:shadow-sm transition-all"
-            >
-              <CheckSquare className="h-3.5 w-3.5 text-indigo-500" /> My Tasks
+          <div className="flex items-center gap-2">
+            <Link to="/tasks" className="inline-flex items-center gap-1.5 rounded-xl border border-border/60 bg-white px-3 py-2 text-xs font-semibold hover:border-indigo-300 hover:shadow-sm transition-all">
+              <CheckSquare className="h-3.5 w-3.5 text-indigo-500" /> Tasks
             </Link>
-            <Link
-              to="/standup"
-              className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-600 px-3 py-2 text-xs font-semibold text-white hover:from-indigo-600 hover:to-violet-700 shadow-sm shadow-indigo-200 transition-all"
-            >
-              <Zap className="h-3.5 w-3.5" /> Meeting
+            <Link to="/standup" className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-600 px-3 py-2 text-xs font-semibold text-white hover:opacity-90 shadow-sm shadow-indigo-200 transition-all">
+              <Zap className="h-3.5 w-3.5" /> Start Meeting
             </Link>
           </div>
         </div>
 
+        {/* ── 4 KPI cards ── */}
+        <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
+          <GradientKpi label="Open Tasks"  value={openTasks.length}     sub={`${taskDoneRate}% completion rate`} icon={CheckSquare}   from="from-indigo-500" to="to-violet-600" shadow="shadow-indigo-200" onClick={() => navigate('/tasks')} />
+          <GradientKpi label="Due Today"   value={dueTodayTasks.length} sub={dueTodayTasks.length === 0 ? 'nothing due' : 'need completion'} icon={Calendar} from={dueTodayTasks.length === 0 ? 'from-slate-400' : 'from-orange-500'} to={dueTodayTasks.length === 0 ? 'to-slate-500' : 'to-amber-500'} shadow={dueTodayTasks.length === 0 ? 'shadow-slate-200' : 'shadow-orange-200'} onClick={() => navigate('/tasks?status=due_today')} />
+          <GradientKpi label="Overdue"     value={overdueTasks.length}  sub="past due date"          icon={Clock}         from={overdueTasks.length === 0 ? 'from-slate-400' : 'from-red-500'}    to={overdueTasks.length === 0 ? 'to-slate-500' : 'to-rose-600'}   shadow={overdueTasks.length === 0 ? 'shadow-slate-200' : 'shadow-red-200'}    onClick={() => navigate('/tasks?status=overdue')} />
+          <GradientKpi label="Blocked"     value={blockedTasks.length}  sub="need resolution"        icon={AlertTriangle} from={blockedTasks.length === 0 ? 'from-slate-400' : 'from-amber-500'}  to={blockedTasks.length === 0 ? 'to-slate-500' : 'to-orange-600'} shadow={blockedTasks.length === 0 ? 'shadow-slate-200' : 'shadow-amber-200'} onClick={() => navigate('/tasks?status=BLOCKED')} />
+        </div>
+
         {/* ── Overdue alert ── */}
-        {(isCeo || isManagerOrHead) && overdueTasks.length > 0 && (
+        {overdueTasks.length > 0 && (
           <div className="rounded-2xl border border-red-200 bg-red-50/60 overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3 border-b border-red-100">
               <div className="flex items-center gap-2">
                 <Flame className="h-4 w-4 text-red-600 shrink-0" />
-                <span className="font-bold text-sm text-red-800">
-                  {overdueTasks.length} Overdue Task{overdueTasks.length > 1 ? 's' : ''} — Action Required
-                </span>
+                <span className="font-bold text-sm text-red-800">{overdueTasks.length} Overdue Task{overdueTasks.length > 1 ? 's' : ''} — Action Required</span>
               </div>
-              <Link to="/tasks?status=overdue" className="text-xs font-semibold text-red-600 hover:underline shrink-0">
-                View all →
-              </Link>
+              <Link to="/tasks?status=overdue" className="text-xs font-semibold text-red-600 hover:underline">View all →</Link>
             </div>
             <div className="divide-y divide-red-100/60">
-              {overdueTasks.slice(0, 4).map((task) => {
+              {overdueTasks.slice(0, 3).map((task) => {
                 const dueDay = new Date(task.dueDate!); dueDay.setHours(0, 0, 0, 0);
-                const days   = Math.round((todayStart.getTime() - dueDay.getTime()) / 86400000);
+                const days = Math.round((todayStart.getTime() - dueDay.getTime()) / 86400000);
                 return (
-                  <div
-                    key={task.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => navigate(`/tasks?status=overdue&taskId=${task.id}`)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate(`/tasks?status=overdue&taskId=${task.id}`); }}
-                    className="flex items-center gap-3 px-4 py-2.5 hover:bg-red-100/50 transition-colors cursor-pointer"
+                  <div key={task.id} role="button" tabIndex={0}
+                    onClick={() => navigate(`/tasks?taskId=${task.id}`)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') navigate(`/tasks?taskId=${task.id}`); }}
+                    className="flex items-center gap-3 px-4 py-2.5 hover:bg-red-100/40 transition-colors cursor-pointer"
                   >
-                    <div className="h-2 w-2 rounded-full bg-red-500 shrink-0" />
+                    <span className="h-1.5 w-1.5 rounded-full bg-red-500 shrink-0" />
                     <p className="text-sm font-medium text-red-900 flex-1 truncate">{task.title}</p>
                     {task.assignee && (
-                      <Link
-                        to={`/team/${task.assignee.id}/report`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="text-xs text-primary shrink-0 font-semibold hover:underline"
-                      >
-                        {task.assignee.name}
-                      </Link>
+                      <Link to={`/team/${task.assignee.id}/report`} onClick={(e) => e.stopPropagation()} className="text-xs text-primary font-semibold hover:underline shrink-0">{task.assignee.name.split(' ')[0]}</Link>
                     )}
                     <span className="text-[10px] font-bold bg-red-100 text-red-700 border border-red-200 px-2 py-0.5 rounded-full shrink-0">
-                      {days <= 0 ? 'Overdue' : days === 1 ? '1d overdue' : `${days}d overdue`}
+                      {days <= 0 ? 'today' : `${days}d late`}
                     </span>
                   </div>
                 );
               })}
-              {overdueTasks.length > 4 && (
+              {overdueTasks.length > 3 && (
                 <div className="px-4 py-2 text-center">
-                  <Link to="/tasks?status=overdue" className="text-xs text-red-600 font-semibold hover:underline">
-                    +{overdueTasks.length - 4} more
-                  </Link>
+                  <Link to="/tasks?status=overdue" className="text-xs text-red-600 font-semibold hover:underline">+{overdueTasks.length - 3} more</Link>
                 </div>
               )}
             </div>
           </div>
         )}
 
-        {/* ── CEO KPI cards ── */}
-        {cockpit && (
-          <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
-            <GradientKpi
-              label="Active Today" value={cockpit.activeUsers}
-              sub={`of ${cockpit.totalUsers} total`}
-              icon={Users} from="from-sky-500" to="to-blue-600" shadow="shadow-blue-200"
-              onClick={() => setActiveUsersOpen(true)}
-            />
-            <GradientKpi
-              label="Tasks Done" value={cockpit.tasks?.done ?? 0}
-              sub={`of ${cockpit.tasks?.total ?? 0} total`}
-              icon={CheckSquare} from="from-emerald-500" to="to-green-600" shadow="shadow-green-200"
-              onClick={() => navigate('/tasks?status=DONE')}
-            />
-            <GradientKpi
-              label="Overdue Tasks" value={cockpit.tasks?.overdue ?? 0}
-              sub="past due date"
-              icon={Clock} from="from-amber-500" to="to-orange-600" shadow="shadow-amber-200"
-              onClick={() => navigate('/tasks?status=overdue')}
-            />
-            <GradientKpi
-              label="Blocked" value={cockpit.tasks?.blocked ?? 0}
-              sub="need resolution"
-              icon={AlertTriangle} from="from-red-500" to="to-rose-600" shadow="shadow-red-200"
-              onClick={() => navigate('/tasks?status=BLOCKED')}
-            />
-          </div>
-        )}
-
-        {/* ── Non-CEO KPI tiles ── */}
-        {!isCeo && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <FlatKpi label="Open Tasks"  value={openTasks.length}     sub={`${doneTasks.length} done`}  icon={CheckSquare}   color="#6366f1" tint="#eef2ff" href="/tasks" />
-            <FlatKpi label="Due Today"   value={dueTodayTasks.length}                                    icon={Calendar}      color="#f97316" tint="#fff7ed" href="/tasks?status=due_today" />
-            <FlatKpi label="Overdue"     value={overdueTasks.length}                                     icon={Clock}         color="#ef4444" tint="#fef2f2" href="/tasks?status=overdue" />
-            <FlatKpi label="Blocked"     value={blockedTasks.length}                                     icon={AlertTriangle} color="#f43f5e" tint="#fff1f2" href="/tasks?status=BLOCKED" />
-          </div>
-        )}
-
-        {/* ── My Projects ── */}
-        {projectTeams.length > 0 && (
-          <div>
-            <div className="flex items-center gap-2 mb-3">
-              <FolderKanban className="h-4 w-4 text-indigo-500" />
-              <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">My Projects</h2>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {projectTeams.map((team) => (
-                <Link
-                  key={team.id}
-                  to={team.department?.slug ? `/departments/${team.department.slug}` : '/team'}
-                  className="block rounded-2xl border border-border/60 bg-white p-4 hover:shadow-lg hover:border-indigo-200 transition-all group"
-                >
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-indigo-100 to-violet-100 flex items-center justify-center shrink-0 group-hover:from-indigo-200 group-hover:to-violet-200 transition-colors">
-                      <FolderKanban className="h-4 w-4 text-indigo-600" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-sm truncate group-hover:text-primary transition-colors">{team.name}</p>
-                      {team.department && (
-                        <p className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
-                          <Building2 className="h-2.5 w-2.5" /> {team.department.name}
-                        </p>
-                      )}
-                    </div>
-                    <span className="text-[10px] font-bold bg-indigo-50 text-indigo-600 rounded-full px-2 py-0.5 shrink-0">
-                      {team.memberCount}
-                    </span>
-                  </div>
-                  {team.description && (
-                    <p className="text-xs text-muted-foreground line-clamp-2">{team.description}</p>
-                  )}
-                </Link>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ── Main grid: tasks + sidebar ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-
-          {/* Tasks column */}
-          <div className="lg:col-span-2 space-y-4">
-            {/* My Tasks */}
-            <Card className="rounded-2xl border border-border/60 bg-white shadow-sm overflow-hidden">
-              <div className="h-0.5 w-full bg-gradient-to-r from-indigo-400 to-violet-500" />
-              <CardHeader className="px-5 pt-4 pb-0">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                  <CIcon icon={CheckSquare} bg="bg-indigo-100" cls="text-indigo-600" />
-                  My Tasks
-                  <span className="ml-auto text-[10px] font-bold bg-indigo-50 text-indigo-600 rounded-full px-2.5 py-1">
-                    {myOpenTasks.length} open
-                  </span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="px-4 pb-4 pt-3">
-                {myOpenTasks.length === 0 ? (
-                  <div className="flex flex-col items-center py-10 gap-3 text-muted-foreground">
-                    <div className="h-14 w-14 rounded-2xl bg-muted/60 flex items-center justify-center">
-                      <CheckSquare className="h-7 w-7 opacity-30" />
-                    </div>
-                    <div className="text-center">
-                      <p className="text-sm font-medium">No tasks assigned</p>
-                      <Link to="/tasks" className="text-xs text-primary hover:underline mt-1 inline-block">Go to Tasks →</Link>
-                    </div>
-                  </div>
-                ) : (
-                  <TaskList
-                    tasks={myOpenTasks}
-                    isOverdueFn={isOverdue}
-                    isDueTodayFn={isDueToday}
-                    showAssignee={false}
-                    onTaskClick={(id) => navigate(`/tasks?taskId=${id}`)}
-                  />
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Team Tasks */}
-            {isManagerOrHead && (
-              <Card className="rounded-2xl border border-border/60 bg-white shadow-sm overflow-hidden">
-                <div className="h-0.5 w-full bg-gradient-to-r from-sky-400 to-blue-500" />
-                <CardHeader className="px-5 pt-4 pb-0">
-                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                    <CIcon icon={Users} bg="bg-sky-100" cls="text-sky-600" />
-                    {user?.role === 'DEPARTMENT_HEAD' ? 'Department Tasks' : 'Team Tasks'}
-                    <span className="ml-auto text-[10px] font-bold bg-sky-50 text-sky-600 rounded-full px-2.5 py-1">
-                      {teamOpenTasks.length} open
-                    </span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="px-4 pb-4 pt-3">
-                  {teamOpenTasks.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-6">No open tasks for your team</p>
-                  ) : (
-                    <TaskList
-                      tasks={teamOpenTasks}
-                      isOverdueFn={isOverdue}
-                      isDueTodayFn={isDueToday}
-                      showAssignee
-                      onTaskClick={(id) => navigate(`/tasks?taskId=${id}`)}
-                    />
-                  )}
-                </CardContent>
-              </Card>
-            )}
-          </div>
-
-          {/* Sidebar */}
-          <div className="space-y-4">
-            {/* Team overview — manager/head only */}
-            {isManagerOrHead && (
-              <Card className="rounded-2xl border border-border/60 bg-white shadow-sm">
-                <CardHeader className="px-5 pt-4 pb-0">
-                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                    <CIcon icon={TrendingUp} bg="bg-teal-100" cls="text-teal-600" />
-                    Team Overview
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="px-4 pb-4 pt-3 grid grid-cols-2 gap-2">
-                  {[
-                    { label: 'Open',    value: openTasks.length,    color: '#6366f1', tint: '#eef2ff', href: '/tasks' },
-                    { label: 'Done',    value: doneTasks.length,    color: '#10b981', tint: '#ecfdf5', href: '/tasks?status=DONE' },
-                    { label: 'Overdue', value: overdueTasks.length, color: '#ef4444', tint: '#fef2f2', href: '/tasks?status=overdue' },
-                    { label: 'Blocked', value: blockedTasks.length, color: '#f97316', tint: '#fff7ed', href: '/tasks?status=BLOCKED' },
-                  ].map(({ label, value, color, tint, href }) => (
-                    <Link
-                      key={label}
-                      to={href}
-                      className="block rounded-xl p-3 text-center hover:scale-[1.02] hover:shadow-md transition-all"
-                      style={{ background: tint }}
-                    >
-                      <p className="text-xl font-black tabular-nums" style={{ color }}>{value}</p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5 font-medium">{label}</p>
-                    </Link>
-                  ))}
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Resource capacity */}
-            {(isManagerOrHead || isCeo) && <ResourceCapacityCard />}
-
-            {/* Blockers */}
-            <Card className="rounded-2xl border border-border/60 bg-white shadow-sm overflow-hidden">
-              <div className={cn('h-0.5 w-full', blockedTasks.length > 0 ? 'bg-gradient-to-r from-red-400 to-rose-500' : 'bg-muted')} />
-              <CardHeader className="px-5 pt-4 pb-0">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                  <CIcon icon={AlertTriangle} bg="bg-red-100" cls="text-red-600" />
-                  {isManagerOrHead ? 'Team Blockers' : 'Blockers'}
-                  <span className={cn(
-                    'ml-auto text-[10px] font-bold rounded-full px-2.5 py-1',
-                    blockedTasks.length > 0 ? 'bg-red-100 text-red-700' : 'bg-muted text-muted-foreground',
-                  )}>
-                    {blockedTasks.length}
-                  </span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="px-4 pb-4 pt-3">
-                {blockedTasks.length === 0 ? (
-                  <div className="flex flex-col items-center py-6 gap-2 text-muted-foreground">
-                    <div className="h-10 w-10 rounded-2xl bg-emerald-50 flex items-center justify-center">
-                      <CheckSquare className="h-5 w-5 text-emerald-400" />
-                    </div>
-                    <p className="text-sm font-medium text-emerald-700">No blockers!</p>
-                  </div>
-                ) : (
-                  <div className="space-y-1.5">
-                    {blockedTasks.slice(0, 5).map((task) => (
-                      <div
-                        key={task.id}
-                        className="p-3 rounded-xl bg-red-50/60 border border-red-100 hover:border-red-200 hover:bg-red-50 transition-all cursor-pointer"
-                        onClick={() => navigate(`/tasks?taskId=${task.id}`)}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="text-xs font-semibold text-red-900 truncate flex-1">{task.title}</p>
-                          {isManagerOrHead && task.assignee && (
-                            <Link
-                              to={`/team/${task.assignee.id}/report`}
-                              onClick={(e) => e.stopPropagation()}
-                              className="text-[10px] text-primary shrink-0 hover:underline font-semibold"
-                            >
-                              {task.assignee.name.split(' ')[0]}
-                            </Link>
-                          )}
-                        </div>
-                        {task.blockerType && (
-                          <p className="text-[10px] text-red-500 mt-1 capitalize font-medium">
-                            {task.blockerType.toLowerCase().replace(/_/g, ' ')}
-                          </p>
-                        )}
-                      </div>
-                    ))}
-                    {blockedTasks.length > 5 && (
-                      <Link to="/tasks?status=BLOCKED" className="block text-center text-xs text-primary hover:underline pt-1 font-medium">
-                        View all {blockedTasks.length} →
-                      </Link>
-                    )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-
-        {/* ── Department overview (CEO) ── */}
-        {cockpit?.departments?.length > 0 && (
-          <Card className="rounded-2xl border border-border/60 bg-white shadow-sm">
+        {/* ── Projects strip ── */}
+        {projectProgress.length > 0 && (
+          <Card className="rounded-2xl border border-border/60 bg-white shadow-sm overflow-hidden">
+            <div className="h-1 w-full bg-gradient-to-r from-indigo-400 via-violet-500 to-purple-600" />
             <CardHeader className="px-5 pt-4 pb-0">
               <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <CIcon icon={Building2} bg="bg-violet-100" cls="text-violet-600" />
-                Department Overview
+                <CIcon icon={FolderKanban} bg="bg-indigo-100" cls="text-indigo-600" />
+                Project Progress
+                <span className="ml-auto text-[10px] font-bold bg-indigo-50 text-indigo-600 rounded-full px-2.5 py-1">{projectProgress.length} project{projectProgress.length !== 1 ? 's' : ''}</span>
               </CardTitle>
             </CardHeader>
-            <CardContent className="px-5 pb-5 pt-3">
+            <CardContent className="px-5 pb-5 pt-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {cockpit.departments.map((dept: { id: string; name: string; slug?: string; _count: { tasks: number; users: number } }, i: number) => {
-                  const grads = [
-                    ['from-indigo-500', 'to-violet-600'],
-                    ['from-sky-500', 'to-blue-600'],
-                    ['from-teal-500', 'to-emerald-600'],
-                    ['from-amber-500', 'to-orange-600'],
-                    ['from-rose-500', 'to-pink-600'],
-                  ];
-                  const [f, t] = grads[i % grads.length];
+                {projectProgress.map((proj, i) => {
+                  const accentColors = ['#6366f1','#0ea5e9','#14b8a6','#f59e0b','#f43f5e','#8b5cf6'];
+                  const accent = accentColors[i % accentColors.length];
+                  const isHealthy = proj.ptPct >= 70;
+                  const isWarn    = proj.ptPct >= 40 && proj.ptPct < 70;
+                  const statusLabel = proj.ptTasks.length === 0 ? 'No tasks' : isHealthy ? 'On Track' : isWarn ? 'At Risk' : 'Behind';
+                  const r = 26; const cxy = 32; const circ = 2 * Math.PI * r;
+                  const dash = circ * (proj.ptPct / 100);
                   return (
                     <Link
-                      key={dept.id}
-                      to={dept.slug ? `/dashboard/${dept.slug}` : '#'}
-                      className="block rounded-2xl border border-border/60 bg-white p-4 hover:shadow-lg hover:border-primary/20 transition-all group overflow-hidden relative"
+                      key={proj.id}
+                      to={proj.department?.slug ? `/departments/${proj.department.slug}` : '/team'}
+                      className="group block rounded-2xl border border-slate-100 bg-white hover:-translate-y-0.5 transition-all duration-200"
+                      style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}
+                      onMouseEnter={e => (e.currentTarget.style.boxShadow = `0 8px 24px rgba(0,0,0,0.09), 0 0 0 1.5px ${accent}40`)}
+                      onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.06)')}
                     >
-                      <div className={cn('absolute top-0 left-0 right-0 h-1 bg-gradient-to-r', f, t)} />
-                      <div className="flex items-center justify-between mb-2 pt-1">
-                        <div className={cn('h-8 w-8 rounded-xl flex items-center justify-center bg-gradient-to-br shadow-sm', f, t)}>
-                          <Building2 className="h-4 w-4 text-white" />
+                      <div className="p-4">
+                        {/* Header row */}
+                        <div className="flex items-start justify-between gap-2 mb-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-bold text-slate-800 truncate leading-tight">{proj.name}</p>
+                            <p className="text-[10px] text-slate-400 mt-0.5">
+                              {proj.memberCount} member{proj.memberCount !== 1 ? 's' : ''}
+                              {proj.department ? ` · ${proj.department.name}` : ''}
+                            </p>
+                          </div>
+                          {/* Arc ring */}
+                          <svg width="64" height="64" className="shrink-0 -mt-1" style={{ filter: `drop-shadow(0 2px 6px ${accent}35)` }}>
+                            <circle cx={cxy} cy={cxy} r={r} fill={`${accent}10`} />
+                            <circle cx={cxy} cy={cxy} r={r} fill="none" stroke="#e2e8f0" strokeWidth="5" />
+                            <circle cx={cxy} cy={cxy} r={r} fill="none" stroke={accent} strokeWidth="5" strokeLinecap="round"
+                              strokeDasharray={`${dash} ${circ}`} strokeDashoffset={circ / 4} />
+                            <text x={cxy} y={cxy - 2} textAnchor="middle" fontSize="13" fontWeight="900" fill={accent}>{proj.ptPct}</text>
+                            <text x={cxy} y={cxy + 11} textAnchor="middle" fontSize="8" fontWeight="600" fill="#94a3b8">%</text>
+                          </svg>
                         </div>
-                        <ArrowUpRight className="h-4 w-4 text-muted-foreground/30 group-hover:text-primary transition-colors" />
-                      </div>
-                      <p className="font-semibold text-sm group-hover:text-primary transition-colors">{dept.name}</p>
-                      <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground">
-                        <span className="flex items-center gap-1"><Users className="h-3 w-3" />{dept._count.users}</span>
-                        <span className="flex items-center gap-1"><CheckSquare className="h-3 w-3" />{dept._count.tasks} tasks</span>
+
+                        {/* Status pill + task count */}
+                        <div className="flex items-center gap-2 mb-3">
+                          <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full" style={{ background: `${accent}15`, color: accent }}>{statusLabel}</span>
+                          <span className="text-[10px] text-slate-400">{proj.ptDone} / {proj.ptTasks.length} tasks done</span>
+                        </div>
+
+                        {/* Progress bar */}
+                        <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden mb-3">
+                          <div className="h-full rounded-full transition-all duration-700" style={{ width: `${proj.ptPct}%`, background: `linear-gradient(90deg, ${accent}99, ${accent})` }} />
+                        </div>
+
+                        {/* Mini stats */}
+                        <div className="flex items-center gap-3 text-[10px] font-semibold">
+                          {proj.ptInProg > 0 && <span className="flex items-center gap-1 text-indigo-600"><span className="h-1.5 w-1.5 rounded-full bg-indigo-400 shrink-0" />{proj.ptInProg} in progress</span>}
+                          {proj.ptOverdue > 0 && <span className="flex items-center gap-1 text-amber-600"><span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />{proj.ptOverdue} late</span>}
+                          {proj.ptBlocked > 0 && <span className="flex items-center gap-1 text-red-500"><span className="h-1.5 w-1.5 rounded-full bg-red-400 shrink-0" />{proj.ptBlocked} blocked</span>}
+                          {proj.ptOverdue === 0 && proj.ptBlocked === 0 && proj.ptTasks.length > 0 && (
+                            <span className="flex items-center gap-1 text-emerald-600"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0" />On schedule</span>
+                          )}
+                          <ArrowUpRight className="h-3.5 w-3.5 text-slate-300 group-hover:text-slate-500 transition-colors ml-auto shrink-0" />
+                        </div>
                       </div>
                     </Link>
                   );
@@ -2064,52 +1896,190 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         )}
-      </div>
 
-      {/* ── Active users dialog ── */}
-      <Dialog open={activeUsersOpen} onOpenChange={setActiveUsersOpen}>
-        <DialogContent className="sm:max-w-sm rounded-2xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2.5">
-              <div className="h-7 w-7 rounded-xl bg-sky-100 flex items-center justify-center">
-                <Users className="h-3.5 w-3.5 text-sky-600" />
-              </div>
-              Active Today
-              <span className="ml-1 text-[10px] font-bold bg-sky-100 text-sky-700 rounded-full px-2 py-0.5">
-                {cockpit?.activeUsers ?? 0}
-              </span>
-            </DialogTitle>
-          </DialogHeader>
-          <p className="text-xs text-muted-foreground -mt-3">Logged in within the last 24 hours</p>
-          {!(cockpit?.activeUsersList?.length) ? (
-            <div className="flex flex-col items-center py-8 gap-2 text-muted-foreground">
-              <Users className="h-8 w-8 opacity-20" />
-              <p className="text-sm">No one logged in today yet.</p>
-            </div>
-          ) : (
-            <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
-              {(cockpit.activeUsersList as Array<{
-                id: string; name: string; role: string; lastLoginAt: string; department?: { name: string };
-              }>).map((u) => (
-                <div key={u.id} className="flex items-center gap-3 rounded-xl border border-border/60 px-3 py-2.5 hover:bg-muted/30 transition-colors">
-                  <Avatar className="h-8 w-8 shrink-0">
-                    <AvatarFallback className="bg-sky-50 text-sky-700 text-xs font-bold rounded-full">
-                      {getInitials(u.name)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold truncate">{u.name}</p>
-                    <p className="text-[10px] text-muted-foreground truncate capitalize">
-                      {u.role.toLowerCase().replace(/_/g, ' ')}{u.department ? ` · ${u.department.name}` : ''}
-                    </p>
+        {/* ── Main 2-col grid ── */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
+          {/* Left: My Tasks + Team Tasks */}
+          <div className="lg:col-span-2 space-y-4">
+
+            {/* My Tasks */}
+            <Card className="rounded-2xl border border-border/60 bg-white shadow-sm overflow-hidden">
+              <div className="h-1 w-full bg-gradient-to-r from-indigo-400 to-violet-500" />
+              <CardHeader className="px-5 pt-4 pb-0">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <CIcon icon={CheckSquare} bg="bg-indigo-100" cls="text-indigo-600" />
+                  My Tasks
+                  <span className="ml-auto text-[10px] font-bold bg-indigo-50 text-indigo-600 rounded-full px-2.5 py-1">{myOpenTasks.length} open</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-4 pb-4 pt-3">
+                {isLoading ? (
+                  <div className="space-y-2">{[1,2,3].map(i => <SkeletonPulse key={i} className="h-10 rounded-xl" />)}</div>
+                ) : myOpenTasks.length === 0 ? (
+                  <div className="flex flex-col items-center py-10 gap-3 text-muted-foreground">
+                    <div className="h-14 w-14 rounded-2xl bg-muted/60 flex items-center justify-center"><CheckSquare className="h-7 w-7 opacity-30" /></div>
+                    <div className="text-center">
+                      <p className="text-sm font-medium">All clear — no tasks assigned to you</p>
+                      <Link to="/tasks" className="text-xs text-primary hover:underline mt-1 inline-block">Go to Tasks →</Link>
+                    </div>
                   </div>
-                  <span className="text-[10px] text-muted-foreground shrink-0 tabular-nums">{formatRelative(u.lastLoginAt)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+                ) : (
+                  <TaskList tasks={myOpenTasks} isOverdueFn={isOverdue} isDueTodayFn={isDueToday} showAssignee={false} onTaskClick={(id) => navigate(`/tasks?taskId=${id}`)} />
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Team / Dept Tasks */}
+            {isManagerOrHead && (
+              <Card className="rounded-2xl border border-border/60 bg-white shadow-sm overflow-hidden">
+                <div className="h-1 w-full bg-gradient-to-r from-sky-400 to-blue-500" />
+                <CardHeader className="px-5 pt-4 pb-0">
+                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                    <CIcon icon={Users} bg="bg-sky-100" cls="text-sky-600" />
+                    {isDeptHead ? 'Department Tasks' : 'Team Tasks'}
+                    <span className="ml-auto text-[10px] font-bold bg-sky-50 text-sky-600 rounded-full px-2.5 py-1">{teamOpenTasks.length} open</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-4 pb-4 pt-3">
+                  {teamOpenTasks.length === 0 ? (
+                    <div className="flex flex-col items-center py-8 gap-2 text-muted-foreground">
+                      <div className="h-10 w-10 rounded-2xl bg-sky-50 flex items-center justify-center"><Users className="h-5 w-5 text-sky-300" /></div>
+                      <p className="text-sm font-medium">No open tasks for your {isDeptHead ? 'department' : 'team'}</p>
+                    </div>
+                  ) : (
+                    <TaskList tasks={teamOpenTasks} isOverdueFn={isOverdue} isDueTodayFn={isDueToday} showAssignee onTaskClick={(id) => navigate(`/tasks?taskId=${id}`)} />
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Urgent / Due Today (if any) */}
+            {urgentTasks.length > 0 && (
+              <Card className="rounded-2xl border border-amber-200/70 bg-amber-50/30 shadow-sm overflow-hidden">
+                <div className="h-1 w-full bg-gradient-to-r from-amber-400 to-orange-500" />
+                <CardHeader className="px-5 pt-4 pb-0">
+                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                    <CIcon icon={Flame} bg="bg-amber-100" cls="text-amber-600" />
+                    Needs Attention
+                    <span className="ml-auto text-[10px] font-bold bg-amber-100 text-amber-700 rounded-full px-2.5 py-1">{urgentTasks.length}</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-4 pb-4 pt-3">
+                  <TaskList tasks={urgentTasks.slice(0, 6)} isOverdueFn={isOverdue} isDueTodayFn={isDueToday} showAssignee onTaskClick={(id) => navigate(`/tasks?taskId=${id}`)} />
+                  {urgentTasks.length > 6 && (
+                    <Link to="/tasks?status=overdue" className="block text-center text-xs text-amber-700 font-semibold hover:underline mt-2">+{urgentTasks.length - 6} more →</Link>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          {/* Right sidebar */}
+          <div className="space-y-4">
+
+            {/* Team stat tiles */}
+            {isManagerOrHead && (
+              <Card className="rounded-2xl border border-border/60 bg-white shadow-sm overflow-hidden">
+                <div className="h-1 w-full bg-gradient-to-r from-teal-400 to-emerald-500" />
+                <CardHeader className="px-5 pt-4 pb-0">
+                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                    <CIcon icon={TrendingUp} bg="bg-teal-100" cls="text-teal-600" />
+                    {isDeptHead ? 'Department Overview' : 'Team Overview'}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-4 pb-4 pt-3">
+                  <div className="grid grid-cols-2 gap-2 mb-3">
+                    {[
+                      { label: 'Open',    value: openTasks.length,    color: '#6366f1', bg: '#eef2ff', href: '/tasks' },
+                      { label: 'Done',    value: doneTasks.length,    color: '#059669', bg: '#ecfdf5', href: '/tasks?status=DONE' },
+                      { label: 'Overdue', value: overdueTasks.length, color: '#dc2626', bg: '#fef2f2', href: '/tasks?status=overdue' },
+                      { label: 'Blocked', value: blockedTasks.length, color: '#d97706', bg: '#fffbeb', href: '/tasks?status=BLOCKED' },
+                    ].map(({ label, value, color, bg, href }) => (
+                      <Link key={label} to={href}
+                        className="block rounded-xl p-3 text-center hover:-translate-y-0.5 hover:shadow-md transition-all"
+                        style={{ background: bg }}
+                      >
+                        <p className="text-2xl font-black tabular-nums leading-none" style={{ color }}>{value}</p>
+                        <p className="text-[10px] text-muted-foreground mt-1 font-semibold">{label}</p>
+                      </Link>
+                    ))}
+                  </div>
+                  {/* Completion bar */}
+                  <div className="pt-1">
+                    <div className="flex justify-between text-[10px] text-muted-foreground mb-1.5">
+                      <span>Completion rate</span>
+                      <span className="font-bold text-emerald-600">{taskDoneRate}%</span>
+                    </div>
+                    <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
+                      <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-teal-500 transition-all duration-700" style={{ width: `${taskDoneRate}%` }} />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Resource Capacity */}
+            <ResourceCapacityCard />
+
+            {/* Blockers */}
+            <Card className="rounded-2xl border border-border/60 bg-white shadow-sm overflow-hidden">
+              <div className={cn('h-1 w-full', blockedTasks.length > 0 ? 'bg-gradient-to-r from-red-400 to-rose-500' : 'bg-gradient-to-r from-emerald-400 to-teal-500')} />
+              <CardHeader className="px-5 pt-4 pb-0">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <CIcon icon={AlertTriangle} bg="bg-red-100" cls="text-red-600" />
+                  {isManagerOrHead ? 'Team Blockers' : 'My Blockers'}
+                  <span className={cn('ml-auto text-[10px] font-bold rounded-full px-2.5 py-1', blockedTasks.length > 0 ? 'bg-red-100 text-red-700' : 'bg-emerald-50 text-emerald-600')}>
+                    {blockedTasks.length}
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-4 pb-4 pt-3">
+                {blockedTasks.length === 0 ? (
+                  <div className="flex flex-col items-center py-6 gap-2">
+                    <div className="h-10 w-10 rounded-2xl bg-emerald-50 flex items-center justify-center"><CheckSquare className="h-5 w-5 text-emerald-400" /></div>
+                    <p className="text-sm font-semibold text-emerald-700">No blockers!</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {blockedTasks.slice(0, 5).map((task) => (
+                      <div key={task.id} onClick={() => navigate(`/tasks?taskId=${task.id}`)}
+                        className="p-3 rounded-xl bg-red-50/60 border border-red-100 hover:border-red-200 hover:bg-red-50 transition-all cursor-pointer group"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-xs font-semibold text-red-900 truncate flex-1 group-hover:text-red-700">{task.title}</p>
+                          {task.assignee && (
+                            <Link to={`/team/${task.assignee.id}/report`} onClick={(e) => e.stopPropagation()} className="text-[10px] text-primary shrink-0 hover:underline font-semibold">
+                              {task.assignee.name.split(' ')[0]}
+                            </Link>
+                          )}
+                        </div>
+                        {task.blockerType && (
+                          <p className="text-[10px] text-red-400 mt-1 capitalize">{task.blockerType.toLowerCase().replace(/_/g, ' ')}</p>
+                        )}
+                      </div>
+                    ))}
+                    {blockedTasks.length > 5 && (
+                      <Link to="/tasks?status=BLOCKED" className="block text-center text-xs text-primary hover:underline pt-1 font-medium">View all {blockedTasks.length} →</Link>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </div>
     </div>
   );
+}
+
+// ── Main Dashboard ────────────────────────────────────────────────────────────
+export default function Dashboard() {
+  const { slug } = useParams<{ slug?: string }>();
+  const { user } = useAuthStore();
+  const isCeo    = ['OWNER', 'COMPANY_ADMIN'].includes(user?.role || '');
+
+  if (slug) return <DepartmentDashboard slug={slug} />;
+  if (isCeo) return <OwnerHome />;
+  return <DeptHeadHome />;
 }
