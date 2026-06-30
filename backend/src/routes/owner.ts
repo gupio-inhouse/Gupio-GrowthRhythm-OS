@@ -78,6 +78,41 @@ router.get('/cockpit', async (req: AuthRequest, res: Response) => {
     }),
   ]);
 
+  // Per-dept task health breakdown
+  const deptStatusCounts = await prisma.task.groupBy({
+    by: ['departmentId', 'status'],
+    where: { orgId, departmentId: { not: null } },
+    _count: true,
+  });
+  const deptOverdueCounts = await prisma.task.groupBy({
+    by: ['departmentId'],
+    where: { orgId, departmentId: { not: null }, status: { notIn: ['DONE', 'CANCELLED'] }, dueDate: { lt: new Date() } },
+    _count: true,
+  });
+  type DeptStat = { done: number; blocked: number; overdue: number; total: number };
+  const deptStatsMap: Record<string, DeptStat> = {};
+  for (const row of deptStatusCounts) {
+    const dId = row.departmentId!;
+    if (!deptStatsMap[dId]) deptStatsMap[dId] = { done: 0, blocked: 0, overdue: 0, total: 0 };
+    deptStatsMap[dId].total += row._count;
+    if (row.status === 'DONE')    deptStatsMap[dId].done    += row._count;
+    if (row.status === 'BLOCKED') deptStatsMap[dId].blocked += row._count;
+  }
+  for (const row of deptOverdueCounts) {
+    const dId = row.departmentId!;
+    if (deptStatsMap[dId]) deptStatsMap[dId].overdue = row._count;
+  }
+  const departmentsWithHealth = departments.map((d) => {
+    const s = deptStatsMap[d.id] ?? { done: 0, blocked: 0, overdue: 0, total: 0 };
+    return {
+      ...d,
+      taskHealth: {
+        total: s.total, done: s.done, blocked: s.blocked, overdue: s.overdue,
+        pct: s.total > 0 ? Math.min(100, Math.round((s.done / s.total) * 100)) : 0,
+      },
+    };
+  });
+
   // M8.4: standup attendance breakdown per department
   const standupAttendance = todayStandups.map((s) => ({
     departmentName: s.department.name,
@@ -95,7 +130,7 @@ router.get('/cockpit', async (req: AuthRequest, res: Response) => {
     totalUsers,
     activeUsers: activeUsers.length,
     activeUsersList: activeUsers,
-    departments,
+    departments: departmentsWithHealth,
     tasks: { total: totalTasks, done: doneTasks, overdue: overdueTasks, blocked: blockedTasks },
     todayStandups,
     standupAttendanceToday: Math.round((todayStandups.filter(s => s.status === 'COMPLETED').length / Math.max(todayStandups.length, 1)) * 100),

@@ -7,7 +7,6 @@ import Dashboard from '@/pages/Dashboard';
 import Tasks from '@/pages/Tasks';
 import Standup from '@/pages/Standup';
 import Departments from '@/pages/Departments';
-import OwnerCockpit from '@/pages/OwnerCockpit';
 import Team from '@/pages/Team';
 import Teams from '@/pages/Teams';
 import IndividualReport from '@/pages/IndividualReport';
@@ -61,7 +60,6 @@ export default function App() {
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="dashboard/:slug" element={<DepartmentPage />} />
-            <Route path="cockpit" element={<OwnerCockpit />} />
             <Route path="tasks" element={<Tasks />} />
             <Route path="standup" element={<Standup />} />
             <Route path="departments" element={<Departments />} />
