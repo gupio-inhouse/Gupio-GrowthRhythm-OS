@@ -675,13 +675,48 @@ router.post('/import-csv', auditLog('task', 'CREATE'), async (req: AuthRequest, 
 
   for (const row of rows.slice(0, 500)) {
     try {
+      // Resolve assigneeEmail → assigneeUserId
+      let assigneeUserId: string | undefined = row.assigneeUserId || undefined;
+      if (!assigneeUserId && row.assigneeEmail) {
+        const found = await prisma.user.findFirst({
+          where: { email: row.assigneeEmail.trim().toLowerCase(), orgId: req.user!.orgId, status: 'ACTIVE' },
+          select: { id: true },
+        });
+        if (!found) { results.errors.push(`Row "${row.title}": no active user found with email "${row.assigneeEmail}"`); continue; }
+        assigneeUserId = found.id;
+      }
+      // Resolve departmentName/department → departmentId
+      let departmentId: string | undefined = row.departmentId || undefined;
+      const deptName = row.departmentName || row.department;
+      if (!departmentId && deptName) {
+        const found = await prisma.department.findFirst({
+          where: { orgId: req.user!.orgId, isActive: true, name: { equals: deptName.trim(), mode: 'insensitive' } },
+          select: { id: true },
+        });
+        if (!found) { results.errors.push(`Row "${row.title}": no department found with name "${deptName}"`); continue; }
+        departmentId = found.id;
+      }
+      // Resolve projectName/project → teamId
+      let teamId: string | undefined = row.teamId || undefined;
+      const projName = row.projectName || row.project;
+      if (!teamId && projName) {
+        const found = await prisma.team.findFirst({
+          where: { orgId: req.user!.orgId, isActive: true, name: { equals: projName.trim(), mode: 'insensitive' } },
+          select: { id: true },
+        });
+        if (!found) { results.errors.push(`Row "${row.title}": no project found with name "${projName}"`); continue; }
+        teamId = found.id;
+      }
       const parsed = createSchema.safeParse({
         title: row.title,
-        description: row.description,
+        description: row.description || undefined,
+        expectedOutcome: row.expectedOutcome || undefined,
         priority: row.priority?.toUpperCase() || 'MEDIUM',
-        assigneeUserId: row.assigneeUserId,
-        departmentId: row.departmentId || undefined,
+        assigneeUserId,
+        departmentId,
+        teamId,
         dueDate: row.dueDate ? new Date(row.dueDate).toISOString() : undefined,
+        recurrence: row.recurrence?.toUpperCase() || undefined,
       });
       if (!parsed.success) { results.errors.push(`Row "${row.title}": ${JSON.stringify(parsed.error.flatten().fieldErrors)}`); continue; }
       await prisma.task.create({ data: { ...parsed.data, orgId: req.user!.orgId, assignedByUserId: req.user!.userId } });

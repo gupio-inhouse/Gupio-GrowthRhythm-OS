@@ -5,7 +5,7 @@ import {
   Plus, CheckSquare, AlertTriangle, Clock, Search, LayoutGrid, List,
   Upload, ImagePlus, FileText, GitPullRequest, CalendarDays, Check,
   X as XIcon, ChevronLeft, ChevronRight, CheckCircle2, Filter,
-  ArrowUpRight, Zap,
+  ArrowUpRight, Zap, Download,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -1114,9 +1114,26 @@ function CsvImportDialog({ open, onClose, onImported }: { open: boolean; onClose
   const [importing, setImporting] = useState(false);
   const [preview, setPreview] = useState<string[][]>([]);
 
+  const KNOWN_COLS: { key: string; aliases: string[]; label: string }[] = [
+    { key: 'title',           aliases: ['title'],                           label: 'title' },
+    { key: 'assigneeEmail',   aliases: ['assigneeEmail', 'email'],          label: 'assigneeEmail' },
+    { key: 'description',     aliases: ['description'],                     label: 'description' },
+    { key: 'expectedOutcome', aliases: ['expectedOutcome'],                 label: 'expectedOutcome' },
+    { key: 'departmentName',  aliases: ['departmentName', 'department'],    label: 'department' },
+    { key: 'projectName',     aliases: ['projectName', 'project'],          label: 'project' },
+    { key: 'priority',        aliases: ['priority'],                        label: 'priority' },
+    { key: 'dueDate',         aliases: ['dueDate'],                         label: 'dueDate' },
+    { key: 'recurrence',      aliases: ['recurrence'],                      label: 'recurrence' },
+  ];
+
+  const normalizeHeader = (h: string): string => {
+    const lower = h.toLowerCase().trim().replace(/"/g, '');
+    return KNOWN_COLS.find((c) => c.aliases.some((a) => a.toLowerCase() === lower))?.key ?? h;
+  };
+
   const parseCsv = (text: string): Record<string, string>[] => {
     const [headerLine, ...rows] = text.trim().split('\n');
-    const headers = headerLine.split(',').map((h) => h.trim().replace(/"/g, ''));
+    const headers = headerLine.split(',').map(normalizeHeader);
     return rows.filter((r) => r.trim()).map((row) => {
       const vals = row.split(',').map((v) => v.trim().replace(/"/g, ''));
       return Object.fromEntries(headers.map((h, i) => [h, vals[i] ?? '']));
@@ -1129,7 +1146,18 @@ function CsvImportDialog({ open, onClose, onImported }: { open: boolean; onClose
     const reader = new FileReader();
     reader.onload = (ev) => {
       const text = ev.target?.result as string;
-      setPreview(text.trim().split('\n').slice(0, 4).map((l) => l.split(',').map((c) => c.trim().replace(/"/g, ''))));
+      const lines = text.trim().split('\n').slice(0, 4);
+      const rawHeaders = lines[0].split(',').map((h) => h.trim().replace(/"/g, ''));
+      // Only show known columns in preview — filter out unknown/extra columns
+      const knownIndexes = rawHeaders
+        .map((h, i) => ({ i, key: KNOWN_COLS.find((c) => c.aliases.some((a) => a.toLowerCase() === h.toLowerCase()))?.label }))
+        .filter((x) => x.key !== undefined);
+      const previewRows = lines.map((line) => {
+        const cells = line.split(',').map((c) => c.trim().replace(/"/g, ''));
+        return knownIndexes.map((x) => cells[x.i] ?? '');
+      });
+      previewRows[0] = knownIndexes.map((x) => x.key!);
+      setPreview(previewRows);
       setResult(null);
     };
     reader.readAsText(file);
@@ -1170,13 +1198,38 @@ function CsvImportDialog({ open, onClose, onImported }: { open: boolean; onClose
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="rounded-2xl bg-indigo-50/60 border border-indigo-100 p-4 text-xs space-y-1.5">
-            <p className="font-semibold text-indigo-900">Required CSV columns</p>
-            <p className="text-indigo-700 font-mono">title, assigneeUserId</p>
-            <p className="text-muted-foreground">
-              Optional: <span className="font-mono">description, priority</span> (LOW/MEDIUM/HIGH/CRITICAL),{' '}
-              <span className="font-mono">departmentId, dueDate</span>
-            </p>
+          <div className="rounded-2xl bg-indigo-50/60 border border-indigo-100 p-4 text-xs flex items-start justify-between gap-3">
+            <div className="space-y-1.5">
+              <p className="font-semibold text-indigo-900">Download the template, fill it in, then upload.</p>
+              <p className="text-indigo-700">Required: <span className="font-mono">title, assigneeEmail</span></p>
+              <div className="text-muted-foreground space-y-0.5">
+                <p>Optional fields:</p>
+                <p className="font-mono pl-1">description, expectedOutcome</p>
+                <p className="font-mono pl-1">departmentName, projectName <span className="font-sans">(exact names)</span></p>
+                <p className="font-mono pl-1">priority <span className="font-sans">(LOW/MEDIUM/HIGH/CRITICAL)</span></p>
+                <p className="font-mono pl-1">dueDate <span className="font-sans">(YYYY-MM-DD)</span></p>
+                <p className="font-mono pl-1">recurrence <span className="font-sans">(NONE/DAILY/WEEKLY/MONTHLY/YEARLY)</span></p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const csv = [
+                  'title,assigneeEmail,description,expectedOutcome,departmentName,projectName,priority,dueDate,recurrence',
+                  'Design homepage mockup,john@company.com,Create wireframes for homepage,Approved mockup ready for dev,Marketing,,HIGH,2025-08-01,NONE',
+                  'Write API documentation,sarah@company.com,Document all REST endpoints,,Engineering,Backend API,MEDIUM,2025-08-15,NONE',
+                  'Weekly status report,dev@company.com,Compile team progress,,,,LOW,2025-08-07,WEEKLY',
+                ].join('\n');
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url; a.download = 'tasks-import-template.csv';
+                a.click(); URL.revokeObjectURL(url);
+              }}
+              className="inline-flex items-center gap-1.5 shrink-0 rounded-xl border border-indigo-300 bg-white px-3 py-2 text-xs font-semibold text-indigo-700 hover:bg-indigo-50 transition-colors shadow-sm"
+            >
+              <Download className="h-3.5 w-3.5" /> Template
+            </button>
           </div>
 
           <div className="space-y-1.5">
