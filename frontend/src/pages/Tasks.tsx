@@ -219,10 +219,15 @@ export default function Tasks() {
     if (newStatus === 'DONE' && task.status !== 'IN_REVIEW') {
       const myId = user?.id;
       const assigneeId = task.assignee?.id;
-      const attachmentCount = task._count?.attachments ?? 0;
-      if (!!myId && !!assigneeId && myId === assigneeId && attachmentCount === 0) {
-        toast.error('Delivery proof required', 'Upload a screenshot, document, or PR link before submitting.');
-        openTask(task.id, 'SCREENSHOT');
+      const isOwnTask = !!myId && !!assigneeId && myId === assigneeId;
+      if (isOwnTask) {
+        // Always open drawer for own-task DONE submissions.
+        // The drawer reads live attachment data — the list cache (_count) can be stale.
+        const cachedCount = task._count?.attachments ?? 0;
+        if (cachedCount === 0) {
+          toast.error('Delivery proof required', 'Upload a screenshot, document, or PR link before submitting.');
+        }
+        openTask(task.id, cachedCount === 0 ? 'SCREENSHOT' : undefined);
         return;
       }
     }
