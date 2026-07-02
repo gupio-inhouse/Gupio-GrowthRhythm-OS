@@ -14,10 +14,9 @@ function canEdit(role: string) {
 
 // GET /sops/:departmentId — list all SOPs for a department
 router.get('/:departmentId', async (req: AuthRequest, res: Response) => {
-  const { departmentId } = req.params;
+  const departmentId = String(req.params.departmentId);
   const { orgId, role, userId } = req.user!;
 
-  // Role-based visibility check
   const isOwnerLevel = ['OWNER', 'COMPANY_ADMIN', 'SUPER_ADMIN'].includes(role);
   if (!isOwnerLevel) {
     const user = await prisma.user.findUnique({
@@ -65,7 +64,7 @@ router.post('/:departmentId', async (req: AuthRequest, res: Response) => {
   const sop = await prisma.departmentSop.create({
     data: {
       orgId,
-      departmentId: req.params.departmentId,
+      departmentId: String(req.params.departmentId),
       title:        parsed.data.title,
       content:      parsed.data.content,
       order:        parsed.data.order,
@@ -86,8 +85,11 @@ router.patch('/:departmentId/:sopId', async (req: AuthRequest, res: Response) =>
   const { role, orgId, userId } = req.user!;
   if (!canEdit(role)) { res.status(403).json({ error: 'Only owners and department heads can edit SOPs' }); return; }
 
+  const deptId = String(req.params.departmentId);
+  const sopId  = String(req.params.sopId);
+
   const sop = await prisma.departmentSop.findFirst({
-    where: { id: req.params.sopId, departmentId: req.params.departmentId, orgId },
+    where: { id: sopId, departmentId: deptId, orgId },
   });
   if (!sop) { res.status(404).json({ error: 'SOP not found' }); return; }
 
@@ -117,8 +119,11 @@ router.delete('/:departmentId/:sopId', async (req: AuthRequest, res: Response) =
   const { role, orgId } = req.user!;
   if (!canEdit(role)) { res.status(403).json({ error: 'Only owners and department heads can delete SOPs' }); return; }
 
+  const deptId = String(req.params.departmentId);
+  const sopId  = String(req.params.sopId);
+
   const sop = await prisma.departmentSop.findFirst({
-    where: { id: req.params.sopId, departmentId: req.params.departmentId, orgId },
+    where: { id: sopId, departmentId: deptId, orgId },
   });
   if (!sop) { res.status(404).json({ error: 'SOP not found' }); return; }
 

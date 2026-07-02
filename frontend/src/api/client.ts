@@ -12,11 +12,15 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Guard against multiple concurrent 401s all triggering a redirect
+let redirectingToLogin = false;
+
 // Handle 401 globally — preserve the current URL so login can redirect back
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401) {
+    if (err.response?.status === 401 && !redirectingToLogin) {
+      redirectingToLogin = true;
       localStorage.removeItem('gr_token');
       // Clear persisted auth store so ProtectedRoute re-evaluates correctly
       localStorage.removeItem('gr-auth');
