@@ -16,7 +16,8 @@ pipeline {
     }
 
     environment {
-        PATH               = "/opt/homebrew/opt/openjdk@21/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        PNPM_HOME          = "${HOME}/.pnpm-global"
+        PATH               = "${PNPM_HOME}/bin:/opt/homebrew/opt/openjdk@21/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
         // AWS & S3
         AWS_REGION         = "ap-south-1"
@@ -125,7 +126,11 @@ pipeline {
                 set -eux
                 echo "📦 Installing frontend dependencies..."
                 cd frontend
-                npm ci --cache .npm-cache
+                if ! command -v pnpm &> /dev/null; then
+                  echo "pnpm not found, installing..."
+                  npm install -g pnpm --prefix "${PNPM_HOME}"
+                fi
+                pnpm install --frozen-lockfile
                 '''
             }
         }
@@ -139,7 +144,7 @@ pipeline {
                 set -eux
                 echo "🏗️ Building frontend..."
                 cd frontend
-                npm run build
+                pnpm run build
                 echo "✅ Build complete. Contents of dist/:"
                 ls -lh dist/
                 '''
