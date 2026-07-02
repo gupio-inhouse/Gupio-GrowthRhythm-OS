@@ -94,6 +94,9 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
   const [customDays, setCustomDays] = useState<string[]>([]);
   const [enhancingTitle, setEnhancingTitle] = useState(false);
   const [enhancingDesc, setEnhancingDesc] = useState(false);
+  const [enhanceTitleCount, setEnhanceTitleCount] = useState(0);
+  const [enhanceDescCount, setEnhanceDescCount] = useState(0);
+  const ENHANCE_LIMIT = 2;
 
   const { data: users = [] } = useQuery<UserItem[]>({
     queryKey: ['users-list'],
@@ -129,6 +132,8 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
     setUserDropOpen(false);
     setRecurrence('NONE');
     setCustomDays([]);
+    setEnhanceTitleCount(0);
+    setEnhanceDescCount(0);
     if (taskToEdit) {
       reset({
         title:           taskToEdit.title,
@@ -155,9 +160,10 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
     }
   }, [open, taskToEdit]);
 
-  const handleClose = () => { reset(); setUserSearch(''); setUserDropOpen(false); setRecurrence('NONE'); setCustomDays([]); onClose(); };
+  const handleClose = () => { reset(); setUserSearch(''); setUserDropOpen(false); setRecurrence('NONE'); setCustomDays([]); setEnhanceTitleCount(0); setEnhanceDescCount(0); onClose(); };
 
   const handleEnhanceTitle = async () => {
+    if (enhanceTitleCount >= ENHANCE_LIMIT) { toast.error('Enhance limit reached (max 2 times per task)'); return; }
     const currentTitle = watch('title')?.trim();
     if (!currentTitle) { toast.error('Enter a title first'); return; }
     setEnhancingTitle(true);
@@ -167,7 +173,8 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
         field: 'title',
       });
       setValue('title', res.data.title);
-      toast.success('Title enhanced');
+      setEnhanceTitleCount((c) => c + 1);
+      toast.success(`Title enhanced (${enhanceTitleCount + 1}/${ENHANCE_LIMIT})`);
     } catch {
       toast.error('AI enhancement failed');
     } finally {
@@ -176,6 +183,7 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
   };
 
   const handleEnhanceDesc = async () => {
+    if (enhanceDescCount >= ENHANCE_LIMIT) { toast.error('Enhance limit reached (max 2 times per task)'); return; }
     const currentTitle = watch('title')?.trim();
     if (!currentTitle) { toast.error('Enter a title first'); return; }
     setEnhancingDesc(true);
@@ -186,7 +194,8 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
         field: 'description',
       });
       setValue('description', res.data.description);
-      toast.success('Description enhanced');
+      setEnhanceDescCount((c) => c + 1);
+      toast.success(`Description enhanced (${enhanceDescCount + 1}/${ENHANCE_LIMIT})`);
     } catch {
       toast.error('AI enhancement failed');
     } finally {
@@ -283,21 +292,27 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
                   {...register('title')}
                   disabled={enhancingTitle}
                   className={cn(
-                    'rounded-xl border-border/60 focus-visible:ring-indigo-500/20 pr-9 transition-all',
+                    'rounded-xl border-border/60 focus-visible:ring-indigo-500/20 pr-16 transition-all',
                     enhancingTitle && 'opacity-60 bg-violet-50/50 border-violet-300',
                   )}
                 />
-                <button
-                  type="button"
-                  onClick={handleEnhanceTitle}
-                  disabled={enhancingTitle}
-                  title="Enhance title with AI"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6 flex items-center justify-center rounded-md text-violet-500 hover:text-violet-700 hover:bg-violet-50 transition-all disabled:opacity-60"
-                >
-                  {enhancingTitle
-                    ? <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-600" />
-                    : <Sparkles className="h-3.5 w-3.5" />}
-                </button>
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={handleEnhanceTitle}
+                    disabled={enhancingTitle || enhanceTitleCount >= ENHANCE_LIMIT}
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded-md border transition-all disabled:cursor-not-allowed
+                      bg-violet-50 border-violet-200 text-violet-600 hover:bg-violet-100
+                      disabled:bg-muted/40 disabled:border-border/40 disabled:text-muted-foreground"
+                  >
+                    {enhancingTitle
+                      ? <Loader2 className="h-3 w-3 animate-spin" />
+                      : <Sparkles className="h-3 w-3" />}
+                    <span className="text-[10px] font-bold tabular-nums">
+                      {enhanceTitleCount}/{ENHANCE_LIMIT}
+                    </span>
+                  </button>
+                </div>
                 {enhancingTitle && (
                   <div className="absolute inset-0 rounded-xl pointer-events-none ring-2 ring-violet-400 ring-offset-0 animate-pulse" />
                 )}
@@ -322,14 +337,20 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
                 <button
                   type="button"
                   onClick={handleEnhanceDesc}
-                  disabled={enhancingDesc}
-                  title="Enhance description with AI"
-                  className="absolute right-2 bottom-2 flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold text-violet-600 hover:text-violet-800 hover:bg-violet-50 border border-violet-200 transition-all disabled:opacity-60"
+                  disabled={enhancingDesc || enhanceDescCount >= ENHANCE_LIMIT}
+                  className="absolute right-2 bottom-2 flex items-center gap-1 px-1.5 py-0.5 rounded-md border transition-all disabled:cursor-not-allowed
+                    bg-violet-50 border-violet-200 text-violet-600 hover:bg-violet-100
+                    disabled:bg-muted/40 disabled:border-border/40 disabled:text-muted-foreground"
                 >
                   {enhancingDesc
                     ? <Loader2 className="h-3 w-3 animate-spin" />
                     : <Sparkles className="h-3 w-3" />}
-                  {enhancingDesc ? 'Enhancing…' : 'Enhance'}
+                  <span className="text-[10px] font-bold">
+                    {enhancingDesc ? 'Enhancing…' : 'Enhance'}
+                  </span>
+                  <span className="text-[10px] font-bold tabular-nums opacity-70">
+                    {enhanceDescCount}/{ENHANCE_LIMIT}
+                  </span>
                 </button>
                 {enhancingDesc && (
                   <div className="absolute inset-0 rounded-xl pointer-events-none ring-2 ring-violet-400 ring-offset-0 animate-pulse" />

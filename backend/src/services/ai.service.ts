@@ -3,17 +3,85 @@ import redis from '../lib/redis';
 import { createHash } from 'crypto';
 import { fanOutNotification } from './notification.service';
 import { GoogleGenAI } from '@google/genai';
+import Groq from 'groq-sdk';
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL = 'gemini-2.5-flash';
+// ── Provider clients ──────────────────────────────────────────────────────────
 
-function getGeminiClient() {
-  if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY is not configured');
-  // Let SDK read GEMINI_API_KEY from process.env — handles AQ. format keys correctly
+const GROQ_MODEL   = 'llama-3.1-8b-instant';  // free, very fast
+const GEMINI_MODEL = 'gemini-2.5-flash';       // fallback
+
+function groqClient() {
+  const key = process.env.GROQ_API_KEY;
+  if (!key) return null;
+  return new Groq({ apiKey: key });
+}
+
+function geminiClient() {
+  if (!process.env.GEMINI_API_KEY) return null;
   return new GoogleGenAI({});
 }
 
-// M9.2 — prompt registry (versioned prompts)
+// ── Core: Groq → Gemini fallback ─────────────────────────────────────────────
+
+async function callAIRaw(prompt: string, systemPrompt?: string): Promise<string> {
+  const groq = groqClient();
+  if (groq) {
+    try {
+      const res = await groq.chat.completions.create({
+        model: GROQ_MODEL,
+        messages: [
+          ...(systemPrompt ? [{ role: 'system' as const, content: systemPrompt }] : []),
+          { role: 'user' as const, content: prompt },
+        ],
+        max_tokens: 1024,
+      });
+      const text = res.choices[0]?.message?.content ?? '';
+      if (text) return text;
+    } catch (err) {
+      console.warn('[AI] Groq failed, falling back to Gemini:', (err as Error).message);
+    }
+  }
+
+  // Fallback: Gemini
+  const gemini = geminiClient();
+  if (!gemini) throw new Error('No AI provider configured. Set GROQ_API_KEY or GEMINI_API_KEY.');
+  const fullPrompt = systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt;
+  const response = await gemini.models.generateContent({ model: GEMINI_MODEL, contents: fullPrompt });
+  return response.text ?? '';
+}
+
+// M9.6 — cache AI responses in Redis
+async function getCachedResponse(cacheKey: string): Promise<string | null> {
+  try { return await redis.get(`ai:${cacheKey}`); } catch { return null; }
+}
+async function setCachedResponse(cacheKey: string, value: string, ttlSeconds = 3600): Promise<void> {
+  try { await redis.setex(`ai:${cacheKey}`, ttlSeconds, value); } catch { /* non-fatal */ }
+}
+
+async function callAI(prompt: string, systemPrompt?: string, cacheTtl = 0): Promise<string> {
+  if (cacheTtl > 0) {
+    const hash = createHash('sha256').update(`${systemPrompt ?? ''}::${prompt}`).digest('hex').slice(0, 16);
+    const cached = await getCachedResponse(hash);
+    if (cached) return cached;
+    const result = await callAIRaw(prompt, systemPrompt);
+    await setCachedResponse(hash, result, cacheTtl);
+    return result;
+  }
+  return callAIRaw(prompt, systemPrompt);
+}
+
+// kept for backward compatibility with any direct callers
+export async function callClaude(
+  prompt: string,
+  systemPrompt?: string,
+  _complexity = 'fast',
+  cacheTtl = 0
+): Promise<string> {
+  return callAI(prompt, systemPrompt, cacheTtl);
+}
+
+// ── Prompt registry ───────────────────────────────────────────────────────────
+
 export const PROMPTS = {
   STANDUP_DIGEST: {
     version: 'v1',
@@ -38,67 +106,17 @@ export const PROMPTS = {
     system: 'You are a project management assistant for Indian SMBs. Be concise and actionable.',
     user: (title: string, status: string, context: string) => {
       let focus = '';
-      if (status === 'BLOCKED') {
-        focus = `is blocked. Suggest 3 specific next steps to unblock it.`;
-      } else if (status === 'DONE') {
-        focus = `is completed. Suggest 3 verification steps, follow-ups, or learnings.`;
-      } else if (status === 'IN_PROGRESS') {
-        focus = `is now in progress. Suggest 3 best practices or ways to execute it efficiently and stay on track.`;
-      } else if (status === 'IN_REVIEW') {
-        focus = `is pending review. Suggest 3 checklist items for the reviewer to verify.`;
-      } else {
-        focus = `is set to ${status}. Suggest 3 next steps to plan or proceed.`;
-      }
+      if (status === 'BLOCKED')     focus = `is blocked. Suggest 3 specific next steps to unblock it.`;
+      else if (status === 'DONE')   focus = `is completed. Suggest 3 verification steps, follow-ups, or learnings.`;
+      else if (status === 'IN_PROGRESS') focus = `is now in progress. Suggest 3 best practices or ways to execute it efficiently.`;
+      else if (status === 'IN_REVIEW')   focus = `is pending review. Suggest 3 checklist items for the reviewer to verify.`;
+      else focus = `is set to ${status}. Suggest 3 next steps to plan or proceed.`;
       return `A task "${title}" has changed status to "${status}". Context/Blocker: ${context || 'none'}.\n\n${focus} Return JSON: {"suggestions": ["step 1", "step 2", "step 3"]}`;
     }
   },
 } as const;
 
-// M9.6 — cache Gemini responses in Redis
-async function getCachedResponse(cacheKey: string): Promise<string | null> {
-  try { return await redis.get(`ai:${cacheKey}`); } catch { return null; }
-}
-async function setCachedResponse(cacheKey: string, value: string, ttlSeconds = 3600): Promise<void> {
-  try { await redis.setex(`ai:${cacheKey}`, ttlSeconds, value); } catch { /* non-fatal */ }
-}
-
-async function callGemini(
-  prompt: string,
-  systemPrompt?: string,
-  cacheTtl = 0
-): Promise<string> {
-  if (cacheTtl > 0) {
-    const hash = createHash('sha256').update(`${systemPrompt ?? ''}::${prompt}`).digest('hex').slice(0, 16);
-    const cached = await getCachedResponse(hash);
-    if (cached) return cached;
-
-    const result = await callGeminiRaw(prompt, systemPrompt);
-    await setCachedResponse(hash, result, cacheTtl);
-    return result;
-  }
-
-  return callGeminiRaw(prompt, systemPrompt);
-}
-
-async function callGeminiRaw(prompt: string, systemPrompt?: string): Promise<string> {
-  const ai = getGeminiClient();
-  const fullPrompt = systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt;
-  const response = await ai.models.generateContent({
-    model: GEMINI_MODEL,
-    contents: fullPrompt,
-  });
-  return response.text ?? '';
-}
-
-// kept as a named export so existing callers still compile
-export async function callClaude(
-  prompt: string,
-  systemPrompt?: string,
-  _complexity = 'fast',
-  cacheTtl = 0
-): Promise<string> {
-  return callGemini(prompt, systemPrompt, cacheTtl);
-}
+// ── Feature functions ─────────────────────────────────────────────────────────
 
 export async function deductAiCredits(orgId: string, amount = 1): Promise<boolean> {
   const org = await prisma.organization.findUnique({
@@ -113,7 +131,6 @@ export async function deductAiCredits(orgId: string, amount = 1): Promise<boolea
     select: { aiCreditsUsed: true, aiCreditsTotal: true },
   });
 
-  // M9.5 — usage alert: notify owners when ≥80% credits consumed
   const usageRatio = updated.aiCreditsUsed / updated.aiCreditsTotal;
   if (usageRatio >= 0.8 && usageRatio - (amount / updated.aiCreditsTotal) < 0.8) {
     const owners = await prisma.user.findMany({
@@ -126,7 +143,6 @@ export async function deductAiCredits(orgId: string, amount = 1): Promise<boolea
       }).catch(() => {});
     }
   }
-
   return true;
 }
 
@@ -135,10 +151,7 @@ export async function generateStandupDigest(standupId: string): Promise<string> 
     where: { id: standupId },
     include: {
       department: { select: { name: true, orgId: true } },
-      cards: {
-        include: { user: { select: { name: true } } },
-        where: { status: 'SUBMITTED' },
-      },
+      cards: { include: { user: { select: { name: true } } }, where: { status: 'SUBMITTED' } },
     },
   });
   if (!standup) return '';
@@ -151,12 +164,11 @@ export async function generateStandupDigest(standupId: string): Promise<string> 
     `${c.user.name}: Yesterday: ${c.yesterdaySummary || '—'} | Today: ${c.todayCommitments || '—'} | Blockers: ${c.blockers || 'None'}`
   ).join('\n');
 
-  return callGemini(p.user(cardSummaries), p.system(standup.department.name), 1800);
+  return callAI(p.user(cardSummaries), p.system(standup.department.name), 1800);
 }
 
 export async function generateWeeklyDigest(orgId: string): Promise<string> {
   const weekAgo = new Date(Date.now() - 7 * 86400000);
-
   const [doneTasks, blockedTasks, standups] = await Promise.all([
     prisma.task.count({ where: { orgId, status: 'DONE', completedAt: { gte: weekAgo } } }),
     prisma.task.count({ where: { orgId, status: 'BLOCKED' } }),
@@ -167,14 +179,10 @@ export async function generateWeeklyDigest(orgId: string): Promise<string> {
   if (!hasCredits) return 'Insufficient AI credits';
 
   const p = PROMPTS.WEEKLY_DIGEST;
-  return callGemini(p.user(doneTasks, blockedTasks, standups), p.system, 43200);
+  return callAI(p.user(doneTasks, blockedTasks, standups), p.system, 43200);
 }
 
-// M4.7 — AI next-step suggestions for blocked tasks
-export async function generateTaskSuggestions(
-  taskId: string,
-  orgId: string
-): Promise<string[]> {
+export async function generateTaskSuggestions(taskId: string, orgId: string): Promise<string[]> {
   const task = await prisma.task.findUnique({
     where: { id: taskId },
     select: { title: true, blockerType: true, description: true },
@@ -185,7 +193,7 @@ export async function generateTaskSuggestions(
   if (!hasCredits) return [];
 
   const p = PROMPTS.TASK_SUGGESTIONS;
-  const text = await callGemini(
+  const text = await callAI(
     p.user(task.title, task.blockerType ?? 'unknown', task.description ?? ''),
     p.system,
     1800
@@ -194,9 +202,7 @@ export async function generateTaskSuggestions(
   try {
     const parsed = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] ?? '{}') as { suggestions?: string[] };
     return parsed.suggestions ?? [];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 
 export async function generateStatusChangeSuggestions(
@@ -212,38 +218,17 @@ export async function generateStatusChangeSuggestions(
   if (!task) return [];
 
   const fallbackSuggestions: Record<string, string[]> = {
-    BLOCKED: [
-      'Identify the root dependency or approval bottleneck and address it directly.',
-      'Set up a quick 5-minute sync with the blocker owner to align on next steps.',
-      'Escalate to the department head if the blocker resolution is delayed.'
-    ],
-    IN_PROGRESS: [
-      'Break down this task into smaller milestones or actionable sub-tasks.',
-      'Block dedicated focus time in your calendar to execute without distractions.',
-      'Share early drafts or progress with team members to get quick feedback.'
-    ],
-    DONE: [
-      'Double check the completed work against the initial task requirements.',
-      'Request feedback or approval from the task assigner or team manager.',
-      'Document any key learnings or useful documentation from this work.'
-    ],
-    IN_REVIEW: [
-      'Send a direct message or link to the reviewer to prompt their review.',
-      'Prepare a quick walkthrough or summary of the completed deliverables.',
-      'Be ready to iterate on the task if feedback or changes are requested.'
-    ],
-    TODO: [
-      'Identify any prerequisite information or resources needed to start.',
-      'Estimate the time needed for completion and set a personal target.',
-      'Confirm the expected outcome with the task creator before beginning.'
-    ],
+    BLOCKED:     ['Identify the root dependency or approval bottleneck and address it directly.', 'Set up a quick 5-minute sync with the blocker owner to align on next steps.', 'Escalate to the department head if the blocker resolution is delayed.'],
+    IN_PROGRESS: ['Break down this task into smaller milestones or actionable sub-tasks.', 'Block dedicated focus time in your calendar to execute without distractions.', 'Share early drafts or progress with team members to get quick feedback.'],
+    DONE:        ['Double check the completed work against the initial task requirements.', 'Request feedback or approval from the task assigner or team manager.', 'Document any key learnings or useful documentation from this work.'],
+    IN_REVIEW:   ['Send a direct message or link to the reviewer to prompt their review.', 'Prepare a quick walkthrough or summary of the completed deliverables.', 'Be ready to iterate on the task if feedback or changes are requested.'],
+    TODO:        ['Identify any prerequisite information or resources needed to start.', 'Estimate the time needed for completion and set a personal target.', 'Confirm the expected outcome with the task creator before beginning.'],
   };
 
-  const statusKey = status as keyof typeof fallbackSuggestions;
-  const fallbacks = fallbackSuggestions[statusKey] || [
+  const fallbacks = fallbackSuggestions[status] || [
     'Define the next immediate action item to get started on this task.',
     'Align with relevant stakeholders on the priority and expected timeline.',
-    'Check if any resources are missing that might delay progression.'
+    'Check if any resources are missing that might delay progression.',
   ];
 
   try {
@@ -252,12 +237,11 @@ export async function generateStatusChangeSuggestions(
 
     const context = blockerDetails || task.description || '';
     const p = PROMPTS.STATUS_CHANGE_SUGGESTIONS;
-    const text = await callGemini(p.user(task.title, status, context), p.system, 1800);
-
+    const text = await callAI(p.user(task.title, status, context), p.system, 1800);
     const parsed = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] ?? '{}') as { suggestions?: string[] };
-    return parsed.suggestions && parsed.suggestions.length > 0 ? parsed.suggestions : fallbacks;
+    return parsed.suggestions?.length ? parsed.suggestions : fallbacks;
   } catch (error) {
-    console.error('Error generating status suggestions via AI, using fallback:', error);
+    console.error('Error generating status suggestions, using fallback:', error);
     return fallbacks;
   }
 }
@@ -288,9 +272,9 @@ Task Title: ${title}
 Task Description: ${description || '(none provided)'}`;
   }
 
-  const text = (await callGeminiRaw(prompt)).trim();
+  const text = (await callAIRaw(prompt)).trim();
   const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error('Gemini returned unexpected format');
+  if (!jsonMatch) throw new Error('AI returned unexpected format');
 
   const parsed = JSON.parse(jsonMatch[0]) as { title?: string; description?: string };
   return {
