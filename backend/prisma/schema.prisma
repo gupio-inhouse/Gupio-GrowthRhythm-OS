@@ -114,6 +114,11 @@ enum AuditAction {
   REVOKE
 }
 
+enum DeptAccessType {
+  FULL
+  SPECIFIC
+}
+
 // ─── Core Entities ────────────────────────────────────────────────────────────
 
 model Organization {
@@ -148,6 +153,9 @@ model Organization {
   candidates      Candidate[]
   onboardingChecklists OnboardingChecklist[]
   appFeedback     AppFeedback[]
+  learningModules     LearningModule[]
+  learningEnrollments LearningEnrollment[]
+  departmentGrants    UserDepartmentGrant[]
 
   @@map("organizations")
 }
@@ -193,6 +201,12 @@ model User {
   onboardingChecklists OnboardingChecklist[]
   appFeedback          AppFeedback[]
   taskStatusHistories  TaskStatusHistory[] @relation("UserStatusHistories")
+  createdModules       LearningModule[]    @relation("LearningModuleCreator")
+  enrollments          LearningEnrollment[] @relation("UserEnrollments")
+  lessonProgress       LessonProgress[]    @relation("UserLessonProgress")
+  certificates         LearningCertificate[] @relation("UserCertificates")
+  receivedGrant        UserDepartmentGrant? @relation("ReceivedGrant")
+  issuedGrants         UserDepartmentGrant[] @relation("IssuedGrants")
 
   @@unique([orgId, email])
   @@map("users")
@@ -223,9 +237,28 @@ model Department {
   standups        Standup[]
   jobDescriptions JobDescription[]
   appFeedback     AppFeedback[]
+  learningModules LearningModule[]
 
   @@unique([orgId, slug])
   @@map("departments")
+}
+
+model UserDepartmentGrant {
+  id              String         @id @default(cuid())
+  orgId           String         @map("org_id")
+  userId          String         @unique @map("user_id")
+  grantedByUserId String         @map("granted_by_user_id")
+  accessType      DeptAccessType @map("access_type")
+  departmentIds   String[]       @map("department_ids")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user      User         @relation("ReceivedGrant", fields: [userId], references: [id], onDelete: Cascade)
+  grantedBy User         @relation("IssuedGrants", fields: [grantedByUserId], references: [id])
+
+  @@unique([orgId, userId])
+  @@map("user_department_grants")
 }
 
 model Team {
@@ -656,5 +689,188 @@ model TaskStatusHistory {
   changedBy User @relation("UserStatusHistories", fields: [changedById], references: [id], onDelete: Cascade)
 
   @@map("task_status_histories")
+}
+
+// ─── Learning Module ──────────────────────────────────────────────────────────
+
+enum LearningModuleType {
+  ONBOARDING
+  COMPLIANCE
+  SKILLS
+  PRODUCT
+  PROCESS
+  CERTIFICATION
+  OTHER
+}
+
+enum LessonContentType {
+  VIDEO
+  PDF
+  ARTICLE
+  QUIZ
+  EMBED
+  CHECKPOINT
+}
+
+enum EnrollmentStatus {
+  ENROLLED
+  IN_PROGRESS
+  COMPLETED
+  OVERDUE
+  DROPPED
+}
+
+enum LessonProgressStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+
+model LearningModule {
+  id            String             @id @default(cuid())
+  orgId         String             @map("org_id")
+  departmentId  String?            @map("department_id")
+  title         String
+  description   String?
+  coverImageUrl String?            @map("cover_image_url")
+  type          LearningModuleType @default(OTHER)
+  isPublished   Boolean            @default(false) @map("is_published")
+  isMandatory   Boolean            @default(false) @map("is_mandatory")
+  passScore     Int                @default(70) @map("pass_score")
+  durationDays  Int?               @map("duration_days")
+  order         Int                @default(0)
+  isActive      Boolean            @default(true) @map("is_active")
+  createdById   String             @map("created_by_id")
+  createdAt     DateTime           @default(now()) @map("created_at")
+  updatedAt     DateTime           @updatedAt @map("updated_at")
+
+  org          Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  department   Department?          @relation(fields: [departmentId], references: [id])
+  createdBy    User                 @relation("LearningModuleCreator", fields: [createdById], references: [id])
+  phases       LearningPhase[]
+  lessons      LearningLesson[]
+  enrollments  LearningEnrollment[]
+  certificates LearningCertificate[]
+
+  @@map("learning_modules")
+}
+
+model LearningPhase {
+  id          String   @id @default(cuid())
+  moduleId    String   @map("module_id")
+  title       String
+  phaseNumber Int      @map("phase_number")
+  color       String?
+  dayStart    Int?     @map("day_start")
+  dayEnd      Int?     @map("day_end")
+  order       Int      @default(0)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  module  LearningModule   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  lessons LearningLesson[]
+
+  @@map("learning_phases")
+}
+
+model LearningLesson {
+  id              String            @id @default(cuid())
+  moduleId        String            @map("module_id")
+  phaseId         String?           @map("phase_id")
+  title           String
+  description     String?
+  contentType     LessonContentType @map("content_type")
+  contentUrl      String?           @map("content_url")
+  contentBody     String?           @map("content_body")
+  topics          Json?
+  dayStart        Int?              @map("day_start")
+  dayEnd          Int?              @map("day_end")
+  checkpointItems Json?             @map("checkpoint_items")
+  durationMins    Int?              @map("duration_mins")
+  order           Int               @default(0)
+  isRequired      Boolean           @default(true) @map("is_required")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  module   LearningModule  @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  phase    LearningPhase?  @relation(fields: [phaseId], references: [id])
+  quizzes  LearningQuiz[]
+  progress LessonProgress[]
+
+  @@map("learning_lessons")
+}
+
+model LearningQuiz {
+  id            String   @id @default(cuid())
+  lessonId      String   @map("lesson_id")
+  question      String
+  options       Json
+  correctAnswer Int      @map("correct_answer")
+  explanation   String?
+  points        Int      @default(1)
+  order         Int      @default(0)
+
+  lesson LearningLesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@map("learning_quizzes")
+}
+
+model LearningEnrollment {
+  id          String           @id @default(cuid())
+  orgId       String           @map("org_id")
+  moduleId    String           @map("module_id")
+  userId      String           @map("user_id")
+  status      EnrollmentStatus @default(ENROLLED)
+  enrolledAt  DateTime         @default(now()) @map("enrolled_at")
+  dueDate     DateTime?        @map("due_date")
+  startedAt   DateTime?        @map("started_at")
+  completedAt DateTime?        @map("completed_at")
+  score       Float?
+  passed      Boolean?
+
+  org         Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  module      LearningModule       @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  user        User                 @relation("UserEnrollments", fields: [userId], references: [id])
+  progress    LessonProgress[]
+  certificate LearningCertificate?
+
+  @@unique([moduleId, userId])
+  @@map("learning_enrollments")
+}
+
+model LessonProgress {
+  id            String               @id @default(cuid())
+  enrollmentId  String               @map("enrollment_id")
+  lessonId      String               @map("lesson_id")
+  userId        String               @map("user_id")
+  status        LessonProgressStatus @default(NOT_STARTED)
+  startedAt     DateTime?            @map("started_at")
+  completedAt   DateTime?            @map("completed_at")
+  timeSpentSec  Int                  @default(0) @map("time_spent_sec")
+  videoPosition Int?                 @map("video_position")
+  quizScore     Float?               @map("quiz_score")
+  quizAttempts  Int                  @default(0) @map("quiz_attempts")
+  quizAnswers   Json?                @map("quiz_answers")
+
+  enrollment LearningEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  lesson     LearningLesson     @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  user       User               @relation("UserLessonProgress", fields: [userId], references: [id])
+
+  @@unique([enrollmentId, lessonId])
+  @@map("lesson_progress")
+}
+
+model LearningCertificate {
+  id             String   @id @default(cuid())
+  enrollmentId   String   @unique @map("enrollment_id")
+  userId         String   @map("user_id")
+  moduleId       String   @map("module_id")
+  issuedAt       DateTime @default(now()) @map("issued_at")
+  certificateUrl String?  @map("certificate_url")
+
+  enrollment LearningEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  user       User               @relation("UserCertificates", fields: [userId], references: [id])
+  module     LearningModule     @relation(fields: [moduleId], references: [id])
+
+  @@map("learning_certificates")
 }
 

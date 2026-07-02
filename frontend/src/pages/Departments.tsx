@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   Building2, Users, CheckSquare, Clock, Settings, Plus, Trash2,
-  UserPlus, X, ChevronRight, Zap, Shield, Layers,
+  UserPlus, X, ChevronRight, Zap, Shield, Layers, KeyRound, Check,
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Input } from '@/components/ui/input';
@@ -14,6 +14,7 @@ import { cn, getInitials } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/api/client';
 import { toast } from '@/hooks/use-toast';
+import { departmentGrantsApi, DeptGrant } from '@/api/departmentGrants';
 
 type Department = {
   id: string; name: string; slug: string;
@@ -59,6 +60,8 @@ export default function Departments() {
   type InviteRow = { name: string; email: string; role: string; status: 'idle' | 'sending' | 'sent' | 'error'; errorMsg?: string };
   const [invites, setInvites] = useState<InviteRow[]>([{ name: '', email: '', role: 'TEAM_MEMBER', status: 'idle' }]);
 
+  const [accessDialogOpen, setAccessDialogOpen] = useState(false);
+
   const { data: departments = [], isLoading } = useQuery<Department[]>({
     queryKey: ['departments'],
     queryFn: () => api.get('/departments').then((r) => r.data),
@@ -66,6 +69,7 @@ export default function Departments() {
 
   const canConfigure = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'].includes(user?.role || '');
   const canCreate    = ['OWNER', 'COMPANY_ADMIN'].includes(user?.role || '');
+  const isOwner      = user?.role === 'OWNER';
   const qc = useQueryClient();
   const [deleteDeptId, setDeleteDeptId] = useState<string | null>(null);
 
@@ -146,14 +150,24 @@ export default function Departments() {
             </div>
           </div>
 
-          {canCreate && (
-            <button
-              onClick={() => handleCreateOpen(true)}
-              className="inline-flex items-center gap-2 h-10 px-5 rounded-2xl bg-gradient-to-r from-violet-500 to-purple-600 text-white text-sm font-bold hover:from-violet-600 hover:to-purple-700 transition-all shadow-lg shadow-violet-200/60 hover:shadow-xl hover:shadow-violet-300/60 hover:scale-[1.02] active:scale-[0.98]"
-            >
-              <Plus className="h-4 w-4" /> Add Department
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {isOwner && (
+              <button
+                onClick={() => setAccessDialogOpen(true)}
+                className="inline-flex items-center gap-2 h-10 px-4 rounded-2xl border border-violet-200 bg-violet-50 text-violet-700 text-sm font-semibold hover:bg-violet-100 transition-all"
+              >
+                <KeyRound className="h-4 w-4" /> Manage Access
+              </button>
+            )}
+            {canCreate && (
+              <button
+                onClick={() => handleCreateOpen(true)}
+                className="inline-flex items-center gap-2 h-10 px-5 rounded-2xl bg-gradient-to-r from-violet-500 to-purple-600 text-white text-sm font-bold hover:from-violet-600 hover:to-purple-700 transition-all shadow-lg shadow-violet-200/60 hover:shadow-xl hover:shadow-violet-300/60 hover:scale-[1.02] active:scale-[0.98]"
+              >
+                <Plus className="h-4 w-4" /> Add Department
+              </button>
+            )}
+          </div>
         </div>
 
         {/* ── Department Grid ── */}
@@ -290,6 +304,14 @@ export default function Departments() {
         {/* ── Standup Schedule Dialog ── */}
         {scheduleTarget && (
           <StandupScheduleDialog dept={scheduleTarget} onClose={() => setScheduleTarget(null)} />
+        )}
+
+        {/* ── Department Access Dialog ── */}
+        {accessDialogOpen && (
+          <DeptAccessDialog
+            departments={departments}
+            onClose={() => setAccessDialogOpen(false)}
+          />
         )}
 
         {/* ── Delete Confirm Dialog ── */}
@@ -661,6 +683,337 @@ function StandupScheduleDialog({ dept, onClose }: { dept: Department; onClose: (
               {saving ? 'Saving…' : 'Save Schedule'}
             </button>
           </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Department Access Dialog ───────────────────────────────────────────────────
+
+const ROLE_LABEL: Record<string, string> = {
+  COMPANY_ADMIN:   'Company Admin',
+  DEPARTMENT_HEAD: 'Dept Head',
+  MANAGER:         'Manager',
+  TEAM_MEMBER:     'Team Member',
+  COACH_ADVISOR:   'Advisor',
+};
+
+type OrgUser = { id: string; name: string; email: string; role: string; avatarUrl?: string };
+
+function DeptAccessDialog({
+  departments,
+  onClose,
+}: {
+  departments: Department[];
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+
+  // Fetch existing grants
+  const { data: grants = [], isLoading: grantsLoading } = useQuery<DeptGrant[]>({
+    queryKey: ['dept-grants'],
+    queryFn: departmentGrantsApi.list,
+  });
+
+  // Fetch org users (excluding owner/super admin — they already have full access)
+  const { data: orgUsers = [] } = useQuery<OrgUser[]>({
+    queryKey: ['users-for-grant'],
+    queryFn: () =>
+      api.get('/users').then((r) =>
+        (r.data as OrgUser[]).filter(
+          (u) => !['OWNER', 'SUPER_ADMIN'].includes(u.role)
+        )
+      ),
+  });
+
+  // Grant form state
+  const [formOpen, setFormOpen]       = useState(false);
+  const [editGrant, setEditGrant]     = useState<DeptGrant | null>(null);
+  const [selUserId, setSelUserId]     = useState('');
+  const [accessType, setAccessType]   = useState<'FULL' | 'SPECIFIC'>('FULL');
+  const [selDepts, setSelDepts]       = useState<string[]>([]);
+
+  const openCreate = () => {
+    setEditGrant(null);
+    setSelUserId('');
+    setAccessType('FULL');
+    setSelDepts([]);
+    setFormOpen(true);
+  };
+
+  const openEdit = (g: DeptGrant) => {
+    setEditGrant(g);
+    setSelUserId(g.userId);
+    setAccessType(g.accessType);
+    setSelDepts(g.departmentIds);
+    setFormOpen(true);
+  };
+
+  const toggleDept = (id: string) =>
+    setSelDepts((prev) =>
+      prev.includes(id) ? prev.filter((d) => d !== id) : [...prev, id]
+    );
+
+  const upsertMutation = useMutation({
+    mutationFn: () =>
+      departmentGrantsApi.upsert({
+        userId: selUserId,
+        accessType,
+        departmentIds: accessType === 'FULL' ? [] : selDepts,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['dept-grants'] });
+      qc.invalidateQueries({ queryKey: ['departments'] });
+      setFormOpen(false);
+      toast.success('Access grant saved');
+    },
+    onError: (err: unknown) => {
+      const e = err as { response?: { data?: { error?: string } } };
+      toast.error(e.response?.data?.error ?? 'Failed to save grant');
+    },
+  });
+
+  const revokeMutation = useMutation({
+    mutationFn: (userId: string) => departmentGrantsApi.revoke(userId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['dept-grants'] });
+      qc.invalidateQueries({ queryKey: ['departments'] });
+      toast.success('Access revoked');
+    },
+    onError: () => toast.error('Failed to revoke access'),
+  });
+
+  const canSubmit =
+    selUserId &&
+    (accessType === 'FULL' || selDepts.length > 0);
+
+  // Users not already granted (for create mode)
+  const grantedUserIds = new Set(grants.map((g) => g.userId));
+  const availableUsers = editGrant
+    ? orgUsers
+    : orgUsers.filter((u) => !grantedUserIds.has(u.id));
+
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-lg p-0 gap-0 overflow-hidden rounded-2xl">
+
+        {/* Header */}
+        <div className="px-6 pt-5 pb-4 border-b bg-gradient-to-br from-violet-50 to-purple-50/60">
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-sm">
+              <KeyRound className="h-4 w-4 text-white" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold">Department Access</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Grant users cross-department visibility and assignment rights
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-6 py-5 space-y-4 max-h-[70vh] overflow-y-auto">
+
+          {/* Existing grants list */}
+          {grantsLoading ? (
+            <div className="space-y-2">
+              {[1, 2].map((i) => (
+                <div key={i} className="h-16 rounded-xl bg-muted/40 animate-pulse" />
+              ))}
+            </div>
+          ) : grants.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-border/60 py-8 text-center text-muted-foreground text-sm">
+              No cross-department access granted yet
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {grants.map((g) => (
+                <div
+                  key={g.id}
+                  className="rounded-xl border border-border/60 bg-white p-3 flex items-center gap-3"
+                >
+                  <Avatar className="h-9 w-9 shrink-0">
+                    <AvatarImage src={g.user.avatarUrl} />
+                    <AvatarFallback className="bg-violet-100 text-violet-700 text-xs font-bold">
+                      {getInitials(g.user.name)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold truncate">{g.user.name}</p>
+                    <p className="text-xs text-muted-foreground truncate">{ROLE_LABEL[g.user.role] ?? g.user.role}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {g.accessType === 'FULL' ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        Full Access
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                        {g.departmentIds.length} dept{g.departmentIds.length !== 1 ? 's' : ''}
+                      </span>
+                    )}
+                    <button
+                      onClick={() => openEdit(g)}
+                      className="h-7 w-7 rounded-lg border border-border/60 flex items-center justify-center text-muted-foreground hover:text-violet-600 hover:bg-violet-50 hover:border-violet-200 transition-all"
+                      title="Edit"
+                    >
+                      <Settings className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={() => revokeMutation.mutate(g.userId)}
+                      disabled={revokeMutation.isPending}
+                      className="h-7 w-7 rounded-lg border border-border/60 flex items-center justify-center text-muted-foreground hover:text-red-600 hover:bg-red-50 hover:border-red-200 transition-all disabled:opacity-40"
+                      title="Revoke"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Grant form */}
+          {formOpen ? (
+            <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-4 space-y-4">
+              <p className="text-xs font-bold text-violet-700 uppercase tracking-wide">
+                {editGrant ? 'Edit Grant' : 'New Grant'}
+              </p>
+
+              {/* User selector */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">User</Label>
+                {editGrant ? (
+                  <div className="flex items-center gap-2 h-10 px-3 rounded-xl border border-border/60 bg-white">
+                    <Avatar className="h-5 w-5">
+                      <AvatarImage src={editGrant.user.avatarUrl} />
+                      <AvatarFallback className="text-[9px] bg-violet-100 text-violet-700">{getInitials(editGrant.user.name)}</AvatarFallback>
+                    </Avatar>
+                    <span className="text-sm font-medium">{editGrant.user.name}</span>
+                    <span className="text-xs text-muted-foreground ml-1">({ROLE_LABEL[editGrant.user.role] ?? editGrant.user.role})</span>
+                  </div>
+                ) : (
+                  <Select value={selUserId} onValueChange={setSelUserId}>
+                    <SelectTrigger className="h-10 rounded-xl border-border/60 bg-white">
+                      <SelectValue placeholder="Select a user…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableUsers.map((u) => (
+                        <SelectItem key={u.id} value={u.id}>
+                          <span className="font-medium">{u.name}</span>
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            {ROLE_LABEL[u.role] ?? u.role}
+                          </span>
+                        </SelectItem>
+                      ))}
+                      {availableUsers.length === 0 && (
+                        <div className="px-3 py-2 text-xs text-muted-foreground">All eligible users already have grants</div>
+                      )}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+
+              {/* Access type */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Access Level</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['FULL', 'SPECIFIC'] as const).map((type) => (
+                    <button
+                      key={type}
+                      onClick={() => { setAccessType(type); if (type === 'FULL') setSelDepts([]); }}
+                      className={cn(
+                        'h-10 rounded-xl border text-sm font-semibold transition-all',
+                        accessType === type
+                          ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
+                          : 'bg-white text-muted-foreground border-border/60 hover:border-violet-300',
+                      )}
+                    >
+                      {type === 'FULL' ? 'Full Access' : 'Specific Departments'}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {accessType === 'FULL'
+                    ? 'User can view and manage all departments'
+                    : 'User can only access the selected departments below'}
+                </p>
+              </div>
+
+              {/* Department multi-select (only for SPECIFIC) */}
+              {accessType === 'SPECIFIC' && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                    Departments ({selDepts.length} selected)
+                  </Label>
+                  <div className="grid grid-cols-1 gap-1.5 max-h-40 overflow-y-auto pr-1">
+                    {departments.map((dept) => {
+                      const pal = deptPalette(dept.name);
+                      const selected = selDepts.includes(dept.id);
+                      return (
+                        <button
+                          key={dept.id}
+                          onClick={() => toggleDept(dept.id)}
+                          className={cn(
+                            'flex items-center gap-2.5 h-9 px-3 rounded-xl border text-sm text-left transition-all',
+                            selected
+                              ? cn('border-violet-300 bg-violet-50 text-violet-800 font-semibold', pal.border)
+                              : 'border-border/60 bg-white text-foreground hover:border-violet-200',
+                          )}
+                        >
+                          <div className={cn(
+                            'h-5 w-5 rounded-md flex items-center justify-center shrink-0',
+                            selected ? 'bg-violet-600' : 'border border-border/60 bg-white',
+                          )}>
+                            {selected && <Check className="h-3 w-3 text-white" />}
+                          </div>
+                          <span className="truncate">{dept.name}</span>
+                          {dept.head && (
+                            <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
+                              {dept.head.name}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  onClick={() => setFormOpen(false)}
+                  className="h-9 px-4 rounded-xl border border-border/60 text-sm text-muted-foreground hover:bg-muted transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => upsertMutation.mutate()}
+                  disabled={!canSubmit || upsertMutation.isPending}
+                  className="h-9 px-5 rounded-xl bg-gradient-to-r from-violet-500 to-purple-600 text-white text-sm font-bold hover:from-violet-600 hover:to-purple-700 transition-all shadow-sm disabled:opacity-50"
+                >
+                  {upsertMutation.isPending ? 'Saving…' : 'Save Grant'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={openCreate}
+              className="w-full h-10 rounded-xl border border-dashed border-violet-300 text-violet-600 text-sm font-semibold hover:bg-violet-50 transition-colors flex items-center justify-center gap-1.5"
+            >
+              <Plus className="h-4 w-4" /> Grant Access to a User
+            </button>
+          )}
+        </div>
+
+        <div className="px-6 py-4 border-t flex justify-end">
+          <button
+            onClick={onClose}
+            className="h-9 px-5 rounded-xl border border-border/60 text-sm font-semibold hover:bg-muted transition-colors"
+          >
+            Done
+          </button>
         </div>
       </DialogContent>
     </Dialog>

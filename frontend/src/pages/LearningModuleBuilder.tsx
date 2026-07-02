@@ -1,0 +1,641 @@
+import { useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  ArrowLeft, Plus, Trash2, Edit2, GripVertical, BookOpen,
+  Video, FileText, Link2, CheckSquare, HelpCircle, Eye, EyeOff,
+  Loader2, ChevronDown, ChevronUp, Users, Save,
+} from 'lucide-react';
+import { learningApi, LearningLesson, LearningPhase, LearningModule } from '@/api/learning';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { toast } from '@/hooks/use-toast';
+import { cn } from '@/lib/utils';
+import EnrollUsersDialog from '@/components/learning/EnrollUsersDialog';
+
+const CONTENT_TYPE_ICONS: Record<string, React.ElementType> = {
+  VIDEO: Video,
+  PDF: FileText,
+  ARTICLE: BookOpen,
+  QUIZ: HelpCircle,
+  EMBED: Link2,
+  CHECKPOINT: CheckSquare,
+};
+
+const CONTENT_TYPE_LABELS: Record<string, string> = {
+  VIDEO: 'Video',
+  PDF: 'PDF',
+  ARTICLE: 'Article',
+  QUIZ: 'Quiz',
+  EMBED: 'Embed',
+  CHECKPOINT: 'Checkpoint',
+};
+
+const PHASE_COLORS = ['#6366f1', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#0ea5e9'];
+
+interface LessonForm {
+  title: string;
+  description: string;
+  contentType: string;
+  contentUrl: string;
+  contentBody: string;
+  topics: string;
+  dayStart: string;
+  dayEnd: string;
+  durationMins: string;
+  isRequired: boolean;
+  checkpointItems: string;
+  phaseId: string;
+}
+
+const EMPTY_LESSON: LessonForm = {
+  title: '',
+  description: '',
+  contentType: 'ARTICLE',
+  contentUrl: '',
+  contentBody: '',
+  topics: '',
+  dayStart: '',
+  dayEnd: '',
+  durationMins: '',
+  isRequired: true,
+  checkpointItems: '',
+  phaseId: '',
+};
+
+export default function LearningModuleBuilder() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const [expandedPhase, setExpandedPhase] = useState<string | null>(null);
+  const [showLessonForm, setShowLessonForm] = useState(false);
+  const [editLesson, setEditLesson] = useState<LearningLesson | null>(null);
+  const [lessonForm, setLessonForm] = useState<LessonForm>(EMPTY_LESSON);
+  const [showPhaseForm, setShowPhaseForm] = useState(false);
+  const [phaseTitle, setPhaseTitle] = useState('');
+  const [phaseColor, setPhaseColor] = useState(PHASE_COLORS[0]);
+  const [showEnroll, setShowEnroll] = useState(false);
+  const [deleteLesson, setDeleteLesson] = useState<string | null>(null);
+
+  const { data: module, isLoading } = useQuery({
+    queryKey: ['learning:module', id],
+    queryFn: () => learningApi.getModule(id!),
+    enabled: !!id,
+  });
+
+  const createLessonMutation = useMutation({
+    mutationFn: (data: Partial<LearningLesson>) => learningApi.createLesson(id!, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['learning:module', id] });
+      setShowLessonForm(false);
+      setLessonForm(EMPTY_LESSON);
+      toast.success('Lesson added');
+    },
+    onError: () => toast.error('Failed to add lesson'),
+  });
+
+  const updateLessonMutation = useMutation({
+    mutationFn: ({ lessonId, data }: { lessonId: string; data: Partial<LearningLesson> }) =>
+      learningApi.updateLesson(id!, lessonId, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['learning:module', id] });
+      setEditLesson(null);
+      setShowLessonForm(false);
+      toast.success('Lesson updated');
+    },
+    onError: () => toast.error('Failed to update lesson'),
+  });
+
+  const deleteLessonMutation = useMutation({
+    mutationFn: (lessonId: string) => learningApi.deleteLesson(id!, lessonId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['learning:module', id] });
+      setDeleteLesson(null);
+      toast.success('Lesson deleted');
+    },
+    onError: () => toast.error('Failed to delete'),
+  });
+
+  const createPhaseMutation = useMutation({
+    mutationFn: (data: Partial<LearningPhase>) => learningApi.createPhase(id!, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['learning:module', id] });
+      setShowPhaseForm(false);
+      setPhaseTitle('');
+      toast.success('Phase added');
+    },
+    onError: () => toast.error('Failed to add phase'),
+  });
+
+  const deletePhaseMutation = useMutation({
+    mutationFn: (phaseId: string) => learningApi.deletePhase(id!, phaseId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['learning:module', id] });
+      toast.success('Phase deleted');
+    },
+    onError: () => toast.error('Failed to delete phase'),
+  });
+
+  const publishMutation = useMutation({
+    mutationFn: () => learningApi.publishModule(id!),
+    onSuccess: (mod: LearningModule) => {
+      qc.invalidateQueries({ queryKey: ['learning:module', id] });
+      qc.invalidateQueries({ queryKey: ['learning:admin'] });
+      toast.success(mod.isPublished ? 'Module published' : 'Module unpublished');
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed'),
+  });
+
+  function openCreateLesson(phaseId?: string) {
+    setEditLesson(null);
+    setLessonForm({ ...EMPTY_LESSON, phaseId: phaseId ?? '' });
+    setShowLessonForm(true);
+  }
+
+  function openEditLesson(lesson: LearningLesson) {
+    setEditLesson(lesson);
+    setLessonForm({
+      title: lesson.title,
+      description: lesson.description ?? '',
+      contentType: lesson.contentType,
+      contentUrl: lesson.contentUrl ?? '',
+      contentBody: lesson.contentBody ?? '',
+      topics: (lesson.topics ?? []).join(', '),
+      dayStart: lesson.dayStart?.toString() ?? '',
+      dayEnd: lesson.dayEnd?.toString() ?? '',
+      durationMins: lesson.durationMins?.toString() ?? '',
+      isRequired: lesson.isRequired,
+      checkpointItems: (lesson.checkpointItems ?? []).join('\n'),
+      phaseId: lesson.phaseId ?? '',
+    });
+    setShowLessonForm(true);
+  }
+
+  function submitLesson() {
+    const data: Partial<LearningLesson> = {
+      title: lessonForm.title,
+      description: lessonForm.description || undefined,
+      contentType: lessonForm.contentType as LearningLesson['contentType'],
+      contentUrl: lessonForm.contentUrl || null,
+      contentBody: lessonForm.contentBody || null,
+      topics: lessonForm.topics ? lessonForm.topics.split(',').map((t) => t.trim()).filter(Boolean) : [],
+      dayStart: lessonForm.dayStart ? parseInt(lessonForm.dayStart) : null,
+      dayEnd: lessonForm.dayEnd ? parseInt(lessonForm.dayEnd) : null,
+      durationMins: lessonForm.durationMins ? parseInt(lessonForm.durationMins) : null,
+      isRequired: lessonForm.isRequired,
+      checkpointItems: lessonForm.checkpointItems
+        ? lessonForm.checkpointItems.split('\n').map((s) => s.trim()).filter(Boolean)
+        : null,
+      phaseId: lessonForm.phaseId || null,
+    };
+
+    if (editLesson) {
+      updateLessonMutation.mutate({ lessonId: editLesson.id, data });
+    } else {
+      createLessonMutation.mutate(data);
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!module) return null;
+
+  const phaseLessons = (phaseId: string | null) =>
+    module.lessons.filter((l) => l.phaseId === phaseId);
+  const ungroupedLessons = module.lessons.filter((l) => !l.phaseId);
+
+  return (
+    <div className="p-6 max-w-5xl mx-auto space-y-6">
+      {/* Header */}
+      <div className="flex items-start gap-4">
+        <Button variant="ghost" size="icon" onClick={() => navigate('/learning/admin')} className="shrink-0 mt-0.5">
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-xl font-bold truncate">{module.title}</h1>
+            {module.isPublished ? (
+              <Badge className="bg-green-100 text-green-800 border-green-200">Published</Badge>
+            ) : (
+              <Badge variant="outline" className="text-amber-600 border-amber-300">Draft</Badge>
+            )}
+          </div>
+          {module.description && (
+            <p className="text-sm text-muted-foreground mt-0.5 line-clamp-1">{module.description}</p>
+          )}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button variant="outline" size="sm" onClick={() => setShowEnroll(true)}>
+            <Users className="h-4 w-4 mr-2" />
+            Enroll Users
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => publishMutation.mutate()}
+            disabled={publishMutation.isPending}
+            variant={module.isPublished ? 'outline' : 'default'}
+          >
+            {publishMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            ) : module.isPublished ? (
+              <EyeOff className="h-4 w-4 mr-2" />
+            ) : (
+              <Eye className="h-4 w-4 mr-2" />
+            )}
+            {module.isPublished ? 'Unpublish' : 'Publish'}
+          </Button>
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div className="flex items-center gap-6 text-sm text-muted-foreground border-b pb-4">
+        <span><strong className="text-foreground">{module.phases.length}</strong> phases</span>
+        <span><strong className="text-foreground">{module.lessons.length}</strong> lessons</span>
+        <span><strong className="text-foreground">{module._count?.enrollments ?? 0}</strong> enrolled</span>
+        {module.durationDays && <span><strong className="text-foreground">{module.durationDays}</strong> day program</span>}
+        <span>Pass score: <strong className="text-foreground">{module.passScore}%</strong></span>
+      </div>
+
+      {/* Phases */}
+      {module.phases.map((phase, pi) => (
+        <div key={phase.id} className="border rounded-xl overflow-hidden">
+          <div
+            className="flex items-center gap-3 p-4 cursor-pointer hover:bg-muted/30 transition-colors"
+            style={{ borderLeft: `4px solid ${phase.color ?? PHASE_COLORS[pi % PHASE_COLORS.length]}` }}
+            onClick={() => setExpandedPhase(expandedPhase === phase.id ? null : phase.id)}
+          >
+            <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Phase {phase.phaseNumber}
+                </span>
+                {phase.dayStart && phase.dayEnd && (
+                  <span className="text-xs text-muted-foreground">Day {phase.dayStart}–{phase.dayEnd}</span>
+                )}
+              </div>
+              <h3 className="font-semibold">{phase.title}</h3>
+            </div>
+            <span className="text-sm text-muted-foreground">{phaseLessons(phase.id).length} lessons</span>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7 text-destructive hover:text-destructive"
+              onClick={(e) => { e.stopPropagation(); deletePhaseMutation.mutate(phase.id); }}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+            {expandedPhase === phase.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </div>
+
+          {expandedPhase === phase.id && (
+            <div className="border-t p-4 space-y-2 bg-muted/10">
+              {phaseLessons(phase.id).map((lesson) => (
+                <LessonRow
+                  key={lesson.id}
+                  lesson={lesson}
+                  onEdit={() => openEditLesson(lesson)}
+                  onDelete={() => setDeleteLesson(lesson.id)}
+                />
+              ))}
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full border-dashed"
+                onClick={() => openCreateLesson(phase.id)}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Lesson
+              </Button>
+            </div>
+          )}
+        </div>
+      ))}
+
+      {/* Ungrouped lessons */}
+      {ungroupedLessons.length > 0 && (
+        <div className="border rounded-xl overflow-hidden">
+          <div className="p-4 border-b bg-muted/20">
+            <h3 className="font-semibold text-muted-foreground">Ungrouped Lessons</h3>
+          </div>
+          <div className="p-4 space-y-2">
+            {ungroupedLessons.map((lesson) => (
+              <LessonRow
+                key={lesson.id}
+                lesson={lesson}
+                onEdit={() => openEditLesson(lesson)}
+                onDelete={() => setDeleteLesson(lesson.id)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Add Phase / Add Lesson buttons */}
+      <div className="flex items-center gap-3">
+        <Button variant="outline" onClick={() => setShowPhaseForm(true)}>
+          <Plus className="h-4 w-4 mr-2" />
+          Add Phase
+        </Button>
+        <Button variant="outline" onClick={() => openCreateLesson()}>
+          <Plus className="h-4 w-4 mr-2" />
+          Add Lesson
+        </Button>
+      </div>
+
+      {/* Add Phase Dialog */}
+      <Dialog open={showPhaseForm} onOpenChange={(o) => { if (!o) setShowPhaseForm(false); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader><DialogTitle>Add Phase</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <label className="text-sm font-medium mb-1 block">Phase Title *</label>
+              <Input
+                placeholder="e.g. Foundation"
+                value={phaseTitle}
+                onChange={(e) => setPhaseTitle(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Color</label>
+              <div className="flex gap-2">
+                {PHASE_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    className={cn(
+                      'h-7 w-7 rounded-full border-2 transition-transform',
+                      phaseColor === c ? 'border-foreground scale-110' : 'border-transparent'
+                    )}
+                    style={{ background: c }}
+                    onClick={() => setPhaseColor(c)}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPhaseForm(false)}>Cancel</Button>
+            <Button
+              disabled={!phaseTitle || createPhaseMutation.isPending}
+              onClick={() => createPhaseMutation.mutate({
+                title: phaseTitle,
+                phaseNumber: module.phases.length + 1,
+                color: phaseColor,
+                order: module.phases.length,
+              })}
+            >
+              {createPhaseMutation.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Add Phase
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Lesson Form Dialog */}
+      <Dialog open={showLessonForm} onOpenChange={(o) => { if (!o) { setShowLessonForm(false); setEditLesson(null); } }}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editLesson ? 'Edit Lesson' : 'Add Lesson'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <label className="text-sm font-medium mb-1 block">Title *</label>
+              <Input
+                placeholder="Lesson title"
+                value={lessonForm.title}
+                onChange={(e) => setLessonForm((f) => ({ ...f, title: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1 block">Description</label>
+              <Textarea
+                placeholder="Brief description"
+                rows={2}
+                value={lessonForm.description}
+                onChange={(e) => setLessonForm((f) => ({ ...f, description: e.target.value }))}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium mb-1 block">Content Type *</label>
+                <Select
+                  value={lessonForm.contentType}
+                  onValueChange={(v) => setLessonForm((f) => ({ ...f, contentType: v }))}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(CONTENT_TYPE_LABELS).map(([k, v]) => (
+                      <SelectItem key={k} value={k}>{v}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Phase</label>
+                <Select
+                  value={lessonForm.phaseId || '__none'}
+                  onValueChange={(v) => setLessonForm((f) => ({ ...f, phaseId: v === '__none' ? '' : v }))}
+                >
+                  <SelectTrigger><SelectValue placeholder="No phase" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none">No phase</SelectItem>
+                    {module.phases.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>{p.title}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            {['VIDEO', 'PDF', 'EMBED'].includes(lessonForm.contentType) && (
+              <div>
+                <label className="text-sm font-medium mb-1 block">Content URL</label>
+                <Input
+                  placeholder="https://..."
+                  value={lessonForm.contentUrl}
+                  onChange={(e) => setLessonForm((f) => ({ ...f, contentUrl: e.target.value }))}
+                />
+              </div>
+            )}
+            {['ARTICLE', 'CHECKPOINT'].includes(lessonForm.contentType) && (
+              <div>
+                <label className="text-sm font-medium mb-1 block">Content Body</label>
+                <Textarea
+                  placeholder="Lesson content or description"
+                  rows={4}
+                  value={lessonForm.contentBody}
+                  onChange={(e) => setLessonForm((f) => ({ ...f, contentBody: e.target.value }))}
+                />
+              </div>
+            )}
+            {lessonForm.contentType === 'CHECKPOINT' && (
+              <div>
+                <label className="text-sm font-medium mb-1 block">Checkpoint Items (one per line)</label>
+                <Textarea
+                  placeholder="Complete product demo&#10;Shadow 3 sales calls&#10;Submit first deal report"
+                  rows={4}
+                  value={lessonForm.checkpointItems}
+                  onChange={(e) => setLessonForm((f) => ({ ...f, checkpointItems: e.target.value }))}
+                />
+              </div>
+            )}
+            <div>
+              <label className="text-sm font-medium mb-1 block">Topics (comma separated)</label>
+              <Input
+                placeholder="e.g. Onboarding, Product Tour, CRM"
+                value={lessonForm.topics}
+                onChange={(e) => setLessonForm((f) => ({ ...f, topics: e.target.value }))}
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="text-sm font-medium mb-1 block">Day Start</label>
+                <Input
+                  type="number"
+                  placeholder="1"
+                  value={lessonForm.dayStart}
+                  onChange={(e) => setLessonForm((f) => ({ ...f, dayStart: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Day End</label>
+                <Input
+                  type="number"
+                  placeholder="5"
+                  value={lessonForm.dayEnd}
+                  onChange={(e) => setLessonForm((f) => ({ ...f, dayEnd: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Duration (mins)</label>
+                <Input
+                  type="number"
+                  placeholder="30"
+                  value={lessonForm.durationMins}
+                  onChange={(e) => setLessonForm((f) => ({ ...f, durationMins: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                id="isRequired"
+                type="checkbox"
+                checked={lessonForm.isRequired}
+                onChange={(e) => setLessonForm((f) => ({ ...f, isRequired: e.target.checked }))}
+                className="h-4 w-4 rounded border-input"
+              />
+              <label htmlFor="isRequired" className="text-sm font-medium cursor-pointer">
+                Required lesson (counts toward completion)
+              </label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setShowLessonForm(false); setEditLesson(null); }}>
+              Cancel
+            </Button>
+            <Button
+              onClick={submitLesson}
+              disabled={!lessonForm.title || createLessonMutation.isPending || updateLessonMutation.isPending}
+            >
+              {(createLessonMutation.isPending || updateLessonMutation.isPending) && (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              )}
+              <Save className="h-4 w-4 mr-2" />
+              {editLesson ? 'Save Changes' : 'Add Lesson'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Lesson Confirm */}
+      <Dialog open={!!deleteLesson} onOpenChange={(o) => { if (!o) setDeleteLesson(null); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader><DialogTitle>Delete Lesson?</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">This will permanently delete the lesson and all progress data.</p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteLesson(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteLesson && deleteLessonMutation.mutate(deleteLesson)}
+              disabled={deleteLessonMutation.isPending}
+            >
+              {deleteLessonMutation.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Enroll Users Dialog */}
+      {showEnroll && (
+        <EnrollUsersDialog
+          moduleId={id!}
+          departmentId={module.departmentId}
+          open={showEnroll}
+          onClose={() => setShowEnroll(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function LessonRow({
+  lesson,
+  onEdit,
+  onDelete,
+}: {
+  lesson: LearningLesson;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const Icon = CONTENT_TYPE_ICONS[lesson.contentType] ?? BookOpen;
+  return (
+    <div className="flex items-center gap-3 p-3 rounded-lg bg-background border hover:border-primary/20 transition-colors">
+      <GripVertical className="h-4 w-4 text-muted-foreground shrink-0 cursor-grab" />
+      <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
+      <div className="flex-1 min-w-0">
+        <span className="text-sm font-medium truncate block">{lesson.title}</span>
+        <div className="flex items-center gap-2 mt-0.5">
+          <span className="text-xs text-muted-foreground">{CONTENT_TYPE_LABELS[lesson.contentType]}</span>
+          {lesson.dayStart && lesson.dayEnd && (
+            <span className="text-xs text-muted-foreground">Day {lesson.dayStart}–{lesson.dayEnd}</span>
+          )}
+          {lesson.durationMins && <span className="text-xs text-muted-foreground">{lesson.durationMins} min</span>}
+          {!lesson.isRequired && <span className="text-xs text-muted-foreground italic">Optional</span>}
+        </div>
+      </div>
+      {lesson.topics && lesson.topics.length > 0 && (
+        <div className="hidden sm:flex gap-1 flex-wrap">
+          {lesson.topics.slice(0, 2).map((t) => (
+            <span key={t} className="text-xs bg-muted px-2 py-0.5 rounded-full">{t}</span>
+          ))}
+          {lesson.topics.length > 2 && (
+            <span className="text-xs bg-muted px-2 py-0.5 rounded-full">+{lesson.topics.length - 2}</span>
+          )}
+        </div>
+      )}
+      <div className="flex items-center gap-1 shrink-0">
+        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onEdit}>
+          <Edit2 className="h-3.5 w-3.5" />
+        </Button>
+        <Button
+          size="icon"
+          variant="ghost"
+          className="h-7 w-7 text-destructive hover:text-destructive"
+          onClick={onDelete}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+    </div>
+  );
+}

@@ -4,6 +4,7 @@ import prisma from '../lib/prisma';
 import { authenticate, AuthRequest, requireRole } from '../middleware/auth';
 import { auditLog } from '../middleware/audit';
 import { getCache, setCache, invalidateCache, cacheKey } from '../lib/cache';
+import { getUserDeptAccess } from '../lib/deptAccess';
 
 const router = Router();
 
@@ -26,25 +27,39 @@ const createSchema = z.object({
   standupDuration: z.number().default(15),
 });
 
-// GET /departments — M6.3: dept heads only see their own dept; admins/owners see all
+// GET /departments — owners/admins see all; others filtered by grant or own dept
 router.get('/', async (req: AuthRequest, res: Response) => {
   const { role, userId, orgId } = req.user!;
 
-  // Role-scoped filter for dept heads
-  let deptIdFilter: string | undefined;
-  if (role === 'DEPARTMENT_HEAD') {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { departmentId: true, headOfDepartments: { select: { id: true } } },
-    });
-    const headOf = user?.headOfDepartments.map((d) => d.id) ?? [];
-    if (user?.departmentId) headOf.push(user.departmentId);
-    // Use first dept for simple scoping (complex multi-dept heads need full filter)
-    if (headOf.length === 1) deptIdFilter = headOf[0];
+  // Build the department id filter based on role + grant
+  let idFilter: { in: string[] } | undefined;
+
+  if (!['OWNER', 'SUPER_ADMIN', 'COMPANY_ADMIN'].includes(role)) {
+    const access = await getUserDeptAccess(userId, orgId, role);
+
+    if (access?.accessType === 'FULL') {
+      // Grant gives full view — no id filter
+    } else {
+      // Fetch user's own dept memberships regardless (needed for both SPECIFIC and no-grant)
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { departmentId: true, headOfDepartments: { select: { id: true } } },
+      });
+      const ownDepts = new Set<string>(user?.headOfDepartments.map((d) => d.id) ?? []);
+      if (user?.departmentId) ownDepts.add(user.departmentId);
+
+      if (access?.accessType === 'SPECIFIC' && access.departmentIds.length > 0) {
+        // SPECIFIC grant + own dept(s) — user must always be able to see their own department
+        idFilter = { in: [...new Set([...access.departmentIds, ...ownDepts])] };
+      } else {
+        // No grant — own dept(s) only
+        idFilter = { in: [...ownDepts] };
+      }
+    }
   }
 
-  const ck = deptIdFilter
-    ? cacheKey('depts', orgId, deptIdFilter)
+  const ck = idFilter
+    ? cacheKey('depts', orgId, userId)
     : cacheKey('depts', orgId);
   const cached = await getCache(ck);
   if (cached) { res.json(cached); return; }
@@ -53,7 +68,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     where: {
       orgId,
       isActive: true,
-      ...(deptIdFilter ? { id: deptIdFilter } : {}),
+      ...(idFilter ? { id: idFilter } : {}),
     },
     include: {
       head: { select: { id: true, name: true, email: true, avatarUrl: true } },
@@ -82,11 +97,25 @@ router.get('/:slug', async (req: AuthRequest, res: Response) => {
     return;
   }
 
-  if (['DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'].includes(req.user!.role)) {
-    const actorDepartmentId = await getActorDepartmentId(req.user!.userId);
-    if (!actorDepartmentId || actorDepartmentId !== dept.id) {
-      res.status(403).json({ error: 'Forbidden' });
-      return;
+  if (!['OWNER', 'SUPER_ADMIN', 'COMPANY_ADMIN'].includes(req.user!.role)) {
+    const access = await getUserDeptAccess(req.user!.userId, req.user!.orgId, req.user!.role);
+    if (access?.accessType === 'FULL') {
+      // Grant allows viewing all departments
+    } else {
+      // Always check own dept — user must always access the dept they belong to
+      const actorDepartmentId = await getActorDepartmentId(req.user!.userId);
+      const isOwnDept = !!actorDepartmentId && actorDepartmentId === dept.id;
+      if (!isOwnDept) {
+        if (access?.accessType === 'SPECIFIC') {
+          if (!access.departmentIds.includes(dept.id)) {
+            res.status(403).json({ error: 'Forbidden' });
+            return;
+          }
+        } else {
+          res.status(403).json({ error: 'Forbidden' });
+          return;
+        }
+      }
     }
   }
 
@@ -126,10 +155,30 @@ router.patch('/:id', requireRole('OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'), a
     }
   }
 
+  // Whitelist updatable fields to prevent inadvertent overwrites
+  const { name, slug, headUserId, standupTime, standupDuration, standupMeetUrl, isActive } = req.body;
+  const data: Record<string, unknown> = {};
+  if (name !== undefined)              data.name = name;
+  if (slug !== undefined)              data.slug = slug;
+  if (headUserId !== undefined)        data.headUserId = headUserId ?? null;
+  if (standupTime !== undefined)       data.standupTime = standupTime;
+  if (standupDuration !== undefined)   data.standupDuration = standupDuration;
+  if (standupMeetUrl !== undefined)    data.standupMeetUrl = standupMeetUrl;
+  if (isActive !== undefined)          data.isActive = isActive;
+
   const dept = await prisma.department.update({
     where: { id: req.params.id as string, orgId: req.user!.orgId },
-    data: req.body,
+    data,
   });
+
+  // Keep data consistent: when a new head is assigned, move them into this department
+  if (data.headUserId) {
+    await prisma.user.update({
+      where: { id: data.headUserId as string },
+      data: { departmentId: req.params.id as string },
+    });
+  }
+
   await invalidateCache(`depts:${req.user!.orgId}`);
   res.json(dept);
 });
@@ -169,11 +218,24 @@ router.get('/:slug/dashboard', async (req: AuthRequest, res: Response) => {
     return;
   }
 
-  if (['DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'].includes(req.user!.role)) {
-    const actorDepartmentId = await getActorDepartmentId(req.user!.userId);
-    if (!actorDepartmentId || actorDepartmentId !== dept.id) {
-      res.status(403).json({ error: 'Forbidden' });
-      return;
+  if (!['OWNER', 'SUPER_ADMIN', 'COMPANY_ADMIN'].includes(req.user!.role)) {
+    const access = await getUserDeptAccess(req.user!.userId, req.user!.orgId, req.user!.role);
+    if (access?.accessType === 'FULL') {
+      // full grant — allowed
+    } else {
+      const actorDepartmentId = await getActorDepartmentId(req.user!.userId);
+      const isOwnDept = !!actorDepartmentId && actorDepartmentId === dept.id;
+      if (!isOwnDept) {
+        if (access?.accessType === 'SPECIFIC') {
+          if (!access.departmentIds.includes(dept.id)) {
+            res.status(403).json({ error: 'Forbidden' });
+            return;
+          }
+        } else {
+          res.status(403).json({ error: 'Forbidden' });
+          return;
+        }
+      }
     }
   }
 

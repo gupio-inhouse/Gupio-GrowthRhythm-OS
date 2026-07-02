@@ -4,6 +4,7 @@ import { authenticate, AuthRequest, requireRole } from '../middleware/auth';
 import { generateStandupDigest } from '../services/ai.service';
 import { fanOutNotification } from '../services/notification.service';
 import { generateMeetUrl } from '../services/meet.service';
+import { getUserDeptAccess } from '../lib/deptAccess';
 
 const router = Router();
 router.use(authenticate);
@@ -11,11 +12,27 @@ router.use(authenticate);
 // GET /standups?departmentId=
 router.get('/', async (req: AuthRequest, res: Response) => {
   const { departmentId } = req.query;
+  const { orgId, userId, role } = req.user!;
+
+  // Build dept filter — explicit param wins; otherwise scope by grant/role
+  let deptWhere: Record<string, unknown> = {};
+  if (departmentId) {
+    deptWhere = { departmentId: departmentId as string };
+  } else if (!['OWNER', 'SUPER_ADMIN', 'COMPANY_ADMIN'].includes(role)) {
+    const access = await getUserDeptAccess(userId, orgId, role);
+    if (access?.accessType === 'FULL') {
+      // no filter — can see all standups
+    } else if (access?.accessType === 'SPECIFIC') {
+      deptWhere = { departmentId: { in: access.departmentIds } };
+    } else {
+      // No grant — scope to own dept
+      const me = await prisma.user.findUnique({ where: { id: userId }, select: { departmentId: true } });
+      if (me?.departmentId) deptWhere = { departmentId: me.departmentId };
+    }
+  }
+
   const standups = await prisma.standup.findMany({
-    where: {
-      orgId: req.user!.orgId,
-      ...(departmentId ? { departmentId: departmentId as string } : {}),
-    },
+    where: { orgId, ...deptWhere },
     include: {
       department: { select: { id: true, name: true, slug: true } },
       _count: { select: { cards: true } },

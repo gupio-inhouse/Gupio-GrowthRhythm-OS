@@ -6,7 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
   Building2, Users, CheckSquare, AlertTriangle, Clock, Zap,
-  TrendingUp, Plus, Pencil, Trash2, UserPlus, UserMinus,
+  TrendingUp, Plus, Pencil, Trash2, UserPlus, UserMinus, UserCog,
   ChevronDown, ChevronUp, ChevronLeft, X, FolderKanban, ChevronRight,
   BarChart2, ArrowLeft, ClipboardList, Filter, FileText, Link2, Upload, Star, Search, Calendar,
 } from 'lucide-react';
@@ -178,6 +178,28 @@ export default function DepartmentPage() {
   const [memberDialog,     setMemberDialog]     = useState<DeptMember | null>(null);
   const [inviteMemberOpen, setInviteMemberOpen] = useState(false);
   const [selectedTaskId,   setSelectedTaskId]   = useState<string | null>(null);
+  const [editDeptOpen,     setEditDeptOpen]     = useState(false);
+  const [removeConfirm,    setRemoveConfirm]    = useState<DeptMember | null>(null);
+  const [changeRoleTarget, setChangeRoleTarget] = useState<DeptMember | null>(null);
+
+  // Org users for head selector (owner/admin only)
+  const { data: orgUsers = [] } = useQuery<OrgUser[]>({
+    queryKey: ['users'],
+    queryFn:  () => api.get('/users').then((r) => r.data),
+    enabled:  canAdmin,
+  });
+
+  const removeMemberMutation = useMutation({
+    mutationFn: (userId: string) =>
+      api.patch(`/users/${userId}`, { departmentId: null }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['dept-detail', slug] });
+      qc.invalidateQueries({ queryKey: ['dept-dashboard', slug] });
+      setRemoveConfirm(null);
+      toast({ title: 'Member removed', description: 'User has been removed from this department.' });
+    },
+    onError: () => toast.error('Failed to remove member'),
+  });
 
   const deleteTeam = useMutation({
     mutationFn: (id: string) => api.delete(`/teams/${id}`),
@@ -338,6 +360,15 @@ export default function DepartmentPage() {
                   <span className="text-xs opacity-80 hidden sm:inline">{label}</span>
                 </button>
               ))}
+              {canAdmin && (
+                <button
+                  onClick={() => setEditDeptOpen(true)}
+                  className="flex items-center gap-1.5 h-10 px-4 rounded-2xl border border-border/60 bg-white text-sm font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Edit</span>
+                </button>
+              )}
               {canManage && (
                 <button
                   onClick={() => setInviteMemberOpen(true)}
@@ -797,7 +828,12 @@ export default function DepartmentPage() {
                   </SelectTrigger>
                   <SelectContent className="rounded-xl">
                     <SelectItem value="__all__">All Members</SelectItem>
-                    {dept.users.map((u) => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
+                    {[
+                      ...dept.users,
+                      ...(dept.head && !dept.users.some((u) => u.id === dept.head!.id)
+                        ? [{ id: dept.head.id, name: dept.head.name, email: dept.head.email, role: 'DEPARTMENT_HEAD', status: 'ACTIVE', avatarUrl: dept.head.avatarUrl }]
+                        : []),
+                    ].map((u) => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
                 {/* Custom date filter */}
@@ -1008,7 +1044,28 @@ export default function DepartmentPage() {
                   const avatarGrad = avatarColors[Math.abs(nameHash) % avatarColors.length];
 
                   return (
-                    <button key={member.id} onClick={() => setMemberDialog(member)} className="text-left group">
+                    <div key={member.id} className="relative group">
+                      {/* Change role button — owner/admin only */}
+                      {canAdmin && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setChangeRoleTarget(member); }}
+                          className="absolute top-2 right-10 z-10 h-7 w-7 rounded-xl border border-border/60 bg-white flex items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-violet-600 hover:bg-violet-50 hover:border-violet-200 transition-all"
+                          title="Change role"
+                        >
+                          <UserCog className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      {/* Remove member button — owner/admin only */}
+                      {canAdmin && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setRemoveConfirm(member); }}
+                          className="absolute top-2 right-2 z-10 h-7 w-7 rounded-xl border border-border/60 bg-white flex items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-red-600 hover:bg-red-50 hover:border-red-200 transition-all"
+                          title="Remove from department"
+                        >
+                          <UserMinus className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      <button onClick={() => setMemberDialog(member)} className="w-full text-left">
                       <div className="rounded-2xl border border-border/60 bg-white overflow-hidden hover:shadow-lg hover:border-violet-200/60 hover:scale-[1.01] transition-all duration-200">
                         {/* Gradient top accent based on completion */}
                         <div className={cn('h-1 w-full', rate >= 75 ? 'bg-gradient-to-r from-emerald-400 to-green-500' : rate >= 40 ? 'bg-gradient-to-r from-blue-400 to-indigo-500' : rate >= 0 ? 'bg-gradient-to-r from-amber-400 to-orange-500' : 'bg-gradient-to-r from-slate-200 to-gray-300')} />
@@ -1064,6 +1121,7 @@ export default function DepartmentPage() {
                         </div>
                       </div>
                     </button>
+                    </div>
                   );
                 })}
               </div>
@@ -1139,6 +1197,63 @@ export default function DepartmentPage() {
             }}
           />
         )}
+
+        {/* Edit Department Dialog */}
+        {editDeptOpen && canAdmin && (
+          <EditDeptDialog
+            dept={dept}
+            orgUsers={orgUsers}
+            onClose={() => setEditDeptOpen(false)}
+            onSaved={() => {
+              qc.invalidateQueries({ queryKey: ['dept-detail', slug] });
+              qc.invalidateQueries({ queryKey: ['departments'] });
+              setEditDeptOpen(false);
+            }}
+          />
+        )}
+
+        {/* Remove Member Confirm Dialog */}
+        <Dialog open={!!removeConfirm} onOpenChange={(v) => { if (!v) setRemoveConfirm(null); }}>
+          <DialogContent className="sm:max-w-sm rounded-2xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2.5">
+                <div className="h-8 w-8 rounded-xl bg-red-100 flex items-center justify-center shrink-0">
+                  <UserMinus className="h-4 w-4 text-red-600" />
+                </div>
+                Remove Member
+              </DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground">
+              Remove <span className="font-semibold text-foreground">{removeConfirm?.name}</span> from{' '}
+              <span className="font-semibold text-foreground">{dept.name}</span>? Their account stays active but they won't belong to any department.
+            </p>
+            <DialogFooter className="gap-2 sm:gap-0 mt-2">
+              <Button variant="outline" onClick={() => setRemoveConfirm(null)}>Cancel</Button>
+              <Button
+                variant="destructive"
+                disabled={removeMemberMutation.isPending}
+                onClick={() => removeConfirm && removeMemberMutation.mutate(removeConfirm.id)}
+              >
+                {removeMemberMutation.isPending ? 'Removing…' : 'Remove'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Change Role Dialog */}
+        {changeRoleTarget && canAdmin && (
+          <ChangeRoleDialog
+            member={changeRoleTarget}
+            currentDeptId={dept.id}
+            onClose={() => setChangeRoleTarget(null)}
+            onSaved={() => {
+              qc.invalidateQueries({ queryKey: ['dept-detail', slug] });
+              qc.invalidateQueries({ queryKey: ['departments'] });
+              setChangeRoleTarget(null);
+            }}
+          />
+        )}
+
         <TaskDetailDrawer taskId={selectedTaskId} onClose={() => setSelectedTaskId(null)} />
         {canManage && createTeamOpen && (
           <CreateTeamDialog
@@ -3308,5 +3423,237 @@ function Pagination({ total, page, onPageChange, pageSize = PAGE_SIZE }: {
         </button>
       </div>
     </div>
+  );
+}
+
+// ── Change Role Dialog ────────────────────────────────────────────────────────
+
+type SimpleDept = { id: string; name: string };
+
+function ChangeRoleDialog({ member, currentDeptId, onClose, onSaved }: {
+  member: DeptMember;
+  currentDeptId: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [selectedRole,   setSelectedRole]   = useState(member.role);
+  const [selectedDeptId, setSelectedDeptId] = useState(currentDeptId);
+  const [saving,         setSaving]         = useState(false);
+
+  const { data: allDepts = [] } = useQuery<SimpleDept[]>({
+    queryKey: ['departments'],
+    queryFn:  () => api.get('/departments').then((r) => r.data),
+  });
+
+  const roles = [
+    { value: 'TEAM_MEMBER',    label: 'Member' },
+    { value: 'MANAGER',        label: 'Manager' },
+    { value: 'DEPARTMENT_HEAD',label: 'Department Head' },
+    { value: 'COACH_ADVISOR',  label: 'Coach / Advisor' },
+    { value: 'COMPANY_ADMIN',  label: 'Company Admin' },
+  ];
+
+  const roleLabel = (r: string) => roles.find((x) => x.value === r)?.label ?? r;
+
+  const handleSave = async () => {
+    if (selectedRole === member.role) { onClose(); return; }
+    setSaving(true);
+    try {
+      await api.patch(`/users/${member.id}`, { role: selectedRole });
+      if (selectedRole === 'DEPARTMENT_HEAD' && selectedDeptId) {
+        await api.patch(`/departments/${selectedDeptId}`, { headUserId: member.id });
+      }
+      toast({ title: 'Role updated', description: `${member.name} is now ${roleLabel(selectedRole)}.` });
+      onSaved();
+    } catch {
+      toast.error('Failed to update role');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-sm p-0 gap-0 overflow-hidden rounded-2xl">
+        <div className="px-6 pt-5 pb-4 border-b bg-gradient-to-br from-violet-50 to-purple-50/60">
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-sm">
+              <UserCog className="h-4 w-4 text-white" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold">Change Role</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">Update {member.name}'s role</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-6 py-5 space-y-4">
+          {/* Member info */}
+          <div className="flex items-center gap-3 rounded-xl bg-muted/40 px-3 py-2.5">
+            <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-violet-400 to-purple-500 flex items-center justify-center text-white font-bold text-sm shrink-0">
+              {getInitials(member.name)}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold truncate">{member.name}</p>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className="text-xs text-muted-foreground">Current:</span>
+                <RoleBadge role={member.role} />
+              </div>
+            </div>
+          </div>
+
+          {/* Role selector */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">New Role</Label>
+            <Select value={selectedRole} onValueChange={setSelectedRole}>
+              <SelectTrigger className="h-10 rounded-xl border-border/60">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="rounded-xl">
+                {roles.map((r) => (
+                  <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Dept selector — shown only when promoting to dept head */}
+          {selectedRole === 'DEPARTMENT_HEAD' && (
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Head of Department</Label>
+              <Select value={selectedDeptId} onValueChange={setSelectedDeptId}>
+                <SelectTrigger className="h-10 rounded-xl border-border/60">
+                  <SelectValue placeholder="Select department" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl">
+                  {allDepts.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">This user will be set as the head of the selected department.</p>
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <button
+              onClick={onClose}
+              className="h-9 px-4 rounded-xl border border-border/60 text-sm text-muted-foreground hover:bg-muted transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving || selectedRole === member.role}
+              className="h-9 px-5 rounded-xl bg-gradient-to-r from-violet-500 to-purple-600 text-white text-sm font-bold hover:from-violet-600 hover:to-purple-700 transition-all shadow-sm disabled:opacity-50"
+            >
+              {saving ? 'Saving…' : 'Save Changes'}
+            </button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Edit Department Dialog ────────────────────────────────────────────────────
+
+function EditDeptDialog({
+  dept,
+  orgUsers,
+  onClose,
+  onSaved,
+}: {
+  dept: DeptDetail;
+  orgUsers: OrgUser[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name,       setName]       = useState(dept.name);
+  const [headUserId, setHeadUserId] = useState(dept.head?.id ?? '');
+  const [saving,     setSaving]     = useState(false);
+
+  const handleSave = async () => {
+    if (!name.trim()) return;
+    setSaving(true);
+    try {
+      await api.patch(`/departments/${dept.id}`, {
+        name: name.trim(),
+        headUserId: headUserId || null,
+      });
+      onSaved();
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { error?: string } } };
+      toast.error(e.response?.data?.error ?? 'Failed to update department');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-sm p-0 gap-0 overflow-hidden rounded-2xl">
+        <div className="px-6 pt-5 pb-4 border-b bg-gradient-to-br from-violet-50 to-purple-50/60">
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-sm">
+              <Building2 className="h-4 w-4 text-white" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold">Edit Department</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">Update department info</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-6 py-5 space-y-4">
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Department Name</Label>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Customer Success"
+              className="h-10 rounded-xl border-border/60"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Department Head</Label>
+            <Select value={headUserId} onValueChange={setHeadUserId}>
+              <SelectTrigger className="h-10 rounded-xl border-border/60">
+                <SelectValue placeholder="No head assigned" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">No head assigned</SelectItem>
+                {orgUsers
+                  .map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.name}
+                      <span className="ml-1.5 text-xs text-muted-foreground">·{' '}
+                        {u.role === 'DEPARTMENT_HEAD' ? 'Dept Head' : u.role === 'MANAGER' ? 'Manager' : u.role === 'COMPANY_ADMIN' ? 'Admin' : 'Member'}
+                      </span>
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <button
+              onClick={onClose}
+              className="h-9 px-4 rounded-xl border border-border/60 text-sm text-muted-foreground hover:bg-muted transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving || !name.trim()}
+              className="h-9 px-5 rounded-xl bg-gradient-to-r from-violet-500 to-purple-600 text-white text-sm font-bold hover:from-violet-600 hover:to-purple-700 transition-all shadow-sm disabled:opacity-50"
+            >
+              {saving ? 'Saving…' : 'Save Changes'}
+            </button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

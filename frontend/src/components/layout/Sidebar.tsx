@@ -2,6 +2,7 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, CheckSquare, Users, Zap,
   Building2, Settings, LogOut, Shield, MessageSquare, X, ClipboardList,
+  GraduationCap,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
@@ -14,7 +15,8 @@ const navItems = [
   { label: 'Dashboard',     href: '/dashboard', icon: LayoutDashboard, roles: ['DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'] },
   { label: 'Tasks', href: '/tasks', icon: CheckSquare, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'] },
   { label: 'Meeting', href: '/standup', icon: Zap, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'] },
-  { label: 'Departments', href: '/departments', icon: Building2, roles: ['OWNER', 'COMPANY_ADMIN'] },
+  { label: 'Learning', href: '/learning', icon: GraduationCap, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'] },
+  { label: 'Departments', href: '/departments', icon: Building2, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'] },
   { label: 'Team', href: '/team', icon: Users, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'] },
   { label: 'Audit Log', href: '/audit-log', icon: ClipboardList, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'] },
   { label: 'App Feedback', href: '/app-feedback', icon: MessageSquare, roles: ['OWNER', 'COMPANY_ADMIN'] },
@@ -52,7 +54,16 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
     ? `${roleLabel} · ${departmentLabel}`
     : roleLabel;
 
-  const visibleItems = navItems.filter((item) => item.roles.includes(user?.role || ''));
+  const adminRoles = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'];
+  const isAdminRole = adminRoles.includes(user?.role || '');
+
+  const visibleItems = navItems
+    .filter((item) => item.roles.includes(user?.role || ''))
+    .map((item) =>
+      item.href === '/learning' && isAdminRole
+        ? { ...item, href: '/learning/admin' }
+        : item
+    );
 
   return (
     <aside className={cn(
@@ -83,7 +94,8 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
         {visibleItems.map((item) => {
-          const active = pathname.startsWith(item.href);
+          const active = pathname.startsWith(item.href) ||
+            (item.href === '/learning/admin' && pathname.startsWith('/learning'));
           return (
             <Link
               key={item.href}

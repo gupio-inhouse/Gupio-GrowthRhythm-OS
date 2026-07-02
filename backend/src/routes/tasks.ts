@@ -7,13 +7,14 @@ import { fanOutNotification, createNotification } from '../services/notification
 import { generateTaskSuggestions, generateStatusChangeSuggestions } from '../services/ai.service';
 import { sendTaskAssignedEmail } from '../services/email.service';
 import { deleteFromS3 } from '../lib/s3';
+import { getUserDeptAccess } from '../lib/deptAccess';
 
 const APP_URL = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();
 
 const router = Router();
 router.use(authenticate);
 
-async function getActorScope(userId: string) {
+async function getActorScope(userId: string, orgId: string) {
   const actor = await prisma.user.findUnique({
     where: { id: userId },
     select: { id: true, role: true, departmentId: true },
@@ -29,7 +30,8 @@ async function getActorScope(userId: string) {
     reportIds = reports.map((report) => report.id);
   }
 
-  return { ...actor, reportIds };
+  const grant = await getUserDeptAccess(userId, orgId, actor.role);
+  return { ...actor, reportIds, grant };
 }
 
 function canManageDepartmentScoped(role: string) {
@@ -42,15 +44,22 @@ async function canViewTask(actor: NonNullable<Awaited<ReturnType<typeof getActor
 }) {
   if (['OWNER', 'COMPANY_ADMIN'].includes(actor.role)) return true;
   if (actor.role === 'TEAM_MEMBER') return task.assigneeUserId === actor.id;
+
+  // Cross-dept grant check (applies to DEPARTMENT_HEAD and MANAGER)
+  if (actor.grant?.accessType === 'FULL') return true;
+  if (actor.grant?.accessType === 'SPECIFIC') {
+    return task.departmentId !== null && actor.grant.departmentIds.includes(task.departmentId);
+  }
+
   if (actor.role === 'MANAGER') {
     return task.assigneeUserId === actor.id ||
       (task.assigneeUserId !== null && actor.reportIds.includes(task.assigneeUserId)) ||
       (!!actor.departmentId && task.departmentId === actor.departmentId) ||
-      task.assigneeUserId === null; // unassigned tasks visible to managers
+      task.assigneeUserId === null;
   }
   if (actor.role === 'DEPARTMENT_HEAD') {
     return (!!actor.departmentId && task.departmentId === actor.departmentId) ||
-      task.assigneeUserId === null; // unassigned tasks visible to dept heads
+      task.assigneeUserId === null;
   }
   return false;
 }
@@ -61,6 +70,13 @@ async function canMutateTask(actor: NonNullable<Awaited<ReturnType<typeof getAct
 }) {
   if (['OWNER', 'COMPANY_ADMIN'].includes(actor.role)) return true;
   if (actor.role === 'TEAM_MEMBER') return task.assigneeUserId === actor.id;
+
+  // Cross-dept grant check
+  if (actor.grant?.accessType === 'FULL') return true;
+  if (actor.grant?.accessType === 'SPECIFIC') {
+    return task.departmentId !== null && actor.grant.departmentIds.includes(task.departmentId);
+  }
+
   if (actor.role === 'MANAGER') {
     return !!actor.departmentId && task.departmentId === actor.departmentId;
   }
@@ -105,7 +121,7 @@ const taskPullRequestSchema = z.object({
 });
 
 async function getTaskForMutation(req: AuthRequest, taskId: string) {
-  const actor = await getActorScope(req.user!.userId);
+  const actor = await getActorScope(req.user!.userId, req.user!.orgId);
   if (!actor) {
     return { error: { status: 401, body: { error: 'Unauthorized' } } };
   }
@@ -156,7 +172,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   if (status) where.status = status;
   if (priority) where.priority = priority;
 
-  const actor = await getActorScope(req.user!.userId);
+  const actor = await getActorScope(req.user!.userId, req.user!.orgId);
   if (!actor) {
     res.status(401).json({ error: 'Unauthorized' });
     return;
@@ -165,18 +181,30 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   if (req.user!.role === 'TEAM_MEMBER') {
     where.assigneeUserId = req.user!.userId;
   } else if (req.user!.role === 'MANAGER') {
-    if (view === 'dept' && actor.departmentId) {
-      where.departmentId = actor.departmentId;
+    if (view === 'dept') {
+      // Dept view: scope to granted or own dept
+      if (actor.grant?.accessType === 'FULL') {
+        // no extra filter
+      } else if (actor.grant?.accessType === 'SPECIFIC') {
+        where.departmentId = { in: actor.grant.departmentIds };
+      } else if (actor.departmentId) {
+        where.departmentId = actor.departmentId;
+      }
     } else {
-      // Show tasks assigned to me or direct reports, PLUS any project tasks I created
       delete where.assigneeUserId;
       where.OR = [
         { assigneeUserId: { in: [req.user!.userId, ...actor.reportIds] } },
         { assignedByUserId: req.user!.userId, teamId: { not: null } },
       ];
     }
-  } else if (req.user!.role === 'DEPARTMENT_HEAD' && actor.departmentId) {
-    where.departmentId = actor.departmentId;
+  } else if (req.user!.role === 'DEPARTMENT_HEAD') {
+    if (actor.grant?.accessType === 'FULL') {
+      // no extra filter — sees all dept tasks
+    } else if (actor.grant?.accessType === 'SPECIFIC') {
+      where.departmentId = { in: actor.grant.departmentIds };
+    } else if (actor.departmentId) {
+      where.departmentId = actor.departmentId;
+    }
   }
 
   const tasks = await prisma.task.findMany({
@@ -197,7 +225,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
 // GET /tasks/:id
 router.get('/:id', async (req: AuthRequest, res: Response) => {
-  const actor = await getActorScope(req.user!.userId);
+  const actor = await getActorScope(req.user!.userId, req.user!.orgId);
   if (!actor) {
     res.status(401).json({ error: 'Unauthorized' });
     return;
@@ -259,7 +287,7 @@ router.post('/', auditLog('task', 'CREATE'), async (req: AuthRequest, res: Respo
     return;
   }
 
-  const actor = await getActorScope(req.user!.userId);
+  const actor = await getActorScope(req.user!.userId, req.user!.orgId);
   if (!actor) {
     res.status(401).json({ error: 'Unauthorized' });
     return;
@@ -319,7 +347,7 @@ router.post('/', auditLog('task', 'CREATE'), async (req: AuthRequest, res: Respo
 
 // PATCH /tasks/:id
 router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: Response) => {
-  const actor = await getActorScope(req.user!.userId);
+  const actor = await getActorScope(req.user!.userId, req.user!.orgId);
   if (!actor) {
     res.status(401).json({ error: 'Unauthorized' });
     return;
@@ -527,7 +555,7 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
 
 // DELETE /tasks/:id
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
-  const actor = await getActorScope(req.user!.userId);
+  const actor = await getActorScope(req.user!.userId, req.user!.orgId);
   if (!actor) {
     res.status(401).json({ error: 'Unauthorized' });
     return;

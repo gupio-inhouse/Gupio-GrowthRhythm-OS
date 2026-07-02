@@ -100,7 +100,7 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
   const { data: departments = [] } = useQuery<Department[]>({
     queryKey: ['departments'],
     queryFn:  () => api.get('/departments').then((r) => r.data),
-    enabled:  open && canAssignToAny,
+    enabled:  open,
   });
 
   const { data: teams = [] } = useQuery<TeamItem[]>({
@@ -202,9 +202,11 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
   const assigneeName = users.find((u) => u.id === watchedAssigneeId)?.name;
   const isEngInDialog = isEngineeringDept(deptMap.get(watchedDeptId));
 
-  const availableTeams = canAssignToAny && watchedAssigneeId
-    ? teams.filter((t) => t.members.some((m) => m.user.id === watchedAssigneeId))
-    : teams;
+  const availableTeams = isTeamMember
+    ? teams.filter((t) => t.members.some((m) => m.user.id === user?.id))
+    : canAssignToAny && watchedAssigneeId
+      ? teams.filter((t) => t.members.some((m) => m.user.id === watchedAssigneeId))
+      : teams;
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
@@ -354,7 +356,13 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
                               <button
                                 key={u.id}
                                 type="button"
-                                onClick={() => { setValue('assigneeUserId', u.id); setUserDropOpen(false); setUserSearch(''); }}
+                                onClick={() => {
+                                  setValue('assigneeUserId', u.id);
+                                  // Auto-fill department from assignee's department
+                                  if (u.departmentId) setValue('departmentId', u.departmentId);
+                                  setUserDropOpen(false);
+                                  setUserSearch('');
+                                }}
                                 className={cn(
                                   'w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-indigo-50 transition-colors',
                                   watchedAssigneeId === u.id && 'bg-indigo-50',

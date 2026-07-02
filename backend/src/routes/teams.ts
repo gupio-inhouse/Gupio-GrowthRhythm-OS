@@ -3,6 +3,7 @@ import { z } from 'zod';
 import prisma from '../lib/prisma';
 import { authenticate, AuthRequest, requireRole } from '../middleware/auth';
 import { auditLog } from '../middleware/audit';
+import { getUserDeptAccess } from '../lib/deptAccess';
 
 const router = Router();
 router.use(authenticate);
@@ -26,8 +27,13 @@ function formatTeam(team: any) {
   return { ...team, memberCount: (team.members ?? []).length };
 }
 
-async function assertDeptAccess(role: string, userId: string, departmentId: string) {
+async function assertDeptAccess(role: string, userId: string, orgId: string, departmentId: string) {
+  if (['OWNER', 'COMPANY_ADMIN', 'SUPER_ADMIN'].includes(role)) return true;
   if (role === 'DEPARTMENT_HEAD' || role === 'MANAGER') {
+    const access = await getUserDeptAccess(userId, orgId, role);
+    if (access?.accessType === 'FULL') return true;
+    if (access?.accessType === 'SPECIFIC') return access.departmentIds.includes(departmentId);
+    // No grant — fall back to own dept
     const me = await prisma.user.findUnique({ where: { id: userId }, select: { departmentId: true } });
     if (!me?.departmentId || me.departmentId !== departmentId) return false;
   }
@@ -59,11 +65,17 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
   let whereExtra: object = {};
   if (role === 'TEAM_MEMBER') {
-    // Team members see teams they belong to OR are assigned as project manager of
     whereExtra = { OR: [{ members: { some: { userId } } }, { managerUserId: userId }] };
   } else if (role === 'DEPARTMENT_HEAD' || role === 'MANAGER') {
-    const me = await prisma.user.findUnique({ where: { id: userId }, select: { departmentId: true } });
-    if (me?.departmentId) whereExtra = { departmentId: me.departmentId };
+    const access = await getUserDeptAccess(userId, orgId, role);
+    if (access?.accessType === 'FULL') {
+      // no filter — can see all teams
+    } else if (access?.accessType === 'SPECIFIC') {
+      whereExtra = { departmentId: { in: access.departmentIds } };
+    } else {
+      const me = await prisma.user.findUnique({ where: { id: userId }, select: { departmentId: true } });
+      if (me?.departmentId) whereExtra = { departmentId: me.departmentId };
+    }
   }
 
   const teams = await prisma.team.findMany({
@@ -201,7 +213,7 @@ router.post(
     const dept = await prisma.department.findFirst({ where: { id: departmentId, orgId, isActive: true }, select: { id: true } });
     if (!dept) { res.status(400).json({ error: 'Department not found' }); return; }
 
-    if (!(await assertDeptAccess(role, userId, departmentId))) {
+    if (!(await assertDeptAccess(role, userId, orgId, departmentId))) {
       res.status(403).json({ error: 'You can only create teams in your own department' }); return;
     }
 
@@ -243,7 +255,7 @@ router.patch(
     const team = await prisma.team.findFirst({ where: { id: teamId, orgId }, select: { id: true, departmentId: true } });
     if (!team) { res.status(404).json({ error: 'Team not found' }); return; }
 
-    if (!(await assertDeptAccess(role, userId, team.departmentId))) {
+    if (!(await assertDeptAccess(role, userId, orgId, team.departmentId))) {
       res.status(403).json({ error: 'You can only update teams in your own department' }); return;
     }
 
@@ -295,7 +307,7 @@ router.delete(
     const team = await prisma.team.findFirst({ where: { id: teamId, orgId }, select: { id: true, departmentId: true } });
     if (!team) { res.status(404).json({ error: 'Team not found' }); return; }
 
-    if (!(await assertDeptAccess(role, userId, team.departmentId))) {
+    if (!(await assertDeptAccess(role, userId, orgId, team.departmentId))) {
       res.status(403).json({ error: 'You can only delete teams in your own department' }); return;
     }
 
@@ -323,7 +335,7 @@ router.post(
       res.status(403).json({ error: 'Only project managers or admins can add members' }); return;
     }
 
-    if (elevated && !(await assertDeptAccess(role, userId, team.departmentId))) {
+    if (elevated && !(await assertDeptAccess(role, userId, orgId, team.departmentId))) {
       res.status(403).json({ error: 'You can only manage teams in your own department' }); return;
     }
 
@@ -362,7 +374,7 @@ router.delete(
       res.status(403).json({ error: 'Only project managers or admins can remove members' }); return;
     }
 
-    if (elevated && !(await assertDeptAccess(role, userId, team.departmentId))) {
+    if (elevated && !(await assertDeptAccess(role, userId, orgId, team.departmentId))) {
       res.status(403).json({ error: 'You can only manage teams in your own department' }); return;
     }
 
@@ -469,7 +481,7 @@ router.post(
       if (!isMember && !isProjectManager) {
         res.status(403).json({ error: 'You are not a member of this team' }); return;
       }
-    } else if (!(await assertDeptAccess(role, userId, team.departmentId))) {
+    } else if (!(await assertDeptAccess(role, userId, orgId, team.departmentId))) {
       res.status(403).json({ error: 'You can only assign tasks for teams in your own department' }); return;
     }
 

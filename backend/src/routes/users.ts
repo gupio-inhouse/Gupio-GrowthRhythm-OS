@@ -6,6 +6,7 @@ import { authenticate, AuthRequest, requireRole } from '../middleware/auth';
 import { generateMagicLink } from '../services/magic-link.service';
 import { sendMagicLinkEmail } from '../services/email.service';
 import { encryptField, decryptField } from '../services/crypto.service';
+import { getUserDeptAccess } from '../lib/deptAccess';
 
 const router = Router();
 router.use(authenticate);
@@ -117,11 +118,24 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       where.id = viewer.id;
     }
   } else if (['MANAGER', 'DEPARTMENT_HEAD'].includes(viewer.role)) {
-    if (!viewer.departmentId) {
-      res.json([]);
-      return;
+    const access = await getUserDeptAccess(viewer.id, req.user!.orgId, viewer.role);
+    if (access?.accessType === 'FULL') {
+      // Grant gives access to all departments — no extra filter
+    } else if (access?.accessType === 'SPECIFIC' && access.departmentIds.length > 0) {
+      // Always include viewer's own department so they can see themselves
+      const deptIds = [...access.departmentIds];
+      if (viewer.departmentId && !deptIds.includes(viewer.departmentId)) {
+        deptIds.push(viewer.departmentId);
+      }
+      where.departmentId = { in: deptIds };
+    } else {
+      // No grant — restrict to own department only
+      if (!viewer.departmentId) {
+        res.json([]);
+        return;
+      }
+      where.departmentId = viewer.departmentId;
     }
-    where.departmentId = viewer.departmentId;
   }
 
   const users = await prisma.user.findMany({

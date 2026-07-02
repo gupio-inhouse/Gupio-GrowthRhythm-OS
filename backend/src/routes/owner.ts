@@ -231,4 +231,85 @@ router.get('/data-export', requireRole('OWNER', 'COMPANY_ADMIN'), async (req: Au
   res.json({ exportedAt: new Date(), orgId, users, tasks, departments, standups, auditLogs });
 });
 
+// ─── Department Access Grants ─────────────────────────────────────────────────
+// Only OWNER can manage cross-department access grants
+
+// GET /owner/department-grants — list all grants in org
+router.get('/department-grants', requireRole('OWNER'), async (req: AuthRequest, res: Response) => {
+  const grants = await prisma.userDepartmentGrant.findMany({
+    where: { orgId: req.user!.orgId },
+    include: {
+      user: { select: { id: true, name: true, email: true, role: true, avatarUrl: true } },
+      grantedBy: { select: { id: true, name: true } },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+  res.json(grants);
+});
+
+// POST /owner/department-grants — create or update a grant (upsert)
+router.post('/department-grants', requireRole('OWNER'), async (req: AuthRequest, res: Response) => {
+  const { userId, accessType, departmentIds } = req.body as {
+    userId?: string;
+    accessType?: string;
+    departmentIds?: string[];
+  };
+
+  if (!userId || !['FULL', 'SPECIFIC'].includes(accessType ?? '')) {
+    res.status(400).json({ error: 'userId and accessType (FULL|SPECIFIC) are required' });
+    return;
+  }
+  if (accessType === 'SPECIFIC' && (!Array.isArray(departmentIds) || departmentIds.length === 0)) {
+    res.status(400).json({ error: 'departmentIds required when accessType is SPECIFIC' });
+    return;
+  }
+
+  // Verify target user belongs to same org
+  const targetUser = await prisma.user.findFirst({
+    where: { id: userId, orgId: req.user!.orgId },
+    select: { id: true, role: true },
+  });
+  if (!targetUser) {
+    res.status(404).json({ error: 'User not found in this organisation' });
+    return;
+  }
+  if (['OWNER', 'SUPER_ADMIN'].includes(targetUser.role)) {
+    res.status(400).json({ error: 'Owners and super admins already have full access' });
+    return;
+  }
+
+  const grant = await prisma.userDepartmentGrant.upsert({
+    where: { userId },
+    create: {
+      orgId: req.user!.orgId,
+      userId,
+      grantedByUserId: req.user!.userId,
+      accessType: accessType as 'FULL' | 'SPECIFIC',
+      departmentIds: accessType === 'FULL' ? [] : (departmentIds ?? []),
+    },
+    update: {
+      grantedByUserId: req.user!.userId,
+      accessType: accessType as 'FULL' | 'SPECIFIC',
+      departmentIds: accessType === 'FULL' ? [] : (departmentIds ?? []),
+    },
+    include: {
+      user: { select: { id: true, name: true, email: true, role: true, avatarUrl: true } },
+      grantedBy: { select: { id: true, name: true } },
+    },
+  });
+  res.json(grant);
+});
+
+// DELETE /owner/department-grants/:userId — revoke a user's grant
+router.delete('/department-grants/:userId', requireRole('OWNER'), async (req: AuthRequest, res: Response) => {
+  try {
+    await prisma.userDepartmentGrant.delete({
+      where: { userId: req.params.userId as string },
+    });
+    res.json({ success: true });
+  } catch {
+    res.status(404).json({ error: 'Grant not found' });
+  }
+});
+
 export default router;

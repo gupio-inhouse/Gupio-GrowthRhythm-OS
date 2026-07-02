@@ -167,7 +167,7 @@ export default function Tasks() {
     queryFn: () => api.get('/tasks').then((r) => r.data),
   });
 
-  const { data: departments = [] } = useQuery<{ id: string; name: string }[]>({
+  const { data: departments = [] } = useQuery<{ id: string; name: string; head?: { id: string; name: string } | null }[]>({
     queryKey: ['departments'],
     queryFn: () => api.get('/departments').then((r) => r.data),
     enabled: canFilterByDept,
@@ -270,9 +270,15 @@ export default function Tasks() {
     setSelectedTaskId(null);
   };
 
-  const membersInDept = departmentFilter
-    ? allUsers.filter((u) => u.departmentId === departmentFilter)
-    : allUsers;
+  const membersInDept = (() => {
+    if (!departmentFilter) return allUsers;
+    const members = allUsers.filter((u) => u.departmentId === departmentFilter);
+    const head = departments.find((d) => d.id === departmentFilter)?.head;
+    if (head && !members.some((u) => u.id === head.id)) {
+      return [...members, head];
+    }
+    return members;
+  })();
 
   const isEngineeringContext = isEngineeringDept(departments.find((d) => d.id === departmentFilter)?.name);
 

@@ -16,6 +16,10 @@ import MagicLinkVerify from '@/pages/MagicLinkVerify';
 import AppFeedback from '@/pages/AppFeedback';
 import AuditLog from '@/pages/AuditLog';
 import DepartmentPage from '@/pages/DepartmentPage';
+import LearningPage from '@/pages/LearningPage';
+import LearningAdmin from '@/pages/LearningAdmin';
+import LearningModuleBuilder from '@/pages/LearningModuleBuilder';
+import LearningModulePage from '@/pages/LearningModulePage';
 import { useAuthStore } from '@/store/authStore';
 import { getRoleRedirect } from '@/lib/roleRedirect';
 import { Toaster } from '@/components/ui/toaster';
@@ -71,6 +75,11 @@ export default function App() {
             <Route path="audit-log" element={<AuditLog />} />
             <Route path="settings" element={<Settings />} />
             <Route path="superadmin" element={<SuperAdmin />} />
+            {/* Learning */}
+            <Route path="learning" element={<LearningPage />} />
+            <Route path="learning/modules/:id" element={<LearningModulePage />} />
+            <Route path="learning/admin" element={<LearningAdmin />} />
+            <Route path="learning/admin/modules/:id" element={<LearningModuleBuilder />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
