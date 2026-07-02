@@ -27,6 +27,7 @@ import api from '@/api/client';
 import { toast } from '@/hooks/use-toast';
 import { TaskDetailDrawer } from '@/components/tasks/TaskDetailDrawer';
 import { NewTaskDialog } from '@/components/tasks/NewTaskDialog';
+import { SopsTab } from '@/components/sops/SopsTab';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -73,7 +74,7 @@ type TeamDoc = {
 };
 
 type TaskFilter = 'all' | 'overdue' | 'due_today' | 'blocked' | 'in_progress' | 'in_review' | 'done' | 'todo';
-type ActiveTab  = 'overview' | 'projects' | 'tasks' | 'members';
+type ActiveTab  = 'overview' | 'projects' | 'tasks' | 'members' | 'sops';
 
 const STATUS_LABELS: Record<string, string> = {
   TODO: 'To Do', IN_PROGRESS: 'In Progress', BLOCKED: 'Blocked',
@@ -432,6 +433,7 @@ export default function DepartmentPage() {
               { value: 'projects',  label: 'Projects',  badge: deptTeams.length > 0 ? deptTeams.length : null,    badgeCls: 'bg-white/25 text-white', show: isEngDept },
               { value: 'tasks',     label: 'Tasks',     badge: deptTasks.length > 0 ? deptTasks.length : null,    badgeCls: 'bg-white/25 text-white', show: true },
               { value: 'members',   label: 'Members',   badge: dept.users.length > 0 ? dept.users.length : null,  badgeCls: 'bg-white/25 text-white', show: true },
+              { value: 'sops',      label: 'SOPs',      badge: null, show: true },
             ] as Array<{ value: string; label: string; badge: number | null; badgeCls?: string; show: boolean }>).filter((t) => t.show).map(({ value, label, badge, badgeCls }) => (
               <button
                 key={value}
@@ -1204,6 +1206,11 @@ export default function DepartmentPage() {
                 </div>
               </div>
             )}
+          </TabsContent>
+
+          {/* ── SOPs tab ── */}
+          <TabsContent value="sops" className="mt-6">
+            <SopsTab departmentId={dept.id} />
           </TabsContent>
         </Tabs>
 

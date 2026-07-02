@@ -207,6 +207,8 @@ model User {
   certificates         LearningCertificate[] @relation("UserCertificates")
   receivedGrant        UserDepartmentGrant? @relation("ReceivedGrant")
   issuedGrants         UserDepartmentGrant[] @relation("IssuedGrants")
+  sopsCreated          DepartmentSop[]       @relation("SopCreatedBy")
+  sopsUpdated          DepartmentSop[]       @relation("SopUpdatedBy")
 
   @@unique([orgId, email])
   @@map("users")
@@ -238,6 +240,7 @@ model Department {
   jobDescriptions JobDescription[]
   appFeedback     AppFeedback[]
   learningModules LearningModule[]
+  sops            DepartmentSop[]
 
   @@unique([orgId, slug])
   @@map("departments")
@@ -857,6 +860,27 @@ model LessonProgress {
 
   @@unique([enrollmentId, lessonId])
   @@map("lesson_progress")
+}
+
+model DepartmentSop {
+  id           String   @id @default(cuid())
+  orgId        String   @map("org_id")
+  departmentId String   @map("department_id")
+  title        String
+  content      String   @db.Text
+  order        Int      @default(0)
+  createdById  String   @map("created_by_id")
+  updatedById  String?  @map("updated_by_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  createdBy  User       @relation("SopCreatedBy", fields: [createdById], references: [id])
+  updatedBy  User?      @relation("SopUpdatedBy", fields: [updatedById], references: [id])
+
+  @@index([departmentId])
+  @@index([orgId])
+  @@map("department_sops")
 }
 
 model LearningCertificate {
