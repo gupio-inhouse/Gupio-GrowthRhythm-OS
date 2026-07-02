@@ -2,16 +2,16 @@ import prisma from '../lib/prisma';
 import redis from '../lib/redis';
 import { createHash } from 'crypto';
 import { fanOutNotification } from './notification.service';
+import { GoogleGenAI } from '@google/genai';
 
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const GEMINI_MODEL = 'gemini-2.5-flash';
 
-// M9.7 — model routing: use Sonnet for high-complexity, Haiku for everything else
-export type AiComplexity = 'fast' | 'balanced' | 'thorough';
-const MODEL_MAP: Record<AiComplexity, string> = {
-  fast: 'claude-haiku-4-5-20251001',
-  balanced: 'claude-haiku-4-5-20251001',
-  thorough: 'claude-sonnet-4-6',
-};
+function getGeminiClient() {
+  if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY is not configured');
+  // Let SDK read GEMINI_API_KEY from process.env — handles AQ. format keys correctly
+  return new GoogleGenAI({});
+}
 
 // M9.2 — prompt registry (versioned prompts)
 export const PROMPTS = {
@@ -54,9 +54,7 @@ export const PROMPTS = {
   },
 } as const;
 
-interface ClaudeMessage { role: 'user' | 'assistant'; content: string }
-
-// M9.6 — cache Claude responses in Redis (TTL varies by use case)
+// M9.6 — cache Gemini responses in Redis
 async function getCachedResponse(cacheKey: string): Promise<string | null> {
   try { return await redis.get(`ai:${cacheKey}`); } catch { return null; }
 }
@@ -64,56 +62,42 @@ async function setCachedResponse(cacheKey: string, value: string, ttlSeconds = 3
   try { await redis.setex(`ai:${cacheKey}`, ttlSeconds, value); } catch { /* non-fatal */ }
 }
 
-export async function callClaude(
+async function callGemini(
   prompt: string,
   systemPrompt?: string,
-  complexity: AiComplexity = 'fast',
-  cacheTtl = 0  // 0 = no cache
+  cacheTtl = 0
 ): Promise<string> {
-  if (!ANTHROPIC_API_KEY) {
-    throw new Error('ANTHROPIC_API_KEY not set');
-  }
-
-  // M9.6: check cache first
   if (cacheTtl > 0) {
     const hash = createHash('sha256').update(`${systemPrompt ?? ''}::${prompt}`).digest('hex').slice(0, 16);
     const cached = await getCachedResponse(hash);
     if (cached) return cached;
 
-    const result = await callClaudeRaw(prompt, systemPrompt, complexity);
+    const result = await callGeminiRaw(prompt, systemPrompt);
     await setCachedResponse(hash, result, cacheTtl);
     return result;
   }
 
-  return callClaudeRaw(prompt, systemPrompt, complexity);
+  return callGeminiRaw(prompt, systemPrompt);
 }
 
-async function callClaudeRaw(prompt: string, systemPrompt?: string, complexity: AiComplexity = 'fast'): Promise<string> {
-  const model = MODEL_MAP[complexity];
-  const body: Record<string, unknown> = {
-    model,
-    max_tokens: complexity === 'thorough' ? 2048 : 1024,
-    messages: [{ role: 'user', content: prompt } as ClaudeMessage],
-  };
-  if (systemPrompt) body.system = systemPrompt;
-
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': ANTHROPIC_API_KEY!,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify(body),
+async function callGeminiRaw(prompt: string, systemPrompt?: string): Promise<string> {
+  const ai = getGeminiClient();
+  const fullPrompt = systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt;
+  const response = await ai.models.generateContent({
+    model: GEMINI_MODEL,
+    contents: fullPrompt,
   });
+  return response.text ?? '';
+}
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Claude API error ${res.status}: ${err}`);
-  }
-
-  const data = await res.json() as { content: Array<{ text: string }> };
-  return data.content[0]?.text ?? '';
+// kept as a named export so existing callers still compile
+export async function callClaude(
+  prompt: string,
+  systemPrompt?: string,
+  _complexity = 'fast',
+  cacheTtl = 0
+): Promise<string> {
+  return callGemini(prompt, systemPrompt, cacheTtl);
 }
 
 export async function deductAiCredits(orgId: string, amount = 1): Promise<boolean> {
@@ -167,7 +151,7 @@ export async function generateStandupDigest(standupId: string): Promise<string> 
     `${c.user.name}: Yesterday: ${c.yesterdaySummary || '—'} | Today: ${c.todayCommitments || '—'} | Blockers: ${c.blockers || 'None'}`
   ).join('\n');
 
-  return callClaude(p.user(cardSummaries), p.system(standup.department.name), 'fast', 1800);
+  return callGemini(p.user(cardSummaries), p.system(standup.department.name), 1800);
 }
 
 export async function generateWeeklyDigest(orgId: string): Promise<string> {
@@ -183,7 +167,7 @@ export async function generateWeeklyDigest(orgId: string): Promise<string> {
   if (!hasCredits) return 'Insufficient AI credits';
 
   const p = PROMPTS.WEEKLY_DIGEST;
-  return callClaude(p.user(doneTasks, blockedTasks, standups), p.system, 'balanced', 43200);
+  return callGemini(p.user(doneTasks, blockedTasks, standups), p.system, 43200);
 }
 
 // M4.7 — AI next-step suggestions for blocked tasks
@@ -201,10 +185,9 @@ export async function generateTaskSuggestions(
   if (!hasCredits) return [];
 
   const p = PROMPTS.TASK_SUGGESTIONS;
-  const text = await callClaude(
+  const text = await callGemini(
     p.user(task.title, task.blockerType ?? 'unknown', task.description ?? ''),
     p.system,
-    'fast',
     1800
   );
 
@@ -269,12 +252,7 @@ export async function generateStatusChangeSuggestions(
 
     const context = blockerDetails || task.description || '';
     const p = PROMPTS.STATUS_CHANGE_SUGGESTIONS;
-    const text = await callClaude(
-      p.user(task.title, status, context),
-      p.system,
-      'fast',
-      1800
-    );
+    const text = await callGemini(p.user(task.title, status, context), p.system, 1800);
 
     const parsed = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] ?? '{}') as { suggestions?: string[] };
     return parsed.suggestions && parsed.suggestions.length > 0 ? parsed.suggestions : fallbacks;
@@ -282,4 +260,41 @@ export async function generateStatusChangeSuggestions(
     console.error('Error generating status suggestions via AI, using fallback:', error);
     return fallbacks;
   }
+}
+
+export async function enhanceTaskWithGemini(
+  title: string,
+  description?: string,
+  field: 'title' | 'description' | 'both' = 'both'
+): Promise<{ title: string; description: string }> {
+  let prompt: string;
+
+  if (field === 'title') {
+    prompt = `You are a professional project manager. Rewrite this task title to be clear, concise, and action-oriented (start with a verb). Keep the same intent. Return ONLY valid JSON with no markdown:
+{"title":"improved title here"}
+
+Task Title: ${title}`;
+  } else if (field === 'description') {
+    prompt = `You are a professional project manager. Rewrite this task description to be clear, detailed, and actionable. Use the task title as context. Return ONLY valid JSON with no markdown:
+{"description":"improved description here"}
+
+Task Title: ${title}
+Task Description: ${description || '(none provided)'}`;
+  } else {
+    prompt = `You are a professional project manager. Enhance this task title and description to be clear, concise, and actionable. Keep the same intent. Return ONLY valid JSON with no markdown:
+{"title":"improved title here","description":"improved description here"}
+
+Task Title: ${title}
+Task Description: ${description || '(none provided)'}`;
+  }
+
+  const text = (await callGeminiRaw(prompt)).trim();
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('Gemini returned unexpected format');
+
+  const parsed = JSON.parse(jsonMatch[0]) as { title?: string; description?: string };
+  return {
+    title: parsed.title || title,
+    description: parsed.description || description || '',
+  };
 }

@@ -12,7 +12,7 @@ import { cn, getInitials, isEngineeringDept } from '@/lib/utils';
 import { WeekdayDatePicker } from '@/components/ui/weekday-date-picker';
 import {
   ClipboardList, User, Calendar, Clock, Tag, FolderKanban,
-  ChevronDown, Search, X, Repeat,
+  ChevronDown, Search, X, Repeat, Sparkles, Loader2,
 } from 'lucide-react';
 import api from '@/api/client';
 import { useAuthStore } from '@/store/authStore';
@@ -92,6 +92,8 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
   const [userDropOpen, setUserDropOpen] = useState(false);
   const [recurrence, setRecurrence] = useState('NONE');
   const [customDays, setCustomDays] = useState<string[]>([]);
+  const [enhancingTitle, setEnhancingTitle] = useState(false);
+  const [enhancingDesc, setEnhancingDesc] = useState(false);
 
   const { data: users = [] } = useQuery<UserItem[]>({
     queryKey: ['users-list'],
@@ -154,6 +156,43 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
   }, [open, taskToEdit]);
 
   const handleClose = () => { reset(); setUserSearch(''); setUserDropOpen(false); setRecurrence('NONE'); setCustomDays([]); onClose(); };
+
+  const handleEnhanceTitle = async () => {
+    const currentTitle = watch('title')?.trim();
+    if (!currentTitle) { toast.error('Enter a title first'); return; }
+    setEnhancingTitle(true);
+    try {
+      const res = await api.post<{ title: string; description: string }>('/tasks/enhance', {
+        title: currentTitle,
+        field: 'title',
+      });
+      setValue('title', res.data.title);
+      toast.success('Title enhanced');
+    } catch {
+      toast.error('AI enhancement failed');
+    } finally {
+      setEnhancingTitle(false);
+    }
+  };
+
+  const handleEnhanceDesc = async () => {
+    const currentTitle = watch('title')?.trim();
+    if (!currentTitle) { toast.error('Enter a title first'); return; }
+    setEnhancingDesc(true);
+    try {
+      const res = await api.post<{ title: string; description: string }>('/tasks/enhance', {
+        title: currentTitle,
+        description: watch('description')?.trim() || undefined,
+        field: 'description',
+      });
+      setValue('description', res.data.description);
+      toast.success('Description enhanced');
+    } catch {
+      toast.error('AI enhancement failed');
+    } finally {
+      setEnhancingDesc(false);
+    }
+  };
 
   const onSubmit = async (data: FormData) => {
     const dueDateIso = new Date(`${data.dueDate}T${data.dueTime}`).toISOString();
@@ -238,23 +277,64 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
             {/* Title */}
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Title *</Label>
-              <Input
-                placeholder="What needs to be done?"
-                {...register('title')}
-                className="rounded-xl border-border/60 focus-visible:ring-indigo-500/20"
-              />
+              <div className="relative">
+                <Input
+                  placeholder="What needs to be done?"
+                  {...register('title')}
+                  disabled={enhancingTitle}
+                  className={cn(
+                    'rounded-xl border-border/60 focus-visible:ring-indigo-500/20 pr-9 transition-all',
+                    enhancingTitle && 'opacity-60 bg-violet-50/50 border-violet-300',
+                  )}
+                />
+                <button
+                  type="button"
+                  onClick={handleEnhanceTitle}
+                  disabled={enhancingTitle}
+                  title="Enhance title with AI"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6 flex items-center justify-center rounded-md text-violet-500 hover:text-violet-700 hover:bg-violet-50 transition-all disabled:opacity-60"
+                >
+                  {enhancingTitle
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-600" />
+                    : <Sparkles className="h-3.5 w-3.5" />}
+                </button>
+                {enhancingTitle && (
+                  <div className="absolute inset-0 rounded-xl pointer-events-none ring-2 ring-violet-400 ring-offset-0 animate-pulse" />
+                )}
+              </div>
               {errors.title && <p className="text-xs text-destructive">{errors.title.message}</p>}
             </div>
 
             {/* Description */}
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Description</Label>
-              <Textarea
-                placeholder="Additional context..."
-                rows={2}
-                {...register('description')}
-                className="rounded-xl border-border/60 resize-none focus-visible:ring-indigo-500/20"
-              />
+              <div className="relative">
+                <Textarea
+                  placeholder="Additional context..."
+                  rows={2}
+                  {...register('description')}
+                  disabled={enhancingDesc}
+                  className={cn(
+                    'rounded-xl border-border/60 resize-none focus-visible:ring-indigo-500/20 pb-8 transition-all',
+                    enhancingDesc && 'opacity-60 bg-violet-50/50 border-violet-300',
+                  )}
+                />
+                <button
+                  type="button"
+                  onClick={handleEnhanceDesc}
+                  disabled={enhancingDesc}
+                  title="Enhance description with AI"
+                  className="absolute right-2 bottom-2 flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold text-violet-600 hover:text-violet-800 hover:bg-violet-50 border border-violet-200 transition-all disabled:opacity-60"
+                >
+                  {enhancingDesc
+                    ? <Loader2 className="h-3 w-3 animate-spin" />
+                    : <Sparkles className="h-3 w-3" />}
+                  {enhancingDesc ? 'Enhancing…' : 'Enhance'}
+                </button>
+                {enhancingDesc && (
+                  <div className="absolute inset-0 rounded-xl pointer-events-none ring-2 ring-violet-400 ring-offset-0 animate-pulse" />
+                )}
+              </div>
             </div>
 
             {/* Expected Outcome */}

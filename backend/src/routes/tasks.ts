@@ -4,7 +4,7 @@ import prisma from '../lib/prisma';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { auditLog } from '../middleware/audit';
 import { fanOutNotification, createNotification } from '../services/notification.service';
-import { generateTaskSuggestions, generateStatusChangeSuggestions } from '../services/ai.service';
+import { generateTaskSuggestions, generateStatusChangeSuggestions, enhanceTaskWithGemini } from '../services/ai.service';
 import { sendTaskAssignedEmail } from '../services/email.service';
 import { deleteFromS3 } from '../lib/s3';
 import { getUserDeptAccess } from '../lib/deptAccess';
@@ -824,6 +824,30 @@ router.post('/fix-dept', async (req: AuthRequest, res: Response) => {
   }
 
   res.json({ fixed, total: nullDeptTasks.length });
+});
+
+// POST /tasks/enhance — use Gemini to improve task title and/or description
+router.post('/enhance', async (req: AuthRequest, res: Response) => {
+  const { title, description, field } = req.body as {
+    title?: string;
+    description?: string;
+    field?: 'title' | 'description' | 'both';
+  };
+  if (!title?.trim()) {
+    res.status(400).json({ error: 'title is required' });
+    return;
+  }
+  try {
+    const enhanced = await enhanceTaskWithGemini(
+      title.trim(),
+      description?.trim(),
+      field ?? 'both'
+    );
+    res.json(enhanced);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'AI enhancement failed';
+    res.status(500).json({ error: msg });
+  }
 });
 
 export default router;
