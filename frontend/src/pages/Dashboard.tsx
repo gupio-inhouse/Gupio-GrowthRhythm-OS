@@ -2106,7 +2106,7 @@ function DeptHeadHome() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold truncate">{dept.name}</p>
                       <p className="text-[10px] text-muted-foreground">{dept._count.users} members · {dept._count.tasks} tasks</p>
-                      {dept.head && <p className="text-[10px] text-violet-500 font-medium truncate mt-0.5">{dept.head.name}</p>}
+                      <p className="text-[10px] text-violet-500 font-medium truncate mt-0.5">{user?.name}</p>
                     </div>
                     <ChevronRight className="h-4 w-4 text-muted-foreground/30 group-hover:text-violet-500 transition-colors shrink-0" />
                   </Link>

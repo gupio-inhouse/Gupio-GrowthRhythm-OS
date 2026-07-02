@@ -326,26 +326,33 @@ export default function DepartmentPage() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold tracking-tight">{dept.name}</h1>
-                {dept.head ? (
-                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                    <Avatar className="h-5 w-5">
-                      <AvatarImage src={dept.head.avatarUrl} />
-                      <AvatarFallback className="text-[9px] bg-violet-100 text-violet-700">{getInitials(dept.head.name)}</AvatarFallback>
-                    </Avatar>
-                    <span className="text-sm text-muted-foreground">{dept.head.name}</span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200">Head</span>
-                    {dept.standupTime && (
-                      <>
-                        <span className="text-muted-foreground/40">·</span>
-                        <span className="text-xs text-muted-foreground flex items-center gap-1">
-                          <Clock className="h-3 w-3" /> {dept.standupTime} · {dept.standupDuration ?? 15}m meeting
-                        </span>
-                      </>
-                    )}
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground mt-1">No department head assigned</p>
-                )}
+                {(() => {
+                  const effectiveHead = dept.head ?? (
+                    ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '')
+                      ? { name: user!.name, avatarUrl: user?.avatarUrl }
+                      : null
+                  );
+                  return effectiveHead ? (
+                    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                      <Avatar className="h-5 w-5">
+                        <AvatarImage src={effectiveHead.avatarUrl} />
+                        <AvatarFallback className="text-[9px] bg-violet-100 text-violet-700">{getInitials(effectiveHead.name)}</AvatarFallback>
+                      </Avatar>
+                      <span className="text-sm text-muted-foreground">{effectiveHead.name}</span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200">Head</span>
+                      {dept.standupTime && (
+                        <>
+                          <span className="text-muted-foreground/40">·</span>
+                          <span className="text-xs text-muted-foreground flex items-center gap-1">
+                            <Clock className="h-3 w-3" /> {dept.standupTime} · {dept.standupDuration ?? 15}m meeting
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground mt-1">No department head assigned</p>
+                  );
+                })()}
               </div>
             </div>
 

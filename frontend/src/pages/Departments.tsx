@@ -249,18 +249,25 @@ export default function Departments() {
                         <h3 className="font-bold text-base group-hover:text-violet-700 transition-colors">{dept.name}</h3>
 
                         {/* Head */}
-                        {dept.head ? (
-                          <div className="flex items-center gap-2 mt-2">
-                            <Avatar className="h-5 w-5">
-                              <AvatarImage src={dept.head.avatarUrl} />
-                              <AvatarFallback className={cn('text-[9px] font-semibold', pal.light, pal.text)}>{getInitials(dept.head.name)}</AvatarFallback>
-                            </Avatar>
-                            <span className="text-xs text-muted-foreground">{dept.head.name}</span>
-                            <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded-full', pal.light, pal.text)}>Head</span>
-                          </div>
-                        ) : (
-                          <p className="text-xs text-muted-foreground mt-2 italic">No head assigned</p>
-                        )}
+                        {(() => {
+                          const effectiveHead = dept.head ?? (
+                            ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '')
+                              ? { name: user!.name, avatarUrl: user?.avatarUrl }
+                              : null
+                          );
+                          return effectiveHead ? (
+                            <div className="flex items-center gap-2 mt-2">
+                              <Avatar className="h-5 w-5">
+                                <AvatarImage src={effectiveHead.avatarUrl} />
+                                <AvatarFallback className={cn('text-[9px] font-semibold', pal.light, pal.text)}>{getInitials(effectiveHead.name)}</AvatarFallback>
+                              </Avatar>
+                              <span className="text-xs text-muted-foreground">{effectiveHead.name}</span>
+                              <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded-full', pal.light, pal.text)}>Head</span>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-muted-foreground mt-2 italic">No head assigned</p>
+                          );
+                        })()}
 
                         {/* Standup time */}
                         {dept.standupTime && (
