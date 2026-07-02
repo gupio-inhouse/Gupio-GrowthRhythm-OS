@@ -26,6 +26,7 @@ import { useAuthStore } from '@/store/authStore';
 import api from '@/api/client';
 import { toast } from '@/hooks/use-toast';
 import { TaskDetailDrawer } from '@/components/tasks/TaskDetailDrawer';
+import { NewTaskDialog } from '@/components/tasks/NewTaskDialog';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -46,7 +47,7 @@ type DeptTask = {
   id: string; title: string; status: string; priority: string;
   dueDate?: string; createdAt?: string; description?: string; blockerType?: string;
   completionSubmittedAt?: string; completedAt?: string;
-  assignee?: { id: string; name: string; avatarUrl?: string };
+  assignee?: { id: string; name: string; avatarUrl?: string; departmentId?: string };
   department?: { id: string; name: string };
   team?: { id: string; name: string };
 };
@@ -157,11 +158,20 @@ export default function DepartmentPage() {
     queryFn:  () => api.get('/teams').then((r) => r.data),
     enabled:  !!dept && isEngineeringDept(dept?.name),
   });
-  const { data: deptTasks = [], isLoading: tasksLoading } = useQuery<DeptTask[]>({
+  const { data: rawDeptTasks = [], isLoading: tasksLoading } = useQuery<DeptTask[]>({
     queryKey: ['tasks', 'dept', dept?.id],
     queryFn:  () => api.get(`/tasks?departmentId=${dept!.id}`).then((r) => r.data),
     enabled:  !!dept?.id,
   });
+  // Only show tasks whose assignee actually belongs to this department (or unassigned tasks).
+  // This guards against tasks that were incorrectly tagged with this dept's ID.
+  const deptMemberIds = new Set((dept?.users ?? []).map((u) => u.id));
+  if (dept?.head) deptMemberIds.add(dept.head.id);
+  const deptTasks = rawDeptTasks.filter((t) =>
+    !t.assignee || // unassigned tasks are fine
+    deptMemberIds.has(t.assignee.id) || // assignee is a dept member
+    t.assignee.departmentId === dept?.id // assignee's dept matches (via backend field)
+  );
 
   const deptTeams = allTeams.filter((t) => t.department.slug === slug);
 
@@ -178,6 +188,7 @@ export default function DepartmentPage() {
   const [memberDialog,     setMemberDialog]     = useState<DeptMember | null>(null);
   const [inviteMemberOpen, setInviteMemberOpen] = useState(false);
   const [selectedTaskId,   setSelectedTaskId]   = useState<string | null>(null);
+  const [newTaskOpen,      setNewTaskOpen]      = useState(false);
   const [editDeptOpen,     setEditDeptOpen]     = useState(false);
   const [removeConfirm,    setRemoveConfirm]    = useState<DeptMember | null>(null);
   const [changeRoleTarget, setChangeRoleTarget] = useState<DeptMember | null>(null);
@@ -800,9 +811,19 @@ export default function DepartmentPage() {
               Tasks Tab
           ══════════════════════════════════════════════ */}
           <TabsContent value="tasks" className="mt-6 space-y-4">
-            <div>
-              <h2 className="text-base font-semibold">Department Tasks</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">{filteredTasks.length} of {deptTasks.length} tasks shown</p>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold">Department Tasks</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">{filteredTasks.length} of {deptTasks.length} tasks shown</p>
+              </div>
+              {canManage && (
+                <button
+                  onClick={() => setNewTaskOpen(true)}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-600 px-3 py-2 text-xs font-semibold text-white hover:opacity-90 shadow-sm shadow-indigo-200 transition-all shrink-0"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add Task
+                </button>
+              )}
             </div>
 
             {/* ── Filters ── */}
@@ -1255,6 +1276,14 @@ export default function DepartmentPage() {
         )}
 
         <TaskDetailDrawer taskId={selectedTaskId} onClose={() => setSelectedTaskId(null)} />
+        <NewTaskDialog
+          open={newTaskOpen}
+          onClose={() => setNewTaskOpen(false)}
+          onCreated={() => {
+            qc.invalidateQueries({ queryKey: ['tasks', 'dept', dept.id] });
+            setNewTaskOpen(false);
+          }}
+        />
         {canManage && createTeamOpen && (
           <CreateTeamDialog
             deptId={dept.id}

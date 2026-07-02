@@ -179,7 +179,7 @@ function DailyScheduleCard({ dept, onUpdated }: { dept: Department; onUpdated: (
 // ── Schedule dialog ────────────────────────────────────────────────────────────
 function ScheduleDialog({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
   const { user } = useAuthStore();
-  const isCeo  = ['OWNER', 'COMPANY_ADMIN'].includes(user?.role || '');
+  const canSelectDept = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
   const today  = new Date().toISOString().slice(0, 10);
   const [deptId, setDeptId]   = useState(user?.departmentId || '');
   const [date, setDate]       = useState(today);
@@ -189,7 +189,7 @@ function ScheduleDialog({ open, onClose, onCreated }: { open: boolean; onClose: 
   const { data: depts = [] } = useQuery<Department[]>({
     queryKey: ['departments-list'],
     queryFn: () => api.get('/departments').then((r) => r.data),
-    enabled: open && isCeo,
+    enabled: open && canSelectDept,
   });
 
   const mutation = useMutation({
@@ -220,7 +220,7 @@ function ScheduleDialog({ open, onClose, onCreated }: { open: boolean; onClose: 
         </DialogHeader>
 
         <div className="space-y-4">
-          {isCeo ? (
+          {canSelectDept && depts.length > 0 && (
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold">Department</Label>
               <Select value={deptId} onValueChange={setDeptId}>
@@ -229,11 +229,6 @@ function ScheduleDialog({ open, onClose, onCreated }: { open: boolean; onClose: 
                   {depts.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
                 </SelectContent>
               </Select>
-            </div>
-          ) : user?.departmentId && (
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">Department</Label>
-              <div className="h-9 rounded-xl bg-muted/50 border border-border/60 px-3 flex items-center text-sm text-muted-foreground">Your department</div>
             </div>
           )}
 
@@ -284,9 +279,8 @@ export default function Standup() {
     queryFn: () => api.get('/departments').then((r) => r.data),
     enabled: canConfigureSchedule,
   });
-  const schedulableDepts = user?.role === 'DEPARTMENT_HEAD'
-    ? depts.filter((d) => d.id === user.departmentId)
-    : depts;
+  // depts from GET /departments already respects the user's grant — no extra filter needed
+  const schedulableDepts = depts;
 
   const { data: standups = [] } = useQuery<StandupSummary[]>({
     queryKey: ['standups'],

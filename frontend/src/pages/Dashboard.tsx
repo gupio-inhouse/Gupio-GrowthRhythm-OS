@@ -466,6 +466,23 @@ function OwnerHome() {
           </div>
         )}
 
+        {/* ── Department quick-access strip ── */}
+        {(data?.departments ?? []).length > 0 && (
+          <div className="flex flex-wrap gap-2 items-center">
+            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest shrink-0">Departments</span>
+            {(data.departments as Department[]).map((dept) => (
+              <Link
+                key={dept.id}
+                to={dept.slug ? `/departments/${dept.slug}` : '#'}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-border/60 text-xs font-semibold hover:border-indigo-300 hover:bg-indigo-50/40 hover:text-indigo-700 transition-all shadow-sm"
+              >
+                <Building2 className="h-3 w-3 opacity-60" />
+                {dept.name}
+              </Link>
+            ))}
+          </div>
+        )}
+
         {/* ── 5 KPI cards ── */}
         <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4">
           {kpis.map(({ label, value, sub, icon: Icon, from, to, shadow, onClick }) => (
@@ -1797,6 +1814,15 @@ function DeptHeadHome() {
     queryKey: useAllDeptTeams ? ['teams'] : ['teams', 'managed'],
     queryFn: () => (useAllDeptTeams ? api.get('/teams') : api.get('/teams/managed')).then((r) => r.data),
   });
+  const { data: accessibleDepts = [] } = useQuery<Array<{
+    id: string; name: string; slug: string;
+    head?: { id: string; name: string } | null;
+    _count: { users: number; tasks: number };
+  }>>({
+    queryKey: ['departments'],
+    queryFn: () => api.get('/departments').then((r) => r.data),
+    enabled: isManagerOrHead,
+  });
 
   const now        = new Date();
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
@@ -2053,6 +2079,41 @@ function DeptHeadHome() {
               )}
             </div>
           </div>
+        )}
+
+        {/* ── My Departments ── */}
+        {isManagerOrHead && accessibleDepts.length > 0 && (
+          <Card className="rounded-2xl border border-border/60 bg-white shadow-sm overflow-hidden">
+            <div className="h-1 w-full bg-gradient-to-r from-violet-400 to-indigo-500" />
+            <CardHeader className="px-5 pt-4 pb-0">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <CIcon icon={Building2} bg="bg-violet-100" cls="text-violet-600" />
+                My Departments
+                <span className="ml-auto text-[10px] font-bold bg-violet-50 text-violet-600 rounded-full px-2.5 py-1">{accessibleDepts.length}</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-4 pt-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {accessibleDepts.map((dept) => (
+                  <Link
+                    key={dept.id}
+                    to={`/departments/${dept.slug}`}
+                    className="flex items-center gap-3 p-3 rounded-xl border border-slate-100 hover:border-violet-200 hover:bg-violet-50/30 transition-all group"
+                  >
+                    <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shrink-0 shadow-sm shadow-violet-200/60">
+                      <Building2 className="h-4 w-4 text-white" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold truncate">{dept.name}</p>
+                      <p className="text-[10px] text-muted-foreground">{dept._count.users} members · {dept._count.tasks} tasks</p>
+                      {dept.head && <p className="text-[10px] text-violet-500 font-medium truncate mt-0.5">{dept.head.name}</p>}
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground/30 group-hover:text-violet-500 transition-colors shrink-0" />
+                  </Link>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
         )}
 
         {/* ── Projects strip ── */}

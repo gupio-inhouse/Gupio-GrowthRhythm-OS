@@ -54,12 +54,10 @@ async function canViewTask(actor: NonNullable<Awaited<ReturnType<typeof getActor
   if (actor.role === 'MANAGER') {
     return task.assigneeUserId === actor.id ||
       (task.assigneeUserId !== null && actor.reportIds.includes(task.assigneeUserId)) ||
-      (!!actor.departmentId && task.departmentId === actor.departmentId) ||
-      task.assigneeUserId === null;
+      (!!actor.departmentId && task.departmentId === actor.departmentId);
   }
   if (actor.role === 'DEPARTMENT_HEAD') {
-    return (!!actor.departmentId && task.departmentId === actor.departmentId) ||
-      task.assigneeUserId === null;
+    return !!actor.departmentId && task.departmentId === actor.departmentId;
   }
   return false;
 }
@@ -189,6 +187,8 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         where.departmentId = { in: actor.grant.departmentIds };
       } else if (actor.departmentId) {
         where.departmentId = actor.departmentId;
+      } else {
+        where.id = { in: [] }; // no dept, no grant — see nothing
       }
     } else {
       delete where.assigneeUserId;
@@ -201,16 +201,44 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     if (actor.grant?.accessType === 'FULL') {
       // no extra filter — sees all dept tasks
     } else if (actor.grant?.accessType === 'SPECIFIC') {
-      where.departmentId = { in: actor.grant.departmentIds };
+      // Always include own dept alongside granted depts
+      const deptIds = [...actor.grant.departmentIds];
+      if (actor.departmentId && !deptIds.includes(actor.departmentId)) {
+        deptIds.push(actor.departmentId);
+      }
+      where.departmentId = { in: deptIds };
+    } else if (actor.departmentId) {
+      where.departmentId = actor.departmentId;
+    } else {
+      where.id = { in: [] }; // no dept, no grant — see nothing
+    }
+  } else if (req.user!.role === 'COMPANY_ADMIN') {
+    // getUserDeptAccess auto-returns FULL for COMPANY_ADMIN, so bypass it.
+    // Look up the real DB grant to decide task visibility scope.
+    const rawGrant = await prisma.userDepartmentGrant.findUnique({
+      where: { userId: req.user!.userId },
+      select: { accessType: true, departmentIds: true, orgId: true },
+    });
+    const explicitGrant = rawGrant?.orgId === req.user!.orgId ? rawGrant : null;
+
+    if (explicitGrant?.accessType === 'FULL') {
+      // explicitly granted full access — no filter
+    } else if (explicitGrant?.accessType === 'SPECIFIC' && explicitGrant.departmentIds.length > 0) {
+      const deptIds = [...explicitGrant.departmentIds];
+      if (actor.departmentId && !deptIds.includes(actor.departmentId)) {
+        deptIds.push(actor.departmentId);
+      }
+      where.departmentId = { in: deptIds };
     } else if (actor.departmentId) {
       where.departmentId = actor.departmentId;
     }
+    // COMPANY_ADMIN with no dept and no explicit grant: sees all (they are org-wide admins)
   }
 
   const tasks = await prisma.task.findMany({
     where,
     include: {
-      assignee: { select: { id: true, name: true, email: true, avatarUrl: true } },
+      assignee: { select: { id: true, name: true, email: true, avatarUrl: true, departmentId: true } },
       assignedBy: { select: { id: true, name: true } },
       department: { select: { id: true, name: true, slug: true } },
       team: { select: { id: true, name: true } },
@@ -310,9 +338,15 @@ router.post('/', auditLog('task', 'CREATE'), async (req: AuthRequest, res: Respo
     return;
   }
 
+  // Always use the assignee's own departmentId as the task's department.
+  // This prevents cross-dept assignment leaking into the wrong dept's task list.
+  // Only fall back to the provided departmentId when there's no assignee.
+  const resolvedDeptId = assignee?.departmentId ?? parsed.data.departmentId ?? undefined;
+
   const task = await prisma.task.create({
     data: {
       ...parsed.data,
+      departmentId: resolvedDeptId,
       orgId: req.user!.orgId,
       assignedByUserId: req.user!.userId,
     },
@@ -401,6 +435,7 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
   const requestedStatus = parsed.data.status;
 
   // Validate assignee reassignment when provided
+  let newAssigneeDeptId: string | null = null;
   if ('assigneeUserId' in parsed.data && parsed.data.assigneeUserId !== undefined) {
     if (parsed.data.assigneeUserId !== null) {
       const assignee = await prisma.user.findFirst({
@@ -411,6 +446,7 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
         res.status(400).json({ error: 'Assignee not found' });
         return;
       }
+      newAssigneeDeptId = assignee.departmentId;
     }
     // OWNER, COMPANY_ADMIN, DEPARTMENT_HEAD, MANAGER can reassign to anyone
     // TEAM_MEMBER cannot change assignee at all (blocked above already)
@@ -423,6 +459,8 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
     data.completionReviewedAt = null;
     data.completionReviewedByUserId = null;
     data.completedAt = null;
+    // Re-scope task to the new assignee's department
+    if (newAssigneeDeptId) data.departmentId = newAssigneeDeptId;
   }
 
   // Enforce delivery proof when submitting own work as Done
@@ -755,6 +793,37 @@ router.post('/import-csv', auditLog('task', 'CREATE'), async (req: AuthRequest, 
   }
 
   res.json(results);
+});
+
+// POST /tasks/fix-dept — OWNER only: backfill departmentId on tasks that have none
+// Derives department from the assignee's departmentId so existing data is properly scoped.
+router.post('/fix-dept', async (req: AuthRequest, res: Response) => {
+  if (req.user!.role !== 'OWNER') {
+    res.status(403).json({ error: 'Forbidden' });
+    return;
+  }
+
+  const nullDeptTasks = await prisma.task.findMany({
+    where: { orgId: req.user!.orgId, departmentId: null, assigneeUserId: { not: null } },
+    select: { id: true, assigneeUserId: true },
+  });
+
+  let fixed = 0;
+  for (const task of nullDeptTasks) {
+    if (!task.assigneeUserId) continue;
+    const assignee = await prisma.user.findUnique({
+      where: { id: task.assigneeUserId },
+      select: { departmentId: true },
+    });
+    if (!assignee?.departmentId) continue;
+    await prisma.task.update({
+      where: { id: task.id },
+      data: { departmentId: assignee.departmentId },
+    });
+    fixed++;
+  }
+
+  res.json({ fixed, total: nullDeptTasks.length });
 });
 
 export default router;
