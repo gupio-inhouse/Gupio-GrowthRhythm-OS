@@ -2,7 +2,7 @@ import { Response, NextFunction } from 'express';
 import { AuthRequest } from './auth';
 import prisma from '../lib/prisma';
 import { AuditAction } from '@prisma/client';
-
+// mncmxn
 export function auditLog(entityType: string, action: AuditAction) {
   return async (req: AuthRequest, res: Response, next: NextFunction) => {
     const originalJson = res.json.bind(res);
