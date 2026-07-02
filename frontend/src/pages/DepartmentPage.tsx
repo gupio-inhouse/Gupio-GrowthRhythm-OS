@@ -1290,6 +1290,13 @@ export default function DepartmentPage() {
             qc.invalidateQueries({ queryKey: ['tasks', 'dept', dept.id] });
             setNewTaskOpen(false);
           }}
+          defaultDepartmentId={dept.id}
+          departmentMembers={[
+            ...dept.users.map((u) => ({ id: u.id, name: u.name, role: u.role, departmentId: dept.id })),
+            ...(dept.head && !dept.users.some((u) => u.id === dept.head!.id)
+              ? [{ id: dept.head.id, name: dept.head.name, role: 'DEPARTMENT_HEAD', departmentId: dept.id }]
+              : []),
+          ]}
         />
         {canManage && createTeamOpen && (
           <CreateTeamDialog

@@ -173,16 +173,30 @@ router.get('/workload', async (req: AuthRequest, res: Response) => {
 
   const { departmentId: deptFilter, assigneeId } = req.query as Record<string, string | undefined>;
 
-  // Determine department scope: role-based restriction takes precedence for non-owners
+  // Build department scope based on role + grants
   const isOwnerLevel = ['OWNER', 'COMPANY_ADMIN', 'SUPER_ADMIN'].includes(viewer.role);
-  const scopedDeptId = !isOwnerLevel && viewer.departmentId ? viewer.departmentId : (deptFilter || undefined);
+  let deptWhere: { departmentId?: string | { in: string[] } } = {};
+  if (!isOwnerLevel) {
+    const access = await getUserDeptAccess(viewer.id, req.user!.orgId, viewer.role);
+    if (access?.accessType === 'FULL') {
+      // no dept filter — sees all
+    } else if (access?.accessType === 'SPECIFIC' && access.departmentIds.length > 0) {
+      const deptIds = [...access.departmentIds];
+      if (viewer.departmentId && !deptIds.includes(viewer.departmentId)) deptIds.push(viewer.departmentId);
+      deptWhere = { departmentId: { in: deptIds } };
+    } else if (viewer.departmentId) {
+      deptWhere = { departmentId: viewer.departmentId };
+    }
+  } else if (deptFilter) {
+    deptWhere = { departmentId: deptFilter };
+  }
 
   const users = await prisma.user.findMany({
     where: {
       orgId: req.user!.orgId,
       status: 'ACTIVE',
       role: { notIn: ['SUPER_ADMIN', 'COACH_ADVISOR'] },
-      ...(scopedDeptId ? { departmentId: scopedDeptId } : {}),
+      ...deptWhere,
       ...(assigneeId ? { id: assigneeId } : {}),
     },
     select: {

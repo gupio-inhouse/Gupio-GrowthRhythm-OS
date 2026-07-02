@@ -64,10 +64,12 @@ export type TaskToEdit = {
 };
 
 interface Props {
-  open:        boolean;
-  onClose:     () => void;
-  onCreated:   () => void;
-  taskToEdit?: TaskToEdit | null;
+  open:                 boolean;
+  onClose:              () => void;
+  onCreated:            () => void;
+  taskToEdit?:          TaskToEdit | null;
+  defaultDepartmentId?: string;
+  departmentMembers?:   UserItem[];
 }
 
 const PRIORITY_CONFIG = {
@@ -79,7 +81,7 @@ const PRIORITY_CONFIG = {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
+export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDepartmentId, departmentMembers }: Props) {
   const { user } = useAuthStore();
   const isTeamMember    = user?.role === 'TEAM_MEMBER';
   const canAssignToAny  = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
@@ -144,8 +146,9 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
       });
     } else {
       reset({ priority: 'MEDIUM' });
-      // Auto-fill department for any role that belongs to one
-      if (user?.departmentId) setValue('departmentId', user.departmentId);
+      // If opened from within a specific department, pre-select it; otherwise use the user's own dept
+      const presetDeptId = defaultDepartmentId || user?.departmentId;
+      if (presetDeptId) setValue('departmentId', presetDeptId);
       if (isTeamMember && user) setValue('assigneeUserId', user.id);
     }
   }, [open, taskToEdit]);
@@ -191,15 +194,15 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
     }
   };
 
-  // Filtered user list for assignee search
-  const filteredUsers = users.filter((u) => {
-    if (!userSearch) return true;
-    return u.name.toLowerCase().includes(userSearch.toLowerCase());
-  });
+  // Use department-scoped members when provided, otherwise fall back to full list
+  const baseUsers = departmentMembers ?? users;
+  const filteredUsers = baseUsers.filter((u) =>
+    !userSearch || u.name.toLowerCase().includes(userSearch.toLowerCase())
+  );
 
   // Group by department for the dropdown
   const deptMap = new Map(departments.map((d) => [d.id, d.name]));
-  const assigneeName = users.find((u) => u.id === watchedAssigneeId)?.name;
+  const assigneeName = baseUsers.find((u) => u.id === watchedAssigneeId)?.name;
   const isEngInDialog = isEngineeringDept(deptMap.get(watchedDeptId));
 
   const availableTeams = isTeamMember
@@ -396,18 +399,24 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit }: Props) {
                       <Tag className="h-3.5 w-3.5 text-muted-foreground" />
                       <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Department</Label>
                     </div>
-                    <Select
-                      value={watchedDeptId || '__none__'}
-                      onValueChange={(v) => setValue('departmentId', v === '__none__' ? '' : v)}
-                    >
-                      <SelectTrigger className="h-9 rounded-xl border-border/60 text-sm">
-                        <SelectValue placeholder="None" />
-                      </SelectTrigger>
-                      <SelectContent className="rounded-xl">
-                        <SelectItem value="__none__">No department</SelectItem>
-                        {departments.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                    {defaultDepartmentId ? (
+                      <div className="h-9 rounded-xl border border-border/60 bg-muted/30 px-3 flex items-center text-sm font-medium text-foreground">
+                        {deptMap.get(defaultDepartmentId) ?? departments.find((d) => d.id === defaultDepartmentId)?.name ?? 'Department'}
+                      </div>
+                    ) : (
+                      <Select
+                        value={watchedDeptId || '__none__'}
+                        onValueChange={(v) => setValue('departmentId', v === '__none__' ? '' : v)}
+                      >
+                        <SelectTrigger className="h-9 rounded-xl border-border/60 text-sm">
+                          <SelectValue placeholder="None" />
+                        </SelectTrigger>
+                        <SelectContent className="rounded-xl">
+                          <SelectItem value="__none__">No department</SelectItem>
+                          {departments.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    )}
                   </div>
 
                   <div className="space-y-1.5">
