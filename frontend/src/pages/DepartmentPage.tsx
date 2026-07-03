@@ -67,7 +67,7 @@ type MemberStat = {
   stats: { total: number; done: number; inProgress: number; inReview: number; blocked: number; todo: number; overdue: number; completionRate: number };
   tasks: TaskSummary[];
 };
-type ProjectOverview = { team: Team; stats: MemberStat['stats']; memberStats: MemberStat[] };
+type ProjectOverview = { team: Team; stats: MemberStat['stats']; memberStats: MemberStat[]; aiOverview?: string };
 type OrgUser = { id: string; name: string; email: string; avatarUrl?: string; role: string; departmentId?: string };
 type TeamDoc = {
   id: string; name: string; url: string; fileType?: string; size?: number; createdAt: string;
@@ -2108,6 +2108,35 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
             <div className="h-40 rounded-xl bg-muted animate-pulse" />
           ) : stats ? (
             <>
+              {/* Google AI Overview Card */}
+              {overview?.aiOverview && (
+                <Card className="border border-violet-500/20 shadow-sm relative overflow-hidden bg-gradient-to-br from-violet-900/10 via-indigo-950/5 to-transparent">
+                  {/* Subtle decorative glow border on top */}
+                  <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-violet-500 via-purple-500 to-indigo-500" />
+                  <CardContent className="pt-5 pb-5 px-6">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Sparkles className="h-4 w-4 text-purple-400 animate-pulse" />
+                      <span className="text-xs font-bold bg-gradient-to-r from-violet-400 to-indigo-400 bg-clip-text text-transparent uppercase tracking-wider">
+                        AI Overview
+                      </span>
+                    </div>
+                    <div className="space-y-2.5 text-sm text-slate-300 leading-relaxed">
+                      {overview.aiOverview.split('\n\n').map((line, idx) => {
+                        const match = line.match(/^\*\*(.*?)\*\*:\s*(.*)$/);
+                        if (match) {
+                          return (
+                            <p key={idx}>
+                              <span className="font-semibold text-white">{match[1]}:</span> {match[2]}
+                            </p>
+                          );
+                        }
+                        return <p key={idx}>{line}</p>;
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               {/* Progress card */}
               <Card>
                 <CardContent className="pt-5 pb-4">

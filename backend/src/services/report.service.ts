@@ -1,4 +1,5 @@
 import prisma from '../lib/prisma';
+import { callGroq } from './ai.service';
 
 // ── IST helpers ───────────────────────────────────────────────────────────────
 const IST_MS = 5.5 * 3600 * 1000;
@@ -82,6 +83,7 @@ export type OrgReport = {
   from: Date; to: Date; departments: DeptReport[];
   totalDone: number; totalOnTime: number; totalLate: number;
   totalReviewPending: number; totalPending: number; totalOverdue: number;
+  aiSummary?: string;
 };
 
 // ── Prior-period stats for delta ───────────────────────────────────────────────
@@ -255,7 +257,7 @@ export async function buildOrgReport(
     });
   }
 
-  return {
+  const reportData = {
     orgId, orgName: org.name, period, from, to,
     departments: deptReports,
     totalDone: deptReports.reduce((s, d) => s + d.totalDone, 0),
@@ -265,6 +267,61 @@ export async function buildOrgReport(
     totalPending: deptReports.reduce((s, d) => s + d.totalPending, 0),
     totalOverdue: deptReports.reduce((s, d) => s + d.totalOverdue, 0),
   };
+
+  const aiSummary = await getAiPerformanceSummary(reportData, period);
+  return { ...reportData, aiSummary };
+}
+
+async function getAiPerformanceSummary(report: Omit<OrgReport, 'aiSummary'>, period: 'daily' | 'weekly' | 'monthly'): Promise<string> {
+  const membersData = report.departments.flatMap((d) =>
+    d.members.map((m) => ({
+      id: m.userId,
+      name: m.name,
+      role: m.role,
+      department: d.deptName,
+      completed: m.doneTasks.map((t) => `${t.title} (${t.daysLate ? `${t.daysLate}d late` : 'on time'})`),
+      inReview: m.reviewPendingTasks.map((t) => t.title),
+      pending: m.pendingTasks.map((t) => t.title),
+      overdue: m.overdueTasks.map((t) => `${t.title} (${t.overdueDays}d overdue)`),
+    }))
+  );
+
+  const activeMembers = membersData.filter(
+    (m) => m.completed.length > 0 || m.inReview.length > 0 || m.pending.length > 0 || m.overdue.length > 0
+  );
+
+  if (activeMembers.length === 0) return `No member activity this ${period === 'daily' ? 'day' : period === 'weekly' ? 'week' : 'month'}.`;
+
+  const periodWord = period === 'daily' ? 'today' : period === 'weekly' ? 'this week' : 'this month';
+
+  const prompt = `You are a professional business coach. Analyze the performance data of the following team members for ${periodWord} and generate an extremely concise, 1-sentence summary (max 15-20 words) for each member. Focus on their progress, wins, or key blockers. Be direct, professional, and action-oriented.
+   
+Return ONLY a valid JSON object mapping each user's ID to their summary string (no markdown block wrappers, no other text), for example:
+{
+  "userId": "Completed database migration on time; has 2 overdue API tasks to address."
+}
+
+Members data:
+${JSON.stringify(activeMembers, null, 2)}
+`;
+
+  try {
+    const text = await callGroq(prompt, 'You are an AI assistant analyzing team performance reports.');
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return '';
+    const parsed = JSON.parse(jsonMatch[0]) as Record<string, string>;
+
+    let html = '<ul style="margin:0;padding-left:20px;list-style-type:disc;color:#cbd5e1;font-size:12px;line-height:1.6;">';
+    for (const member of activeMembers) {
+      const summary = parsed[member.id] || 'No updates for this period.';
+      html += `<li style="margin-bottom:8px;"><strong style="color:#ffffff;">${member.name}</strong>: ${summary}</li>`;
+    }
+    html += '</ul>';
+    return html;
+  } catch (e) {
+    console.error('Error generating AI report summary:', e);
+    return '';
+  }
 }
 
 // ── Shared formatters ──────────────────────────────────────────────────────────
@@ -619,6 +676,20 @@ export function renderReportHtml(
     </table>
   </td></tr>`;
 
+  // ── AI Performance Summary Callout ───────────────────────────────────
+  const periodWordLabel = report.period === 'daily' ? 'Daily' : report.period === 'weekly' ? 'Weekly' : 'Monthly';
+  const aiSummarySection = report.aiSummary ? `
+  <tr><td style="padding-bottom:20px;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#1e293b;border-radius:14px;border:1px solid rgba(255,255,255,0.07);">
+      <tr><td style="padding:14px 20px 12px;border-bottom:1px solid rgba(255,255,255,0.06);">
+        <p style="margin:0;font-size:13px;font-weight:700;color:#f1f5f9;">✨ AI ${periodWordLabel} Performance Summary</p>
+      </td></tr>
+      <tr><td style="padding:16px 20px;">
+        ${report.aiSummary}
+      </td></tr>
+    </table>
+  </td></tr>` : '';
+
   // ── 7. Executive summary table ─────────────────────────────────────────────
   const summaryTable = depts.length > 1 ? `
   <tr><td style="padding-bottom:20px;">
@@ -700,6 +771,9 @@ export function renderReportHtml(
 
   <tr><td style="height:20px;"></td></tr>
 
+  <!-- AI Daily Performance Summary -->
+  ${aiSummarySection}
+
   <!-- 7. Executive summary table -->
   ${summaryTable}
 
@@ -737,6 +811,21 @@ export function renderReportText(report: OrgReport): string {
   lines.push('');
   lines.push(`SUMMARY | Done: ${report.totalDone} | On Time: ${report.totalOnTime} | Late: ${report.totalLate} | In Review: ${report.totalReviewPending} | Pending: ${report.totalPending} | Overdue: ${report.totalOverdue}`);
   lines.push('');
+
+  const textSummary = report.aiSummary
+    ? report.aiSummary
+        .replace(/<strong style="color:#ffffff;">(.*?)<\/strong>/g, '$1')
+        .replace(/<li[^>]*>/g, '  - ')
+        .replace(/<\/li>/g, '\n')
+        .replace(/<[^>]*>/g, '')
+        .trim()
+    : '';
+
+  if (textSummary) {
+    lines.push('AI DAILY PERFORMANCE SUMMARY');
+    lines.push(textSummary);
+    lines.push('');
+  }
 
   for (const dept of report.departments) {
     lines.push('='.repeat(52));

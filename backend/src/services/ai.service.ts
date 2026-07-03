@@ -282,3 +282,19 @@ Task Description: ${description || '(none provided)'}`;
     description: parsed.description || description || '',
   };
 }
+
+export async function callGroq(prompt: string, systemPrompt?: string): Promise<string> {
+  const key = process.env.GROQ_API_KEY;
+  if (!key) throw new Error('GROQ_API_KEY is not set');
+  const groq = new Groq({ apiKey: key });
+  const res = await groq.chat.completions.create({
+    model: GROQ_MODEL,
+    messages: [
+      ...(systemPrompt ? [{ role: 'system' as const, content: systemPrompt }] : []),
+      { role: 'user' as const, content: prompt },
+    ],
+    max_tokens: 1024,
+    response_format: { type: "json_object" }
+  });
+  return res.choices[0]?.message?.content ?? '';
+}

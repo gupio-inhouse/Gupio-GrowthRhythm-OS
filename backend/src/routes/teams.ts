@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
+import { callGroq } from '../services/ai.service';
 import prisma from '../lib/prisma';
 import { authenticate, AuthRequest, requireRole } from '../middleware/auth';
 import { auditLog } from '../middleware/audit';
@@ -189,10 +190,51 @@ router.get(
       };
     });
 
+    // Generate AI Summary of everyone in the project (1-2 lines per person) using Groq
+    const activeMembersData = memberStats.map((ms) => ({
+      name: ms.user.name,
+      role: ms.user.role,
+      completed: ms.tasks.filter((t) => t.status === 'DONE').map((t) => t.title),
+      inProgress: ms.tasks.filter((t) => t.status === 'IN_PROGRESS').map((t) => t.title),
+      inReview: ms.tasks.filter((t) => t.status === 'IN_REVIEW').map((t) => t.title),
+      blocked: ms.tasks.filter((t) => t.status === 'BLOCKED').map((t) => t.title),
+      todo: ms.tasks.filter((t) => t.status === 'TODO').map((t) => t.title),
+      overdueCount: ms.stats.overdue,
+    }));
+
+    let aiOverview = '';
+    if (activeMembersData.length > 0) {
+      const prompt = `You are a professional project manager. Summarize the status and progress of the following team members in this project.
+Write a concise 1-2 sentence overview for each member highlighting their focus, completed work, and potential blockers/overdue items.
+Keep it direct, professional, and action-oriented.
+
+Return ONLY a valid JSON object mapping each user's Name to their 1-2 sentence status overview string, for example:
+{
+  "John Doe": "Currently working on frontend components; has resolved 2 key bugs, but is currently blocked on the backend API deployment."
+}
+
+Members data:
+${JSON.stringify(activeMembersData, null, 2)}
+`;
+      try {
+        const text = await callGroq(prompt, 'You are an AI assistant generating project status overviews.');
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]) as Record<string, string>;
+          aiOverview = Object.entries(parsed)
+            .map(([name, desc]) => `**${name}**: ${desc}`)
+            .join('\n\n');
+        }
+      } catch (e) {
+        console.error('Error generating project AI overview:', e);
+      }
+    }
+
     res.json({
       team: formatTeam(team),
       stats: { total, done, inProgress, inReview, todo, blocked, overdue, completionRate },
       memberStats,
+      aiOverview,
     });
   }
 );
