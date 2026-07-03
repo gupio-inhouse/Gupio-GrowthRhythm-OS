@@ -1,16 +1,20 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, CheckCircle2, Circle, BookOpen, Video, FileText,
-  Link2, CheckSquare, HelpCircle, ChevronRight, Award, Loader2,
-  Clock, Play, ChevronDown, ChevronUp,
+  Link2, CheckSquare, HelpCircle, ChevronRight, ChevronLeft, Award, Loader2,
+  Clock, Play, ChevronDown, ChevronUp, ListVideo, X, Download, Trophy,
 } from 'lucide-react';
-import { learningApi, LearningLesson, LearningPhase, LessonProgress, LearningCertificate } from '@/api/learning';
+import { learningApi, LearningLesson, LessonProgress, LearningCertificate } from '@/api/learning';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ProgressRing } from '@/components/learning/ProgressRing';
+import { useWatchHeartbeat } from '@/hooks/useWatchHeartbeat';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { getEmbeddableVideo } from '@/lib/videoEmbed';
 
 const CONTENT_ICONS: Record<string, React.ElementType> = {
   VIDEO: Video,
@@ -26,11 +30,12 @@ export default function LearningModulePage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
 
-  const [activeLesson, setActiveLesson] = useState<LearningLesson | null>(null);
-  const [expandedPhase, setExpandedPhase] = useState<string | null>(null);
+  const [activeLessonId, setActiveLessonId] = useState<string | null>(null);
+  const [expandedPhases, setExpandedPhases] = useState<Set<string>>(new Set());
+  const [contentOpen, setContentOpen] = useState(false);
+  const [tab, setTab] = useState('overview');
   const [quizAnswers, setQuizAnswers] = useState<Record<string, number>>({});
   const [quizSubmitted, setQuizSubmitted] = useState(false);
-  const startTime = useRef<number>(Date.now());
 
   const { data: module, isLoading } = useQuery({
     queryKey: ['learning:module', id],
@@ -48,7 +53,7 @@ export default function LearningModulePage() {
   }>({
     queryKey: ['learning:progress', id],
     queryFn: () => learningApi.getMyProgress(id!),
-    enabled: !!id,
+    enabled: !!id && !!module?.myEnrollment,
   });
 
   const progressMutation = useMutation({
@@ -58,11 +63,12 @@ export default function LearningModulePage() {
     }: {
       lessonId: string;
       data: Parameters<typeof learningApi.updateProgress>[2];
-    }) =>
-      learningApi.updateProgress(lessonId, enrollment?.id ?? '', data),
+    }) => learningApi.updateProgress(lessonId, enrollment?.id ?? module?.myEnrollment?.id ?? '', data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['learning:progress', id] });
+      qc.invalidateQueries({ queryKey: ['learning:module', id] });
       qc.invalidateQueries({ queryKey: ['learning:my'] });
+      qc.invalidateQueries({ queryKey: ['learning:stats'] });
     },
   });
 
@@ -75,21 +81,48 @@ export default function LearningModulePage() {
     },
   });
 
-  useEffect(() => {
-    if (module?.lessons && module.lessons.length > 0 && !activeLesson) {
-      setActiveLesson(module.lessons[0]);
-      const firstPhaseId = module.lessons[0].phaseId;
-      if (firstPhaseId) setExpandedPhase(firstPhaseId);
-    }
-  }, [module]);
+  const lessons = useMemo(() => module?.lessons ?? [], [module]);
+  const activeLesson = lessons.find((l) => l.id === activeLessonId) ?? null;
 
-  useEffect(() => {
-    if (activeLesson) {
-      startTime.current = Date.now();
-      setQuizAnswers({});
-      setQuizSubmitted(false);
+  const progressMap = useMemo(() => {
+    const map: Record<string, LessonProgress> = {};
+    for (const p of enrollment?.progress ?? module?.myEnrollment?.progress ?? []) {
+      map[p.lessonId] = p;
     }
-  }, [activeLesson?.id]);
+    return map;
+  }, [enrollment, module]);
+
+  const enrollmentId = enrollment?.id ?? module?.myEnrollment?.id;
+
+  // Watch-time heartbeat for the open lesson (visibility-aware, server-capped)
+  useWatchHeartbeat(activeLesson?.id, enrollmentId);
+
+  // Resume: open the first lesson the learner hasn't completed yet
+  useEffect(() => {
+    if (!module || lessons.length === 0 || activeLessonId) return;
+    if (!module.myEnrollment) {
+      setActiveLessonId(lessons[0].id);
+      return;
+    }
+    const progressed = new Set(
+      (enrollment?.progress ?? module.myEnrollment.progress ?? [])
+        .filter((p) => p.status === 'COMPLETED')
+        .map((p) => p.lessonId)
+    );
+    const next = lessons.find((l) => !progressed.has(l.id)) ?? lessons[0];
+    setActiveLessonId(next.id);
+  }, [module, enrollment, lessons, activeLessonId]);
+
+  // Per-lesson UI resets + keep the active lesson's phase expanded
+  useEffect(() => {
+    if (!activeLesson) return;
+    setQuizAnswers({});
+    setQuizSubmitted(false);
+    setTab(activeLesson.contentType === 'QUIZ' && (activeLesson.quizzes?.length ?? 0) > 0 ? 'quiz' : 'overview');
+    if (activeLesson.phaseId) {
+      setExpandedPhases((prev) => (prev.has(activeLesson.phaseId!) ? prev : new Set(prev).add(activeLesson.phaseId!)));
+    }
+  }, [activeLessonId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (isLoading) {
     return (
@@ -102,48 +135,42 @@ export default function LearningModulePage() {
   if (!module) return null;
 
   const myEnrollment = module.myEnrollment;
-  const progressMap: Record<string, LessonProgress> = {};
-  if (myEnrollment?.progress) {
-    for (const p of myEnrollment.progress) {
-      progressMap[p.lessonId] = p;
-    }
-  }
+
+  const requiredLessons = lessons.filter((l) => l.isRequired);
+  const completedCount = requiredLessons.filter((l) => progressMap[l.id]?.status === 'COMPLETED').length;
+  const pct = requiredLessons.length > 0 ? Math.round((completedCount / requiredLessons.length) * 100) : 0;
+
+  const activeIdx = activeLesson ? lessons.findIndex((l) => l.id === activeLesson.id) : -1;
+  const prevLesson = activeIdx > 0 ? lessons[activeIdx - 1] : null;
+  const nextLesson = activeIdx >= 0 && activeIdx < lessons.length - 1 ? lessons[activeIdx + 1] : null;
 
   const lessonsByPhase: Record<string, LearningLesson[]> = {};
   const ungrouped: LearningLesson[] = [];
-  for (const lesson of module.lessons) {
+  for (const lesson of lessons) {
     if (lesson.phaseId) {
-      if (!lessonsByPhase[lesson.phaseId]) lessonsByPhase[lesson.phaseId] = [];
-      lessonsByPhase[lesson.phaseId].push(lesson);
+      (lessonsByPhase[lesson.phaseId] ??= []).push(lesson);
     } else {
       ungrouped.push(lesson);
     }
   }
 
-  const completedCount = Object.values(progressMap).filter((p) => p.status === 'COMPLETED').length;
-  const totalRequired = module.lessons.filter((l) => l.isRequired).length;
-  const pct = totalRequired > 0 ? Math.round((completedCount / totalRequired) * 100) : 0;
+  function goTo(lesson: LearningLesson) {
+    setActiveLessonId(lesson.id);
+    setContentOpen(false);
+  }
 
   function markComplete() {
-    if (!activeLesson || !myEnrollment) return;
-    const timeSpent = Math.floor((Date.now() - startTime.current) / 1000);
+    if (!activeLesson || !enrollmentId) return;
     progressMutation.mutate({
       lessonId: activeLesson.id,
-      data: { status: 'COMPLETED', timeSpentSec: timeSpent },
+      data: { status: 'COMPLETED' },
     });
-    toast.success('Lesson marked complete');
-
-    // Auto-advance to next lesson
-    const idx = module!.lessons.findIndex((l) => l.id === activeLesson.id);
-    if (idx < module!.lessons.length - 1) {
-      const next = module!.lessons[idx + 1];
-      setActiveLesson(next);
-      if (next.phaseId) setExpandedPhase(next.phaseId);
-    }
+    toast.success('Lesson completed 🎉');
+    if (nextLesson) goTo(nextLesson);
   }
 
   function submitQuiz() {
-    if (!activeLesson || !activeLesson.quizzes || !myEnrollment) return;
+    if (!activeLesson?.quizzes || !enrollmentId) return;
     const quizzes = activeLesson.quizzes;
     let correct = 0;
     let total = 0;
@@ -152,217 +179,210 @@ export default function LearningModulePage() {
       if (quizAnswers[q.id] === q.correctAnswer) correct += q.points;
     }
     const score = total > 0 ? Math.round((correct / total) * 100) : 100;
-    const answers = quizzes.map((q) => quizAnswers[q.id] ?? -1);
-    const timeSpent = Math.floor((Date.now() - startTime.current) / 1000);
-
     progressMutation.mutate({
       lessonId: activeLesson.id,
       data: {
         status: 'COMPLETED',
         quizScore: score,
-        quizAnswers: answers,
-        timeSpentSec: timeSpent,
+        quizAnswers: quizzes.map((q) => quizAnswers[q.id] ?? -1),
       },
     });
     setQuizSubmitted(true);
   }
 
+  const activeProgress = activeLesson ? progressMap[activeLesson.id] : undefined;
+  const activeCompleted = activeProgress?.status === 'COMPLETED';
+  const hasQuiz = (activeLesson?.quizzes?.length ?? 0) > 0;
+  const hasNotes = !!activeLesson?.notesUrl;
+
   return (
-    <div className="flex h-[calc(100vh-0px)] overflow-hidden">
-      {/* Sidebar */}
-      <aside className="w-72 border-r flex flex-col shrink-0 bg-muted/10 overflow-y-auto">
-        <div className="p-4 border-b">
+    <div className="flex h-screen overflow-hidden bg-background">
+      {/* Main */}
+      <main className="flex-1 overflow-y-auto">
+        {/* Top bar */}
+        <div className="sticky top-0 z-20 bg-background/90 backdrop-blur border-b px-4 lg:px-6 py-3 flex items-center gap-3">
           <button
-            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-3"
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground shrink-0"
             onClick={() => navigate('/learning')}
           >
-            <ArrowLeft className="h-4 w-4" /> Back
+            <ArrowLeft className="h-4 w-4" /> <span className="hidden sm:inline">Back</span>
           </button>
-          <h2 className="font-semibold leading-snug">{module.title}</h2>
-          <div className="mt-2 space-y-1">
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>{completedCount}/{totalRequired} lessons</span>
-              <span>{pct}%</span>
+          <div className="h-4 w-px bg-border shrink-0" />
+          <h2 className="font-semibold text-sm truncate flex-1">{module.title}</h2>
+          {myEnrollment && (
+            <div className="hidden sm:flex items-center gap-2 shrink-0">
+              <div className="w-28 h-1.5 bg-muted rounded-full overflow-hidden">
+                <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${pct}%` }} />
+              </div>
+              <span className="text-xs font-medium text-muted-foreground">{pct}%</span>
             </div>
-            <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-              <div
-                className="h-full bg-primary rounded-full transition-all"
-                style={{ width: `${pct}%` }}
-              />
-            </div>
-          </div>
+          )}
+          <Button variant="outline" size="sm" className="lg:hidden shrink-0" onClick={() => setContentOpen(true)}>
+            <ListVideo className="h-4 w-4 mr-1.5" /> Content
+          </Button>
         </div>
 
-        {/* Lesson list */}
-        <nav className="flex-1 p-3 space-y-1">
-          {module.phases.map((phase) => {
-            const pLessons = lessonsByPhase[phase.id] ?? [];
-            const phaseCompleted = pLessons.filter((l) => progressMap[l.id]?.status === 'COMPLETED').length;
-            return (
-              <div key={phase.id}>
-                <button
-                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:bg-muted/50 transition-colors"
-                  onClick={() => setExpandedPhase(expandedPhase === phase.id ? null : phase.id)}
-                  style={{ borderLeft: `3px solid ${phase.color ?? '#6366f1'}` }}
-                >
-                  <span className="flex-1 text-left pl-1">{phase.title}</span>
-                  <span className="text-xs normal-case font-normal">{phaseCompleted}/{pLessons.length}</span>
-                  {expandedPhase === phase.id ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                </button>
-                {expandedPhase === phase.id && (
-                  <div className="ml-3 mt-0.5 space-y-0.5">
-                    {pLessons.map((lesson) => (
-                      <LessonNavItem
-                        key={lesson.id}
-                        lesson={lesson}
-                        progress={progressMap[lesson.id]}
-                        active={activeLesson?.id === lesson.id}
-                        onClick={() => setActiveLesson(lesson)}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-
-          {ungrouped.map((lesson) => (
-            <LessonNavItem
-              key={lesson.id}
-              lesson={lesson}
-              progress={progressMap[lesson.id]}
-              active={activeLesson?.id === lesson.id}
-              onClick={() => setActiveLesson(lesson)}
-            />
-          ))}
-        </nav>
-
-        {/* Certificate */}
-        {myEnrollment?.certificate && (
-          <div className="p-4 border-t">
-            <div className="flex items-center gap-2 text-green-700 bg-green-50 rounded-lg p-3">
-              <Award className="h-5 w-5 shrink-0" />
-              <div>
-                <p className="text-sm font-medium">Certificate Earned</p>
-                <p className="text-xs text-green-600">Score: {myEnrollment.score?.toFixed(0)}%</p>
-              </div>
-            </div>
-          </div>
-        )}
-      </aside>
-
-      {/* Main content */}
-      <main className="flex-1 overflow-y-auto">
         {!myEnrollment ? (
-          <div className="flex flex-col items-center justify-center h-full gap-4 text-center p-8">
-            <BookOpen className="h-16 w-16 text-muted-foreground/30" />
-            <h2 className="text-xl font-semibold">Enroll to start learning</h2>
-            <p className="text-muted-foreground max-w-sm">{module.description}</p>
-            <Button onClick={() => selfEnrollMutation.mutate()} disabled={selfEnrollMutation.isPending}>
+          <div className="flex flex-col items-center justify-center min-h-[70vh] gap-5 text-center p-8">
+            <div className="h-20 w-20 rounded-3xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 flex items-center justify-center">
+              <BookOpen className="h-10 w-10 text-white" />
+            </div>
+            <div>
+              <h2 className="text-2xl font-bold">{module.title}</h2>
+              <p className="text-muted-foreground max-w-md mt-2">{module.description}</p>
+            </div>
+            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              <span>{module.phases.length} phases</span>·<span>{lessons.length} lessons</span>
+              {module.durationDays && <>·<span>{module.durationDays}-day program</span></>}
+            </div>
+            <Button size="lg" onClick={() => selfEnrollMutation.mutate()} disabled={selfEnrollMutation.isPending}>
               {selfEnrollMutation.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-              Enroll Now
+              Enroll now — it's free
             </Button>
           </div>
         ) : !activeLesson ? (
-          <div className="flex items-center justify-center h-full">
+          <div className="flex items-center justify-center h-96">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         ) : (
-          <div className="p-8 max-w-3xl mx-auto space-y-6">
+          <div className="px-4 lg:px-8 py-6 max-w-4xl mx-auto space-y-6">
+            {/* Media */}
+            {activeLesson.contentType === 'VIDEO' && (
+              activeLesson.contentUrl ? (
+                <VideoPlayer url={activeLesson.contentUrl} />
+              ) : (
+                <div className="aspect-video rounded-2xl bg-gradient-to-br from-slate-800 via-slate-900 to-black flex flex-col items-center justify-center gap-3 text-white/70">
+                  <div className="h-14 w-14 rounded-full bg-white/10 flex items-center justify-center">
+                    <Play className="h-7 w-7 ml-0.5" />
+                  </div>
+                  <p className="text-sm">Video coming soon — check the overview and quiz below</p>
+                </div>
+              )
+            )}
+            {activeLesson.contentType === 'EMBED' && activeLesson.contentUrl && (
+              <div className="aspect-video rounded-2xl overflow-hidden border">
+                <iframe src={activeLesson.contentUrl} className="w-full h-full" />
+              </div>
+            )}
+            {activeLesson.contentType === 'PDF' && activeLesson.contentUrl && (
+              <div className="border rounded-2xl overflow-hidden" style={{ height: '620px' }}>
+                <iframe src={activeLesson.contentUrl} className="w-full h-full" />
+              </div>
+            )}
+
             {/* Lesson header */}
             <div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
+              <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground mb-2">
                 {activeLesson.dayStart && activeLesson.dayEnd && (
-                  <span>Day {activeLesson.dayStart}–{activeLesson.dayEnd}</span>
+                  <Badge variant="outline" className="font-normal">
+                    Day {activeLesson.dayStart}{activeLesson.dayEnd !== activeLesson.dayStart && `–${activeLesson.dayEnd}`}
+                  </Badge>
                 )}
                 {activeLesson.durationMins && (
-                  <span className="flex items-center gap-1">
-                    <Clock className="h-3 w-3" />{activeLesson.durationMins} min
+                  <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{activeLesson.durationMins} min</span>
+                )}
+                {activeCompleted && (
+                  <span className="flex items-center gap-1 text-emerald-600 font-medium">
+                    <CheckCircle2 className="h-3.5 w-3.5" /> Completed
+                    {activeProgress?.quizScore != null && ` · ${activeProgress.quizScore.toFixed(0)}%`}
                   </span>
                 )}
               </div>
               <h1 className="text-2xl font-bold">{activeLesson.title}</h1>
               {activeLesson.description && (
-                <p className="text-muted-foreground mt-2">{activeLesson.description}</p>
-              )}
-              {activeLesson.topics && activeLesson.topics.length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-3">
-                  {activeLesson.topics.map((t) => (
-                    <span key={t} className="text-xs bg-muted px-2.5 py-1 rounded-full">{t}</span>
-                  ))}
-                </div>
+                <p className="text-muted-foreground mt-1.5">{activeLesson.description}</p>
               )}
             </div>
 
-            {/* Content */}
-            {activeLesson.contentType === 'VIDEO' && activeLesson.contentUrl && (
-              <div className="aspect-video rounded-xl overflow-hidden bg-black">
-                <iframe
-                  src={activeLesson.contentUrl}
-                  className="w-full h-full"
-                  allowFullScreen
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope"
-                />
-              </div>
-            )}
-
-            {activeLesson.contentType === 'EMBED' && activeLesson.contentUrl && (
-              <div className="aspect-video rounded-xl overflow-hidden border">
-                <iframe src={activeLesson.contentUrl} className="w-full h-full" />
-              </div>
-            )}
-
-            {activeLesson.contentType === 'PDF' && activeLesson.contentUrl && (
-              <div className="border rounded-xl overflow-hidden" style={{ height: '600px' }}>
-                <iframe src={activeLesson.contentUrl} className="w-full h-full" />
-              </div>
-            )}
-
-            {activeLesson.contentBody && activeLesson.contentType !== 'CHECKPOINT' && (
-              <div className="prose prose-sm max-w-none bg-muted/20 rounded-xl p-6">
-                {activeLesson.contentBody.split('\n').map((line, i) => (
-                  <p key={i}>{line}</p>
-                ))}
-              </div>
-            )}
-
-            {activeLesson.contentType === 'CHECKPOINT' && (
-              <CheckpointContent
-                items={activeLesson.checkpointItems ?? []}
-                contentBody={activeLesson.contentBody}
-              />
-            )}
-
-            {activeLesson.contentType === 'QUIZ' && activeLesson.quizzes && activeLesson.quizzes.length > 0 && (
-              <QuizContent
-                quizzes={activeLesson.quizzes}
-                answers={quizAnswers}
-                submitted={quizSubmitted}
-                progress={progressMap[activeLesson.id]}
-                onAnswer={(qId, idx) => setQuizAnswers((a) => ({ ...a, [qId]: idx }))}
-                onSubmit={submitQuiz}
-              />
-            )}
-
-            {/* Actions */}
-            <div className="flex items-center justify-between pt-4 border-t">
-              <div>
-                {progressMap[activeLesson.id]?.status === 'COMPLETED' && (
-                  <span className="flex items-center gap-1.5 text-sm text-green-600 font-medium">
-                    <CheckCircle2 className="h-4 w-4" />
-                    Completed
-                    {progressMap[activeLesson.id]?.quizScore != null && (
-                      <span>· Score: {progressMap[activeLesson.id].quizScore?.toFixed(0)}%</span>
-                    )}
-                  </span>
+            {/* Tabs */}
+            <Tabs value={tab} onValueChange={setTab}>
+              <TabsList>
+                <TabsTrigger value="overview">Overview</TabsTrigger>
+                {hasNotes && <TabsTrigger value="notes">Notes</TabsTrigger>}
+                {hasQuiz && (
+                  <TabsTrigger value="quiz" className="gap-1.5">
+                    Quiz
+                    <span className="rounded-full bg-primary/15 text-primary text-[10px] font-semibold px-1.5 py-0.5">
+                      {activeLesson.quizzes!.length}
+                    </span>
+                  </TabsTrigger>
                 )}
-              </div>
+              </TabsList>
+
+              <TabsContent value="overview" className="mt-5 space-y-5">
+                {activeLesson.contentBody && activeLesson.contentType !== 'CHECKPOINT' && (
+                  <div className="prose prose-sm max-w-none bg-muted/20 rounded-2xl p-6">
+                    {activeLesson.contentBody.split('\n').map((line, i) => (
+                      <p key={i}>{line}</p>
+                    ))}
+                  </div>
+                )}
+                {activeLesson.contentType === 'CHECKPOINT' && (
+                  <CheckpointContent
+                    items={activeLesson.checkpointItems ?? []}
+                    contentBody={activeLesson.contentBody}
+                  />
+                )}
+                {activeLesson.topics && activeLesson.topics.length > 0 && (
+                  <div>
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2.5">
+                      What you'll learn
+                    </h3>
+                    <div className="grid sm:grid-cols-2 gap-1.5">
+                      {activeLesson.topics.map((t) => (
+                        <div key={t} className="flex items-center gap-2 text-sm">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-primary/60 shrink-0" />
+                          <span>{t}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </TabsContent>
+
+              {hasNotes && (
+                <TabsContent value="notes" className="mt-5">
+                  <div className="border rounded-2xl overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-2.5 bg-muted/30 border-b">
+                      <span className="flex items-center gap-2 text-sm font-medium">
+                        <FileText className="h-4 w-4" /> Study notes
+                      </span>
+                      <a
+                        href={activeLesson.notesUrl!}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        <Download className="h-3.5 w-3.5" /> Download
+                      </a>
+                    </div>
+                    <iframe src={activeLesson.notesUrl!} className="w-full" style={{ height: '560px' }} />
+                  </div>
+                </TabsContent>
+              )}
+
+              {hasQuiz && (
+                <TabsContent value="quiz" className="mt-5">
+                  <QuizContent
+                    quizzes={activeLesson.quizzes!}
+                    answers={quizAnswers}
+                    submitted={quizSubmitted}
+                    progress={activeProgress}
+                    onAnswer={(qId, idx) => setQuizAnswers((a) => ({ ...a, [qId]: idx }))}
+                    onSubmit={submitQuiz}
+                  />
+                </TabsContent>
+              )}
+            </Tabs>
+
+            {/* Bottom nav */}
+            <div className="flex items-center justify-between gap-3 pt-5 border-t">
+              <Button variant="outline" disabled={!prevLesson} onClick={() => prevLesson && goTo(prevLesson)}>
+                <ChevronLeft className="h-4 w-4 mr-1" /> Previous
+              </Button>
               <div className="flex items-center gap-3">
-                {activeLesson.contentType !== 'QUIZ' && progressMap[activeLesson.id]?.status !== 'COMPLETED' && (
-                  <Button
-                    onClick={markComplete}
-                    disabled={progressMutation.isPending}
-                  >
+                {!activeCompleted && !hasQuiz && (
+                  <Button onClick={markComplete} disabled={progressMutation.isPending}>
                     {progressMutation.isPending ? (
                       <Loader2 className="h-4 w-4 animate-spin mr-2" />
                     ) : (
@@ -371,28 +391,124 @@ export default function LearningModulePage() {
                     Mark Complete
                   </Button>
                 )}
-                {/* Next lesson */}
-                {(() => {
-                  const idx = module.lessons.findIndex((l) => l.id === activeLesson.id);
-                  const next = module.lessons[idx + 1];
-                  if (!next) return null;
-                  return (
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setActiveLesson(next);
-                        if (next.phaseId) setExpandedPhase(next.phaseId);
-                      }}
-                    >
-                      Next <ChevronRight className="h-4 w-4 ml-1" />
-                    </Button>
-                  );
-                })()}
+                {!activeCompleted && hasQuiz && tab !== 'quiz' && (
+                  <Button onClick={() => setTab('quiz')}>
+                    <HelpCircle className="h-4 w-4 mr-2" /> Take quiz to complete
+                  </Button>
+                )}
+                <Button variant={nextLesson ? 'default' : 'outline'} disabled={!nextLesson} onClick={() => nextLesson && goTo(nextLesson)}>
+                  Next <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
               </div>
             </div>
           </div>
         )}
       </main>
+
+      {/* Mobile backdrop */}
+      {contentOpen && (
+        <div className="fixed inset-0 bg-black/40 z-30 lg:hidden" onClick={() => setContentOpen(false)} />
+      )}
+
+      {/* Course content sidebar */}
+      <aside
+        className={cn(
+          'fixed inset-y-0 right-0 z-40 w-[320px] bg-background border-l shadow-2xl flex flex-col transition-transform',
+          'lg:static lg:w-[340px] lg:shadow-none lg:shrink-0 lg:translate-x-0',
+          contentOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'
+        )}
+      >
+        <div className="p-4 border-b flex items-center gap-3">
+          {myEnrollment ? (
+            <ProgressRing pct={pct} size={48} stroke={4} />
+          ) : (
+            <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center">
+              <ListVideo className="h-5 w-5 text-primary" />
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-sm">Course content</p>
+            <p className="text-xs text-muted-foreground">
+              {myEnrollment ? `${completedCount} of ${requiredLessons.length} lessons done` : `${lessons.length} lessons`}
+            </p>
+          </div>
+          <button className="lg:hidden text-muted-foreground" onClick={() => setContentOpen(false)}>
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <nav className="flex-1 overflow-y-auto p-2.5 space-y-1.5">
+          {module.phases.map((phase) => {
+            const pLessons = lessonsByPhase[phase.id] ?? [];
+            const phaseDone = pLessons.filter((l) => progressMap[l.id]?.status === 'COMPLETED').length;
+            const open = expandedPhases.has(phase.id);
+            return (
+              <div key={phase.id} className="rounded-xl overflow-hidden border bg-card/50">
+                <button
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-muted/40 transition-colors"
+                  style={{ borderLeft: `3px solid ${phase.color ?? '#6366f1'}` }}
+                  onClick={() =>
+                    setExpandedPhases((prev) => {
+                      const next = new Set(prev);
+                      next.has(phase.id) ? next.delete(phase.id) : next.add(phase.id);
+                      return next;
+                    })
+                  }
+                >
+                  <div className="flex-1 text-left min-w-0">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Phase {phase.phaseNumber}
+                      {phase.dayStart && phase.dayEnd && ` · Day ${phase.dayStart}–${phase.dayEnd}`}
+                    </p>
+                    <p className="text-sm font-semibold truncate">{phase.title}</p>
+                  </div>
+                  <span className="text-xs text-muted-foreground shrink-0">{phaseDone}/{pLessons.length}</span>
+                  {open ? <ChevronUp className="h-3.5 w-3.5 shrink-0" /> : <ChevronDown className="h-3.5 w-3.5 shrink-0" />}
+                </button>
+                {open && (
+                  <div className="pb-1.5 px-1.5 space-y-0.5">
+                    {pLessons.map((lesson) => (
+                      <LessonNavItem
+                        key={lesson.id}
+                        lesson={lesson}
+                        progress={progressMap[lesson.id]}
+                        active={activeLessonId === lesson.id}
+                        onClick={() => goTo(lesson)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {ungrouped.length > 0 && (
+            <div className="space-y-0.5 pt-1">
+              {ungrouped.map((lesson) => (
+                <LessonNavItem
+                  key={lesson.id}
+                  lesson={lesson}
+                  progress={progressMap[lesson.id]}
+                  active={activeLessonId === lesson.id}
+                  onClick={() => goTo(lesson)}
+                />
+              ))}
+            </div>
+          )}
+        </nav>
+
+        {enrollment?.certificate && (
+          <div className="p-3 border-t">
+            <div className="rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-white p-3.5 flex items-center gap-3">
+              <Trophy className="h-7 w-7 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold">Certificate earned!</p>
+                <p className="text-xs text-white/85">Final score: {enrollment.score?.toFixed(0)}%</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </aside>
     </div>
   );
 }
@@ -413,25 +529,58 @@ function LessonNavItem({
   return (
     <button
       className={cn(
-        'w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm text-left transition-colors',
+        'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-left transition-colors',
         active
-          ? 'bg-primary text-primary-foreground'
-          : 'text-foreground/70 hover:bg-muted/50 hover:text-foreground'
+          ? 'bg-primary text-primary-foreground shadow-sm'
+          : 'text-foreground/75 hover:bg-muted/60 hover:text-foreground'
       )}
       onClick={onClick}
     >
       {done ? (
-        <CheckCircle2 className={cn('h-4 w-4 shrink-0', active ? 'text-primary-foreground' : 'text-green-600')} />
+        <CheckCircle2 className={cn('h-4 w-4 shrink-0', active ? 'text-primary-foreground' : 'text-emerald-500')} />
+      ) : active ? (
+        <Play className="h-4 w-4 shrink-0" />
       ) : (
-        <Circle className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <Circle className="h-4 w-4 shrink-0 text-muted-foreground/50" />
       )}
       <span className="flex-1 truncate">{lesson.title}</span>
-      {lesson.durationMins && (
-        <span className={cn('text-xs shrink-0', active ? 'text-primary-foreground/70' : 'text-muted-foreground')}>
-          {lesson.durationMins}m
-        </span>
-      )}
+      <span className={cn('flex items-center gap-1 text-[11px] shrink-0', active ? 'text-primary-foreground/75' : 'text-muted-foreground')}>
+        <Icon className="h-3 w-3" />
+        {lesson.durationMins ? `${lesson.durationMins}m` : ''}
+      </span>
     </button>
+  );
+}
+
+function VideoPlayer({ url }: { url: string }) {
+  const embed = getEmbeddableVideo(url);
+
+  if (!embed) {
+    return (
+      <div className="aspect-video rounded-2xl border border-dashed flex flex-col items-center justify-center gap-2 text-muted-foreground bg-muted/10">
+        <Play className="h-8 w-8" />
+        <p className="text-sm">Couldn't load this video link</p>
+      </div>
+    );
+  }
+
+  if (embed.kind === 'file') {
+    return (
+      <div className="aspect-video rounded-2xl overflow-hidden bg-black shadow-lg">
+        <video src={embed.src} controls className="w-full h-full" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="aspect-video rounded-2xl overflow-hidden bg-black shadow-lg">
+      <iframe
+        src={embed.src}
+        className="w-full h-full"
+        allowFullScreen
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+      />
+    </div>
   );
 }
 
@@ -440,7 +589,7 @@ function CheckpointContent({ items, contentBody }: { items: string[]; contentBod
   return (
     <div className="space-y-4">
       {contentBody && (
-        <div className="bg-muted/20 rounded-xl p-5 text-sm text-muted-foreground">{contentBody}</div>
+        <div className="bg-muted/20 rounded-2xl p-5 text-sm text-muted-foreground">{contentBody}</div>
       )}
       {items.length > 0 && (
         <div className="space-y-2">
@@ -448,7 +597,7 @@ function CheckpointContent({ items, contentBody }: { items: string[]; contentBod
           {items.map((item, i) => (
             <div
               key={i}
-              className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-muted/20"
+              className="flex items-start gap-3 p-3.5 border rounded-xl cursor-pointer hover:bg-muted/20 transition-colors"
               onClick={() => setChecked((c) => {
                 const n = new Set(c);
                 n.has(i) ? n.delete(i) : n.add(i);
@@ -456,7 +605,7 @@ function CheckpointContent({ items, contentBody }: { items: string[]; contentBod
               })}
             >
               <div className={cn(
-                'mt-0.5 h-5 w-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors',
+                'mt-0.5 h-5 w-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors',
                 checked.has(i) ? 'bg-primary border-primary' : 'border-muted-foreground/30'
               )}>
                 {checked.has(i) && <CheckCircle2 className="h-3 w-3 text-primary-foreground" />}
@@ -493,8 +642,8 @@ function QuizContent({
     <div className="space-y-6">
       {(alreadyDone && score != null) && (
         <div className={cn(
-          'flex items-center gap-3 p-4 rounded-xl',
-          score >= 70 ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'
+          'flex items-center gap-3 p-4 rounded-2xl',
+          score >= 70 ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-red-800'
         )}>
           {score >= 70 ? <Award className="h-6 w-6" /> : <HelpCircle className="h-6 w-6" />}
           <div>
@@ -508,7 +657,7 @@ function QuizContent({
         const userAnswer = alreadyDone ? (progress?.quizAnswers?.[qi] ?? -1) : answers[q.id] ?? -1;
         const correct = q.correctAnswer;
         return (
-          <div key={q.id} className="border rounded-xl p-5 space-y-3">
+          <div key={q.id} className="border rounded-2xl p-5 space-y-3">
             <p className="font-medium">
               <span className="text-muted-foreground text-sm mr-2">Q{qi + 1}.</span>
               {q.question}
@@ -524,10 +673,10 @@ function QuizContent({
                     disabled={submitted || alreadyDone}
                     onClick={() => onAnswer(q.id, oi)}
                     className={cn(
-                      'w-full text-left px-4 py-3 rounded-lg border text-sm transition-colors',
-                      !showResult && isSelected ? 'border-primary bg-primary/5' : '',
+                      'w-full text-left px-4 py-3 rounded-xl border text-sm transition-colors',
+                      !showResult && isSelected ? 'border-primary bg-primary/5 ring-1 ring-primary/30' : '',
                       !showResult && !isSelected ? 'hover:border-muted-foreground/50' : '',
-                      showResult && isCorrect ? 'border-green-500 bg-green-50 text-green-800' : '',
+                      showResult && isCorrect ? 'border-emerald-500 bg-emerald-50 text-emerald-800' : '',
                       showResult && isSelected && !isCorrect ? 'border-red-400 bg-red-50 text-red-800' : '',
                       !showResult && !isSelected ? 'border-muted' : ''
                     )}
@@ -539,7 +688,7 @@ function QuizContent({
               })}
             </div>
             {(submitted || alreadyDone) && q.explanation && (
-              <p className="text-sm text-muted-foreground bg-muted/30 rounded-lg p-3">{q.explanation}</p>
+              <p className="text-sm text-muted-foreground bg-muted/30 rounded-xl p-3">{q.explanation}</p>
             )}
           </div>
         );
@@ -550,8 +699,9 @@ function QuizContent({
           onClick={onSubmit}
           disabled={Object.keys(answers).length < quizzes.length}
           className="w-full"
+          size="lg"
         >
-          Submit Quiz
+          Submit Quiz ({Object.keys(answers).length}/{quizzes.length} answered)
         </Button>
       )}
     </div>

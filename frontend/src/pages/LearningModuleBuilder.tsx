@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, Plus, Trash2, Edit2, GripVertical, BookOpen,
   Video, FileText, Link2, CheckSquare, HelpCircle, Eye, EyeOff,
-  Loader2, ChevronDown, ChevronUp, Users, Save,
+  Loader2, ChevronDown, ChevronUp, Users, Save, Upload, X,
 } from 'lucide-react';
 import { learningApi, LearningLesson, LearningPhase, LearningModule } from '@/api/learning';
+import api from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -43,6 +44,7 @@ interface LessonForm {
   contentType: string;
   contentUrl: string;
   contentBody: string;
+  notesUrl: string;
   topics: string;
   dayStart: string;
   dayEnd: string;
@@ -58,6 +60,7 @@ const EMPTY_LESSON: LessonForm = {
   contentType: 'ARTICLE',
   contentUrl: '',
   contentBody: '',
+  notesUrl: '',
   topics: '',
   dayStart: '',
   dayEnd: '',
@@ -131,6 +134,23 @@ export default function LearningModuleBuilder() {
     onError: () => toast.error('Failed to add phase'),
   });
 
+  const notesFileInputRef = useRef<HTMLInputElement>(null);
+  const uploadNotesMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await api.post<{ url: string }>('/upload/content', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      return res.data;
+    },
+    onSuccess: (data) => {
+      setLessonForm((f) => ({ ...f, notesUrl: data.url }));
+      toast.success('Notes PDF uploaded');
+    },
+    onError: () => toast.error('Failed to upload notes PDF'),
+  });
+
   const deletePhaseMutation = useMutation({
     mutationFn: (phaseId: string) => learningApi.deletePhase(id!, phaseId),
     onSuccess: () => {
@@ -164,6 +184,7 @@ export default function LearningModuleBuilder() {
       contentType: lesson.contentType,
       contentUrl: lesson.contentUrl ?? '',
       contentBody: lesson.contentBody ?? '',
+      notesUrl: lesson.notesUrl ?? '',
       topics: (lesson.topics ?? []).join(', '),
       dayStart: lesson.dayStart?.toString() ?? '',
       dayEnd: lesson.dayEnd?.toString() ?? '',
@@ -182,6 +203,7 @@ export default function LearningModuleBuilder() {
       contentType: lessonForm.contentType as LearningLesson['contentType'],
       contentUrl: lessonForm.contentUrl || null,
       contentBody: lessonForm.contentBody || null,
+      notesUrl: lessonForm.notesUrl || null,
       topics: lessonForm.topics ? lessonForm.topics.split(',').map((t) => t.trim()).filter(Boolean) : [],
       dayStart: lessonForm.dayStart ? parseInt(lessonForm.dayStart) : null,
       dayEnd: lessonForm.dayEnd ? parseInt(lessonForm.dayEnd) : null,
@@ -464,6 +486,11 @@ export default function LearningModuleBuilder() {
                   value={lessonForm.contentUrl}
                   onChange={(e) => setLessonForm((f) => ({ ...f, contentUrl: e.target.value }))}
                 />
+                {lessonForm.contentType === 'VIDEO' && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Paste a YouTube, Vimeo, or direct video link — it plays inline for learners, no redirect.
+                  </p>
+                )}
               </div>
             )}
             {['ARTICLE', 'CHECKPOINT'].includes(lessonForm.contentType) && (
@@ -488,6 +515,58 @@ export default function LearningModuleBuilder() {
                 />
               </div>
             )}
+            <div>
+              <label className="text-sm font-medium mb-1 block">Notes (PDF)</label>
+              {lessonForm.notesUrl ? (
+                <div className="flex items-center justify-between gap-2 border rounded-md px-3 py-2 bg-muted/20">
+                  <a
+                    href={lessonForm.notesUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm truncate flex items-center gap-2 text-primary hover:underline"
+                  >
+                    <FileText className="h-4 w-4 shrink-0" /> Notes attached
+                  </a>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="h-6 w-6 shrink-0"
+                    onClick={() => setLessonForm((f) => ({ ...f, notesUrl: '' }))}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <input
+                    ref={notesFileInputRef}
+                    type="file"
+                    accept="application/pdf"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) uploadNotesMutation.mutate(file);
+                      e.target.value = '';
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={uploadNotesMutation.isPending}
+                    onClick={() => notesFileInputRef.current?.click()}
+                  >
+                    {uploadNotesMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : (
+                      <Upload className="h-4 w-4 mr-2" />
+                    )}
+                    Upload PDF
+                  </Button>
+                </>
+              )}
+            </div>
             <div>
               <label className="text-sm font-medium mb-1 block">Topics (comma separated)</label>
               <Input

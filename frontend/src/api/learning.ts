@@ -43,6 +43,7 @@ export interface LearningLesson {
   contentType: 'VIDEO' | 'PDF' | 'ARTICLE' | 'QUIZ' | 'EMBED' | 'CHECKPOINT';
   contentUrl: string | null;
   contentBody: string | null;
+  notesUrl: string | null;
   topics: string[] | null;
   dayStart: number | null;
   dayEnd: number | null;
@@ -110,6 +111,15 @@ export interface ModuleWithDetails extends LearningModule {
   phases: LearningPhase[];
   lessons: LearningLesson[];
   myEnrollment: (LearningEnrollment & { progress: LessonProgress[]; certificate: LearningCertificate | null }) | null;
+}
+
+export interface LearnerStats {
+  totalWatchSec: number;
+  lessonsCompleted: number;
+  modulesCompleted: number;
+  modulesInProgress: number;
+  certificateCount: number;
+  streakDays: number;
 }
 
 export interface LearningAnalytics {
@@ -182,6 +192,11 @@ export const learningApi = {
     quizAnswers?: number[];
   }) =>
     api.patch<LessonProgress>(`/learning/progress/${lessonId}`, { ...data, enrollmentId }).then((r) => r.data),
+  sendHeartbeat: (lessonId: string, enrollmentId: string, seconds: number, videoPosition?: number) =>
+    api.post<{ timeSpentSec: number }>(`/learning/progress/${lessonId}/heartbeat`, {
+      enrollmentId, seconds, videoPosition,
+    }).then((r) => r.data),
+  getMyStats: () => api.get<LearnerStats>('/learning/my-stats').then((r) => r.data),
 
   // Analytics
   getAnalytics: () => api.get<LearningAnalytics>('/learning/analytics').then((r) => r.data),

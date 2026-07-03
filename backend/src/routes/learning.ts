@@ -66,6 +66,7 @@ const lessonSchema = z.object({
   contentType: z.enum(['VIDEO', 'PDF', 'ARTICLE', 'QUIZ', 'EMBED', 'CHECKPOINT']),
   contentUrl: z.string().url().optional().nullable(),
   contentBody: z.string().optional().nullable(),
+  notesUrl: z.string().url().optional().nullable(),
   topics: z.array(z.string()).optional(),
   dayStart: z.number().int().optional().nullable(),
   dayEnd: z.number().int().optional().nullable(),
@@ -96,6 +97,12 @@ const progressSchema = z.object({
   quizScore: z.number().min(0).max(100).optional(),
   quizAttempts: z.number().int().min(0).optional(),
   quizAnswers: z.array(z.number().int()).optional(),
+});
+
+const heartbeatSchema = z.object({
+  enrollmentId: z.string(),
+  seconds: z.number().int().min(1).max(120),
+  videoPosition: z.number().int().min(0).optional(),
 });
 
 // ─── Module CRUD ──────────────────────────────────────────────────────────────
@@ -564,6 +571,7 @@ router.post('/modules/:id/lessons', requireRole('OWNER', 'COMPANY_ADMIN', 'DEPAR
       contentType: d.contentType,
       contentUrl: d.contentUrl ?? null,
       contentBody: d.contentBody ?? null,
+      notesUrl: d.notesUrl ?? null,
       topics: d.topics ?? Prisma.JsonNull,
       dayStart: d.dayStart ?? null,
       dayEnd: d.dayEnd ?? null,
@@ -603,6 +611,7 @@ router.patch('/modules/:id/lessons/:lessonId', requireRole('OWNER', 'COMPANY_ADM
       ...(d.contentType !== undefined && { contentType: d.contentType }),
       ...(d.contentUrl !== undefined && { contentUrl: d.contentUrl ?? null }),
       ...(d.contentBody !== undefined && { contentBody: d.contentBody ?? null }),
+      ...(d.notesUrl !== undefined && { notesUrl: d.notesUrl ?? null }),
       ...(d.topics !== undefined && { topics: d.topics ?? Prisma.JsonNull }),
       ...(d.dayStart !== undefined && { dayStart: d.dayStart ?? null }),
       ...(d.dayEnd !== undefined && { dayEnd: d.dayEnd ?? null }),
@@ -744,7 +753,7 @@ router.get('/modules/:id/enrollments', requireRole('OWNER', 'COMPANY_ADMIN', 'DE
     where: { moduleId: module.id },
     include: {
       user: { select: { id: true, name: true, email: true, avatarUrl: true, role: true } },
-      _count: { select: { progress: true } },
+      _count: { select: { progress: { where: { status: 'COMPLETED' } } } },
     },
     orderBy: { enrolledAt: 'desc' },
   });
@@ -767,7 +776,9 @@ router.get('/my-modules', async (req: AuthRequest, res: Response) => {
           _count: { select: { lessons: true } },
         },
       },
-      _count: { select: { progress: true } },
+      // Heartbeats create IN_PROGRESS rows as soon as a lesson is opened, so
+      // only COMPLETED rows count toward the learner's progress numbers.
+      _count: { select: { progress: { where: { status: 'COMPLETED' } } } },
     },
     orderBy: { enrolledAt: 'desc' },
   });
@@ -800,6 +811,102 @@ router.get('/my-modules/:id/progress', async (req: AuthRequest, res: Response) =
   res.json(enrollment);
 });
 
+// POST /learning/progress/:lessonId/heartbeat — watch-time tracking.
+// The client beats every ~15s while the lesson is open and the tab is visible;
+// seconds are incremented server-side (never replaced) so completion updates
+// can't clobber accumulated watch time. Capped per beat to limit abuse.
+router.post('/progress/:lessonId/heartbeat', async (req: AuthRequest, res: Response) => {
+  const { userId } = req.user!;
+  const lessonId = req.params.lessonId as string;
+
+  const parsed = heartbeatSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+
+  const { enrollmentId, videoPosition } = parsed.data;
+  const seconds = Math.min(parsed.data.seconds, 60);
+
+  const enrollment = await prisma.learningEnrollment.findFirst({ where: { id: enrollmentId, userId } });
+  if (!enrollment) { res.status(404).json({ error: 'Enrollment not found' }); return; }
+
+  const lesson = await prisma.learningLesson.findFirst({
+    where: { id: lessonId, moduleId: enrollment.moduleId },
+    select: { id: true },
+  });
+  if (!lesson) { res.status(404).json({ error: 'Lesson not found in this module' }); return; }
+
+  const now = new Date();
+  const progress = await prisma.lessonProgress.upsert({
+    where: { enrollmentId_lessonId: { enrollmentId, lessonId } },
+    create: {
+      enrollmentId,
+      lessonId,
+      userId,
+      status: 'IN_PROGRESS',
+      startedAt: now,
+      lastActivityAt: now,
+      timeSpentSec: seconds,
+      videoPosition: videoPosition ?? null,
+    },
+    update: {
+      timeSpentSec: { increment: seconds },
+      lastActivityAt: now,
+      ...(videoPosition !== undefined && { videoPosition }),
+    },
+  });
+
+  if (enrollment.status === 'ENROLLED') {
+    await prisma.learningEnrollment.update({
+      where: { id: enrollmentId },
+      data: { status: 'IN_PROGRESS', startedAt: now },
+    });
+  }
+
+  res.json({ timeSpentSec: progress.timeSpentSec });
+});
+
+// GET /learning/my-stats — learner dashboard stats (watch time, streak, completions)
+router.get('/my-stats', async (req: AuthRequest, res: Response) => {
+  const { userId } = req.user!;
+
+  const [progress, moduleAgg, certificateCount] = await Promise.all([
+    prisma.lessonProgress.findMany({
+      where: { userId },
+      select: { timeSpentSec: true, status: true, startedAt: true, completedAt: true, lastActivityAt: true },
+    }),
+    prisma.learningEnrollment.groupBy({
+      by: ['status'],
+      where: { userId },
+      _count: { status: true },
+    }),
+    prisma.learningCertificate.count({ where: { userId } }),
+  ]);
+
+  const totalWatchSec = progress.reduce((sum, p) => sum + p.timeSpentSec, 0);
+  const lessonsCompleted = progress.filter((p) => p.status === 'COMPLETED').length;
+  const modulesCompleted = moduleAgg.find((g) => g.status === 'COMPLETED')?._count.status ?? 0;
+  const modulesInProgress = moduleAgg.find((g) => g.status === 'IN_PROGRESS')?._count.status ?? 0;
+
+  // Streak: consecutive days (IST) with any learning activity, counting back
+  // from today — today itself is not required so an unopened morning doesn't
+  // show a broken streak.
+  const activeDays = new Set<string>();
+  const dayKey = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  for (const p of progress) {
+    for (const d of [p.startedAt, p.completedAt, p.lastActivityAt]) {
+      if (d) activeDays.add(dayKey(d));
+    }
+  }
+  let streakDays = 0;
+  const cursor = new Date();
+  if (!activeDays.has(dayKey(cursor))) cursor.setDate(cursor.getDate() - 1);
+  while (activeDays.has(dayKey(cursor))) {
+    streakDays++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
+  res.json({ totalWatchSec, lessonsCompleted, modulesCompleted, modulesInProgress, certificateCount, streakDays });
+});
+
 router.patch('/progress/:lessonId', async (req: AuthRequest, res: Response) => {
   const { userId } = req.user!;
   const lessonId = req.params.lessonId as string;
@@ -814,6 +921,9 @@ router.patch('/progress/:lessonId', async (req: AuthRequest, res: Response) => {
   if (!enrollment) { res.status(404).json({ error: 'Enrollment not found' }); return; }
 
   const data = parsed.data;
+  // timeSpentSec is owned by the heartbeat endpoint (incremental); on update it
+  // must never be replaced or a completion event would erase accumulated watch time.
+  const { timeSpentSec, ...rest } = data;
 
   const progress = await prisma.lessonProgress.upsert({
     where: { enrollmentId_lessonId: { enrollmentId, lessonId } },
@@ -823,10 +933,12 @@ router.patch('/progress/:lessonId', async (req: AuthRequest, res: Response) => {
       userId,
       ...data,
       startedAt: new Date(),
+      lastActivityAt: new Date(),
       completedAt: data.status === 'COMPLETED' ? new Date() : null,
     },
     update: {
-      ...data,
+      ...rest,
+      lastActivityAt: new Date(),
       completedAt: data.status === 'COMPLETED' ? new Date() : undefined,
     },
   });
@@ -850,8 +962,10 @@ router.patch('/progress/:lessonId', async (req: AuthRequest, res: Response) => {
     ]);
 
     if (lessonCount > 0 && completedCount >= lessonCount) {
+      // Only completed lessons count toward the final score — heartbeats create
+      // IN_PROGRESS rows for merely-opened lessons, which must not add default 100s.
       const allProgress = await prisma.lessonProgress.findMany({
-        where: { enrollmentId },
+        where: { enrollmentId, status: 'COMPLETED' },
         select: { quizScore: true },
       });
       const scores = allProgress.map((p) => p.quizScore ?? 100);

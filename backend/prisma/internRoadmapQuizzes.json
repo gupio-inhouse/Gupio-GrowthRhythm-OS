@@ -1,0 +1,652 @@
+[
+  {
+    "track": "Frontend Engineer",
+    "phaseTitle": "Foundation",
+    "groupTitle": "Web fundamentals",
+    "questions": [
+      {
+        "question": "A user submits a login form, but the server rejects it because the password field was left empty. Which HTTP status code would be most appropriate for the server to return?",
+        "options": ["200 OK", "301 Moved Permanently", "400 Bad Request", "500 Internal Server Error"],
+        "correctIndex": 2,
+        "explanation": "400 Bad Request indicates the client sent invalid or incomplete data (like a missing required field), which is a client-side error, not a server failure (500) or a redirect (301)."
+      },
+      {
+        "question": "Which of the following best describes what happens during DNS resolution when you type a domain name like www.example.com into your browser?",
+        "options": ["The browser encrypts the page content before sending it to the server", "The domain name is translated into an IP address so the browser knows which server to connect to", "The domain name is converted into HTML that the browser can render directly", "The browser downloads the CSS and JavaScript files needed for the page"],
+        "correctIndex": 1,
+        "explanation": "DNS (Domain Name System) acts like a phone book, translating human-readable domain names into the numeric IP addresses that computers use to locate and connect to servers."
+      },
+      {
+        "question": "Which HTML snippet best follows semantic HTML5 and accessibility best practices for an image that conveys important information?",
+        "options": ["<div class=\"pic\">chart.png</div>", "<image href=\"chart.png\">", "<img src=\"chart.png\" alt=\"Bar chart showing sales growth from Jan to Jun\">", "<img src=\"chart.png\">"],
+        "correctIndex": 2,
+        "explanation": "Using the <img> tag with a descriptive alt attribute follows semantic HTML and accessibility guidelines, allowing screen readers to convey the image's meaning to users who cannot see it."
+      }
+    ]
+  },
+  {
+    "track": "Frontend Engineer",
+    "phaseTitle": "Foundation",
+    "groupTitle": "CSS fundamentals",
+    "questions": [
+      {
+        "question": "An intern writes the following CSS rules:\n\n```css\n#hero { color: blue; }\n.hero { color: red; }\n```\n\nAn element has both id=\"hero\" and class=\"hero\". What color will its text be, and why?",
+        "options": ["Red, because the class selector was declared later in the source order", "Blue, because an ID selector has higher specificity than a class selector", "Red, because class selectors always override ID selectors", "The text will not render because the rules conflict"],
+        "correctIndex": 1,
+        "explanation": "ID selectors (specificity 1-0-0) outrank class selectors (0-1-0) in the cascade regardless of source order, so the ID rule's blue wins."
+      },
+      {
+        "question": "In the CSS box model with the default `box-sizing: content-box`, an element has `width: 200px`, `padding: 20px`, and `border: 5px solid black` (no margin). What is the total rendered width of the element's border box?",
+        "options": ["200px", "220px", "225px", "250px"],
+        "correctIndex": 3,
+        "explanation": "With content-box, width applies only to the content, so total width = 200 (content) + 20+20 (left/right padding) + 5+5 (left/right border) = 250px."
+      },
+      {
+        "question": "You have a flex container `display: flex` with three child items. You want the items to sit on one line, spread out with equal empty space between them (but no extra space before the first or after the last item). Which property/value achieves this?",
+        "options": ["justify-content: space-between", "align-items: center", "justify-content: space-around", "flex-wrap: wrap"],
+        "correctIndex": 0,
+        "explanation": "justify-content: space-between distributes items along the main axis with equal gaps between them while keeping the first and last items flush against the container edges."
+      }
+    ]
+  },
+  {
+    "track": "Frontend Engineer",
+    "phaseTitle": "Foundation",
+    "groupTitle": "Dev environment",
+    "questions": [
+      {
+        "question": "You've made changes to a file in VS Code and want to stage only that file for your next Git commit. Which sequence of actions is correct?",
+        "options": ["Run `git add <filename>` in the terminal, then `git commit -m \"message\"`", "Run `git commit <filename>`, then `git push` to save the changes", "Run `git clone <filename>` to save a local copy, then commit", "Open the file in Chrome DevTools and click 'Save changes'"],
+        "correctIndex": 0,
+        "explanation": "Staging a specific file requires `git add <filename>` before committing; `git commit -m` then records the staged changes with a message. `git commit <filename>` alone doesn't stage properly for a message-based commit, `git clone` is for copying repositories, and Chrome DevTools has nothing to do with Git."
+      },
+      {
+        "question": "You just cloned a teammate's GitHub repository and want to contribute a new feature without affecting the main branch until it's reviewed. What is the correct workflow?",
+        "options": ["Edit files directly on the main branch, then open a Pull Request from main to main", "Create a new branch with `git checkout -b feature-branch`, commit your changes there, push the branch, then open a Pull Request into main", "Delete the main branch locally, make your changes, then rename your changes folder to 'main'", "Run `npm publish` to submit your feature directly to the repository"],
+        "correctIndex": 1,
+        "explanation": "The standard GitHub workflow is to isolate work on a feature branch, push it, and open a Pull Request so it can be reviewed before merging into main. `npm publish` is for publishing packages, not submitting code changes to a repo."
+      },
+      {
+        "question": "While debugging a web page in Chrome DevTools, you want to inspect the value of a JavaScript variable at a specific point in your code as it runs. Which approach is most appropriate?",
+        "options": ["Open the Network tab and look for the variable name in the list of loaded files", "Set a breakpoint on that line in the Sources panel and inspect the variable in the Scope/Console when execution pauses", "Open package.json in the terminal and search for the variable name", "Run `npm install` to refresh the variable's value"],
+        "correctIndex": 1,
+        "explanation": "Setting a breakpoint in the Sources panel pauses execution at that line, letting you inspect variable values in the Scope panel or Console — this is the core browser debugging workflow. The Network tab shows requests/files, not variable state, and `npm install`/package.json are unrelated to runtime debugging."
+      }
+    ]
+  },
+  {
+    "track": "Frontend Engineer",
+    "phaseTitle": "Core",
+    "groupTitle": "JavaScript deep dive",
+    "questions": [
+      {
+        "question": "What will the following code log to the console?\n\nfunction makeCounter() {\n  let count = 0;\n  return function () {\n    count++;\n    return count;\n  };\n}\n\nconst counter = makeCounter();\nconsole.log(counter());\nconsole.log(counter());",
+        "options": ["1, then 2", "1, then 1", "undefined, then undefined", "0, then 1"],
+        "correctIndex": 0,
+        "explanation": "The inner function forms a closure over `count`, keeping a private reference to it across calls. Each call to `counter()` increments the same retained `count` variable, so the results are 1 and then 2."
+      },
+      {
+        "question": "You call `fetch('/api/users')` inside an `async` function using `await`, then wrap the response parsing in a `try/catch` block. If the server responds with a 404 status but still returns a valid JSON body, what happens?",
+        "options": ["The `await fetch(...)` call throws an error and the `catch` block runs immediately, because fetch rejects on any non-2xx status.", "`fetch` resolves normally (it does not reject on HTTP error statuses), so code must check `response.ok` or `response.status` to detect the 404 itself.", "The `catch` block runs only after `response.json()` fails, since a 404 body can never be valid JSON.", "The `await` keyword automatically converts the 404 into a thrown JavaScript error before the next line executes."],
+        "correctIndex": 1,
+        "explanation": "The Fetch API's promise only rejects on network failures, not on HTTP error status codes; a 404 still resolves successfully, so you must explicitly check `response.ok` or `response.status` to handle it."
+      },
+      {
+        "question": "Given the object below, what does `person.greet()` log?\n\nconst person = {\n  username: 'Riya',\n  greet: function () {\n    setTimeout(function () {\n      console.log('Hi, ' + this.username);\n    }, 0);\n  }\n};\nperson.greet();",
+        "options": ["\"Hi, Riya\"", "\"Hi, undefined\"", "An error saying `this` is not defined", "\"Hi, \" followed by the greet function's source code"],
+        "correctIndex": 1,
+        "explanation": "The callback passed to `setTimeout` is a regular function, so its `this` is not bound to `person` — it defaults to the global object (or `undefined` in strict mode), where `username` is not set, producing \"Hi, undefined\". Using an arrow function instead would preserve `person` as `this`."
+      }
+    ]
+  },
+  {
+    "track": "Frontend Engineer",
+    "phaseTitle": "Core",
+    "groupTitle": "TypeScript",
+    "questions": [
+      {
+        "question": "You have this code:\n\ninterface User {\n  id: number;\n  name: string;\n  email?: string;\n}\n\nfunction printEmail(user: User) {\n  console.log(user.email.toUpperCase());\n}\n\nWhat happens when you try to compile this with TypeScript's strict mode enabled?",
+        "options": ["It compiles fine because optional properties are always treated as strings", "It fails to compile because 'email' is possibly 'undefined', so calling toUpperCase() on it is unsafe", "It fails to compile because interfaces cannot have optional properties", "It compiles fine, but throws a runtime error every time the function is called"],
+        "correctIndex": 1,
+        "explanation": "The '?' makes 'email' of type 'string | undefined'. Without narrowing (e.g. an 'if (user.email)' check), calling '.toUpperCase()' directly is flagged by the type checker as unsafe."
+      },
+      {
+        "question": "Which function signature correctly uses a generic to ensure the returned value is always the same type as the input array's elements, for any array type?",
+        "options": ["function firstItem(arr: any[]): any { return arr[0]; }", "function firstItem<T>(arr: T[]): T { return arr[0]; }", "function firstItem(arr: unknown): unknown { return arr[0]; }", "function firstItem(arr: array): array[0] { return arr[0]; }"],
+        "correctIndex": 1,
+        "explanation": "The generic type parameter <T> lets the function accept an array of any element type while preserving that exact type in the return value, giving callers accurate type information instead of 'any'."
+      },
+      {
+        "question": "Given this type narrowing code:\n\nfunction describe(value: string | number) {\n  if (typeof value === 'string') {\n    return value.toUpperCase();\n  }\n  return value.toFixed(2);\n}\n\nWhy does TypeScript allow calling both .toUpperCase() and .toFixed(2) without errors?",
+        "options": ["Because 'string | number' automatically has every method from both types available at all times", "Because the typeof check narrows 'value' to 'string' in the if-branch and to 'number' in the remaining branch, so each method call is valid for its narrowed type", "Because TypeScript ignores type errors inside if-statements", "Because 'toFixed' and 'toUpperCase' are utility types that work on any value"],
+        "correctIndex": 1,
+        "explanation": "A 'typeof' type guard narrows a union type within each branch: inside the if-block 'value' is treated as 'string', and after it (or in an else) TypeScript narrows it to 'number', so each method is valid in its respective branch."
+      }
+    ]
+  },
+  {
+    "track": "Frontend Engineer",
+    "phaseTitle": "Core",
+    "groupTitle": "Tailwind CSS",
+    "questions": [
+      {
+        "question": "A developer writes: class=\"p-4 sm:p-6 lg:p-8\". Following Tailwind's mobile-first responsive design approach, what padding is applied on a screen that is 500px wide?",
+        "options": ["p-4, because no breakpoint prefix matches and the unprefixed utility applies as the base style", "p-6, because sm is the default breakpoint for all screens under 1024px", "p-8, because Tailwind applies the largest defined utility regardless of screen size", "No padding is applied, because at least one breakpoint prefix must always match"],
+        "correctIndex": 0,
+        "explanation": "Tailwind is mobile-first: unprefixed utilities apply to all screen sizes by default and are overridden only when a breakpoint's min-width condition is met. At 500px, neither sm (640px) nor lg (1024px) matches, so the base p-4 applies."
+      },
+      {
+        "question": "In a Tailwind project, which class combination correctly makes a button's background turn blue only when the user hovers over it, while keeping it gray otherwise?",
+        "options": ["bg-gray-500 hover:bg-blue-500", "hover-bg-blue-500 bg-gray-500", "bg-gray-500 bg-blue-500:hover", "bg-hover:blue-500 bg-gray-500"],
+        "correctIndex": 0,
+        "explanation": "Tailwind state variants use the format variant:utility, so hover:bg-blue-500 applies the blue background only on hover, while the base bg-gray-500 class provides the default state."
+      },
+      {
+        "question": "A team wants to extend Tailwind's default color palette by adding a custom brand color, without losing any of Tailwind's built-in colors like blue-500 or gray-200. Where and how should this be done?",
+        "options": ["In tailwind.config.js, inside theme.extend.colors, adding the new brand color alongside the defaults", "In tailwind.config.js, inside theme.colors (replacing the default object), adding only the new brand color", "By adding a new @apply rule in the CSS file that redefines the color palette", "By installing a plugin, since custom colors cannot be added through the config file"],
+        "correctIndex": 0,
+        "explanation": "Using theme.extend in the config file merges new values with Tailwind's defaults, whereas directly overwriting theme.colors would replace the entire default palette and remove built-in colors."
+      }
+    ]
+  },
+  {
+    "track": "Frontend Engineer",
+    "phaseTitle": "Core",
+    "groupTitle": "Tooling & build",
+    "questions": [
+      {
+        "question": "A frontend intern runs `npm run build` and notices the output is a small number of JS files instead of dozens of separate source files. Which process is primarily responsible for combining modules into these output files?",
+        "options": ["Bundling", "Hot module reload", "Linting", "Environment variable injection"],
+        "correctIndex": 0,
+        "explanation": "Bundling is the process (performed by tools like Vite or Webpack) of resolving module imports/exports and combining them into a smaller set of output files for the browser."
+      },
+      {
+        "question": "While a developer is editing a React component's JSX during local development, the browser updates the component in place without a full page reload, preserving the app's current state (like form input). What feature enables this?",
+        "options": ["Hot module reload (HMR)", "ESLint auto-fix", "Prettier formatting on save", "Environment variable substitution"],
+        "correctIndex": 0,
+        "explanation": "Hot module reload swaps updated modules in the running application without a full page refresh, which is why in-memory state like form input is preserved."
+      },
+      {
+        "question": "An intern needs to run `npm run lint` to catch a potential bug (like an unused variable), and separately run `npm run format` to make code style consistent across the team. Which pairing of tools matches these two commands?",
+        "options": ["ESLint for linting, Prettier for formatting", "Prettier for linting, ESLint for formatting", "Webpack for linting, Vite for formatting", "npm scripts for linting, environment variables for formatting"],
+        "correctIndex": 0,
+        "explanation": "ESLint analyzes code for potential bugs and enforces code-quality rules, while Prettier is an opinionated formatter that standardizes code style; they serve distinct, commonly paired roles in a project's tooling."
+      }
+    ]
+  },
+  {
+    "track": "Frontend Engineer",
+    "phaseTitle": "Specialization",
+    "groupTitle": "React core",
+    "questions": [
+      {
+        "question": "A component renders `<li>` elements from an array using `.map()`, but each `<li>` uses `Math.random()` as its `key` prop instead of a stable ID. What problem does this most likely cause?",
+        "options": ["React will throw a compile-time error because keys must be static values", "React may unnecessarily unmount/remount or misassociate DOM elements and component state across re-renders, since keys change every render", "The list will simply fail to render at all", "Nothing changes — React only uses keys for the very first render"],
+        "correctIndex": 1,
+        "explanation": "Keys help React match list items between renders to preserve identity and state. If the key changes on every render (as with Math.random()), React treats items as new each time, causing unnecessary remounts and potential loss/misassignment of component state instead of efficient updates."
+      },
+      {
+        "question": "In a controlled form input, why must the `onChange` handler call `setValue` with the new text rather than letting the browser update the input freely?",
+        "options": ["Because in a controlled input, the input's displayed value is derived from React state, so state must be updated for the displayed value to change", "Because `onChange` is required syntax and has no effect on behavior", "Because uncontrolled inputs are illegal in JSX", "Because calling setValue prevents the component from re-rendering, which improves performance"],
+        "correctIndex": 0,
+        "explanation": "A controlled input's `value` prop is tied to React state, so the DOM input just reflects that state. Without updating state in `onChange`, the input would appear frozen because React would keep rendering it with the old value."
+      },
+      {
+        "question": "A component sets up a `setInterval` timer inside `useEffect` to update a counter every second. What is the correct way to prevent multiple overlapping timers from accumulating as the component re-renders or unmounts?",
+        "options": ["Return a cleanup function from useEffect that calls clearInterval on the timer ID", "Call setInterval directly in the component body, outside of useEffect", "Wrap the setInterval call in a useRef so it never needs to be cleared", "Use useState instead of useEffect to schedule the timer"],
+        "correctIndex": 0,
+        "explanation": "useEffect supports an optional cleanup function (returned from the effect) that React runs before the effect re-runs and when the component unmounts, which is the standard way to clear intervals, timeouts, or subscriptions and avoid duplicates or leaks."
+      }
+    ]
+  },
+  {
+    "track": "Frontend Engineer",
+    "phaseTitle": "Specialization",
+    "groupTitle": "React advanced",
+    "questions": [
+      {
+        "question": "A component re-renders every time its parent re-renders, even though its own props haven't changed in a way that affects output. The component is wrapped in React.memo, but it still re-renders because it receives a callback prop that is redefined on every parent render. Which hook should be used in the parent to fix this?",
+        "options": ["useMemo, to memoize the callback function itself", "useCallback, to keep the same function reference across renders unless its dependencies change", "useReducer, to replace the callback with a dispatch function", "useContext, to pass the callback through context instead of props"],
+        "correctIndex": 1,
+        "explanation": "useCallback memoizes a function reference so it doesn't change on every render (as long as dependencies stay the same), which lets React.memo correctly skip re-rendering the child. useMemo memoizes values, not function identity in the way needed here, and useReducer/useContext don't address the changing reference problem."
+      },
+      {
+        "question": "You are building a state management solution with useReducer where several unrelated components need to read the current state and dispatch actions, without prop drilling through many intermediate components. What is the correct pattern to share the reducer's state and dispatch function across the component tree?",
+        "options": ["Pass the state and dispatch as props through every intermediate component", "Wrap the tree in a Context Provider that supplies the state and dispatch, and have descendant components read them with useContext", "Convert the reducer into a custom hook and call that hook separately in each component that needs the state", "Use an error boundary to catch and share the state between components"],
+        "correctIndex": 1,
+        "explanation": "Combining useReducer with the Context API lets you provide state and dispatch once at a common ancestor, and any descendant can access them via useContext without prop drilling. Calling the reducer hook separately in each component would create independent, unsynchronized state instances."
+      },
+      {
+        "question": "A large dashboard page imports a heavy charting library that most users never scroll down to see. The team wants this chart component's code to be excluded from the initial JS bundle and only loaded when it's actually needed. Which combination of React features accomplishes this while showing a fallback UI during the load?",
+        "options": ["Higher-order components combined with useMemo", "React.lazy to dynamically import the component, wrapped in a Suspense component with a fallback prop", "Render props combined with useReducer to conditionally render the chart", "Compound components combined with useCallback to defer rendering"],
+        "correctIndex": 1,
+        "explanation": "React.lazy enables code splitting by dynamically importing a component only when it's rendered, and Suspense provides a fallback UI (like a spinner) while that chunk is being fetched. The other options are unrelated patterns that don't defer bundle loading."
+      }
+    ]
+  },
+  {
+    "track": "Frontend Engineer",
+    "phaseTitle": "Specialization",
+    "groupTitle": "React ecosystem",
+    "questions": [
+      {
+        "question": "In React Router (v6+), which component is used to render the matched child route's element within a parent layout route?",
+        "options": ["<Link>", "<Outlet>", "<Navigate>", "<Route>"],
+        "correctIndex": 1,
+        "explanation": "`<Outlet>` renders whatever child route element matches inside a parent layout route. `<Link>` is for navigation, `<Navigate>` performs a redirect, and `<Route>` is used to declare routes, not to render matched children within a layout."
+      },
+      {
+        "question": "A component using React Query's `useQuery` to fetch data re-renders and shows stale data briefly before the new data arrives, even though the same query key was used moments earlier on another page. What is the most likely explanation for this behavior?",
+        "options": ["React Query returns cached data immediately and refetches in the background, showing the old data until the new response resolves", "React Query never caches responses, so this must be a bug in the component", "The browser's HTTP cache is ignoring the fetch request entirely", "useQuery requires a manual refetch() call before it will use cached data at all"],
+        "correctIndex": 0,
+        "explanation": "React Query's default `staleTime` behavior serves cached data instantly while triggering a background refetch, so users briefly see the previous result before it's replaced with fresh data."
+      },
+      {
+        "question": "When using React Hook Form, what is the main advantage of using `register` on inputs compared to manually managing each field's value with `useState`?",
+        "options": ["It eliminates the need for any validation logic entirely", "It uses uncontrolled inputs and refs to track values, reducing re-renders on every keystroke while still enabling validation", "It automatically submits the form to the server without an onSubmit handler", "It converts all form inputs into styled-components automatically"],
+        "correctIndex": 1,
+        "explanation": "`register` wires inputs as uncontrolled components via refs, so typing doesn't trigger a re-render of the whole form on every keystroke, while React Hook Form still tracks and validates values."
+      }
+    ]
+  },
+  {
+    "track": "Frontend Engineer",
+    "phaseTitle": "Specialization",
+    "groupTitle": "React Native",
+    "questions": [
+      {
+        "question": "You need to render a scrollable list of 5,000 contacts in a React Native app. Which component should you use to ensure good performance, and why?",
+        "options": ["ScrollView with a map() over the array, because it renders all items upfront for smoother scrolling", "FlatList, because it lazily renders only the items currently visible on screen (plus a small buffer)", "View with absolute positioning, because it avoids the overhead of any list component", "Text component with newline-separated strings, because it requires no extra imports"],
+        "correctIndex": 1,
+        "explanation": "FlatList virtualizes rendering, mounting only the items near the visible viewport, which keeps memory and rendering costs low for large data sets. ScrollView renders every child immediately, which becomes slow and memory-heavy for thousands of items."
+      },
+      {
+        "question": "An intern wants to save a user's theme preference (a small string like dark) so it persists after the app is fully closed and reopened. Which API is designed for this?",
+        "options": ["useState, because component state automatically persists across app restarts", "AsyncStorage, because it provides a persistent, asynchronous key-value store on the device", "Flexbox, because it manages layout state across sessions", "React Navigation's route params, because params are saved to disk automatically"],
+        "correctIndex": 1,
+        "explanation": "AsyncStorage is the standard unencrypted, asynchronous, persistent key-value storage API in React Native, intended for exactly this kind of small persisted data. useState only holds state in memory for the component's lifetime and is lost on restart."
+      },
+      {
+        "question": "A developer wants a component to render slightly different styling on iOS versus Android (e.g., different shadow implementations). What is the idiomatic React Native way to handle this?",
+        "options": ["Write two completely separate apps, one for each platform", "Use the Platform module (e.g., Platform.OS or Platform.select) to branch styling logic based on the operating system", "Use React Navigation to detect the operating system and swap screens accordingly", "Rely on Expo push notifications to tell the app which platform it is running on"],
+        "correctIndex": 1,
+        "explanation": "The Platform module (Platform.OS checks or Platform.select()) is the standard React Native mechanism for writing platform-specific code, such as applying different shadow/elevation styles for iOS and Android within the same codebase."
+      }
+    ]
+  },
+  {
+    "track": "Frontend Engineer",
+    "phaseTitle": "Mastery",
+    "groupTitle": "Architecture & patterns",
+    "questions": [
+      {
+        "question": "In atomic design methodology, which of the following correctly describes a 'molecule'?",
+        "options": ["A single, indivisible UI element like a button or input field with no other components inside it", "A group of atoms combined together to form a small, functional unit, such as a search bar made of an input and a button", "A full page template populated with real content, ready to be shipped to production", "A complete page layout that combines organisms into a final, reusable page structure"],
+        "correctIndex": 1,
+        "explanation": "Molecules are simple groups of atoms functioning together as a unit (e.g., a labeled input plus a submit button forming a search bar) — the middle tier between atoms and organisms in atomic design."
+      },
+      {
+        "question": "What is the main reason a team building multiple related frontend apps and shared packages would adopt a monorepo tool like Turborepo or Nx instead of managing each package in its own separate repository?",
+        "options": ["It removes the need for any package manager like npm, pnpm, or yarn", "It automatically converts a JavaScript codebase into TypeScript", "It enables coordinated versioning, shared code, and cached/parallelized builds across packages within a single repository", "It replaces the need to write automated tests since builds are verified centrally"],
+        "correctIndex": 2,
+        "explanation": "Monorepo tools like Turborepo and Nx are built to manage interdependent packages together, offering task caching, parallel builds, and easy code sharing across projects — not to eliminate package managers or testing."
+      },
+      {
+        "question": "What is the primary benefit of using tRPC to build an API between a TypeScript frontend and backend?",
+        "options": ["It guarantees the API will have zero runtime errors under any condition", "It provides end-to-end type safety by inferring types directly from server code, so the client gets autocompletion and compile-time errors without writing a separate schema or code generation step", "It replaces the need for a database by storing all application state in the client", "It automatically converts REST endpoints into GraphQL queries"],
+        "correctIndex": 1,
+        "explanation": "tRPC's core value is sharing TypeScript types between client and server directly, giving compile-time type checking and autocompletion for API calls without needing schemas, codegen, or a separate API contract layer."
+      }
+    ]
+  },
+  {
+    "track": "Frontend Engineer",
+    "phaseTitle": "Mastery",
+    "groupTitle": "Performance",
+    "questions": [
+      {
+        "question": "A product page has a large hero image that loads slowly, causing a poor Largest Contentful Paint (LCP) score. Which change would most directly improve LCP for this page?",
+        "options": ["Wrap the hero image component in React.memo to prevent re-renders", "Optimize and properly size the hero image (e.g., compressed, correctly scaled, modern format) and prioritize its load", "Split the JavaScript bundle so the hero image's code loads in a separate chunk", "Add the hero image to the browser cache with a long max-age header"],
+        "correctIndex": 1,
+        "explanation": "LCP measures how long it takes the largest visible content element (often a hero image) to render, so reducing its file size/dimensions and loading it eagerly and efficiently directly speeds up when it appears on screen. Memoization and code splitting target JS re-render and delivery costs, not image render time, and caching only helps repeat visits, not the first load that LCP typically measures."
+      },
+      {
+        "question": "A developer runs a bundle analyzer on their app and discovers that a rarely-used admin dashboard component, only visited by 2% of users, accounts for 40% of the initial JavaScript bundle size. What is the most appropriate fix based on this finding?",
+        "options": ["Remove memoization from the admin component since it is rarely used", "Lazy load the admin dashboard component with code splitting so it's only fetched when a user navigates to it", "Convert the admin dashboard to use server-side rendering instead of client-side rendering", "Add a service worker cache rule so the component loads faster on repeat visits"],
+        "correctIndex": 1,
+        "explanation": "Bundle analysis revealing a large, rarely-used component in the initial bundle is a textbook case for lazy loading and code splitting, deferring that code until the route is actually visited so most users never download it. Caching only speeds up repeat loads (the code is still in the initial bundle on first visit), and rendering strategy or memoization changes don't address the root issue of unnecessary code being shipped upfront."
+      },
+      {
+        "question": "In a React component, an expensive calculation function is being re-run on every render even though its input values haven't changed, causing noticeable UI jank. Which technique directly addresses this specific problem?",
+        "options": ["Use useMemo to cache the result of the calculation so it only re-runs when its dependencies change", "Enable lazy loading for the component so it loads later", "Switch the component's rendering strategy from client-side rendering to static site generation", "Run a bundle analyzer to find and remove unused dependencies"],
+        "correctIndex": 0,
+        "explanation": "useMemo is the memoization technique designed to skip re-computing an expensive value on every render by caching it until its dependency array changes, which directly fixes redundant recalculation. Lazy loading and rendering strategy changes affect what/when code loads or where rendering happens, not repeated in-component computation, and bundle analysis addresses shipped code size rather than runtime re-computation."
+      }
+    ]
+  },
+  {
+    "track": "Frontend Engineer",
+    "phaseTitle": "Mastery",
+    "groupTitle": "Quality & testing",
+    "questions": [
+      {
+        "question": "A frontend team writes tests that render a single React component in isolation, mocking any API calls it makes, to verify that clicking a button updates the component's displayed state. What type of testing is this?",
+        "options": ["Unit testing", "End-to-end (E2E) testing", "Visual regression testing", "WCAG accessibility testing"],
+        "correctIndex": 0,
+        "explanation": "Testing a single component in isolation with mocked dependencies is the defining characteristic of unit testing, as opposed to integration testing (multiple units together) or E2E testing (the full running app)."
+      },
+      {
+        "question": "A checkout flow test uses Playwright to launch a real browser, navigate to the sign-in page, log in, add an item to the cart, and complete a purchase against a running instance of the app. Which category of testing does this best represent?",
+        "options": ["Unit testing", "E2E testing", "Linting", "Integration testing"],
+        "correctIndex": 1,
+        "explanation": "Driving a real browser through a full user journey across multiple pages of a running application is the hallmark of E2E testing, which Playwright and Cypress are purpose-built for."
+      },
+      {
+        "question": "During CI, a pull request passes all unit and integration tests, but a visual regression check flags that a button's padding shifted after a CSS change, and an automated accessibility scan flags that a form input is missing an associated label. What is the best next step?",
+        "options": ["Ignore both since all functional tests passed, meaning the app works correctly", "Disable the visual regression and accessibility checks in CI so the PR can merge faster", "Review the visual diff to confirm if the padding change was intentional, and fix the input to have a proper label to meet WCAG requirements", "Rewrite the flagged checks as unit tests instead, since unit tests are more reliable"],
+        "correctIndex": 2,
+        "explanation": "Visual regression and accessibility checks catch issues that functional tests miss; the correct response is to triage the visual diff as intended-or-not and fix the missing label, since unlabeled inputs are a real WCAG violation."
+      }
+    ]
+  },
+  {
+    "track": "Frontend Engineer",
+    "phaseTitle": "Mastery",
+    "groupTitle": "Production & frameworks",
+    "questions": [
+      {
+        "question": "A marketing landing page is built with Next.js. Its content only needs to change once every few hours when the marketing team publishes updates, and it should still load instantly for visitors without waiting on a build for every content change. Which rendering strategy fits best?",
+        "options": ["Server-Side Rendering (SSR) on every request", "Static Site Generation (SSG) with Incremental Static Regeneration (ISR)", "Client-Side Rendering with no pre-rendering", "Static Site Generation (SSG) with no revalidation, rebuilt manually"],
+        "correctIndex": 1,
+        "explanation": "ISR lets a statically generated page be regenerated in the background after a set revalidation interval, so visitors get fast cached pages while content still updates periodically without a full redeploy."
+      },
+      {
+        "question": "A frontend team wants every pull request to automatically run linting and tests, and have the build deployed to a preview URL for review, before it can be merged to main. What is this practice called?",
+        "options": ["Feature flagging", "Content Security Policy (CSP)", "CI/CD pipeline", "Error monitoring"],
+        "correctIndex": 2,
+        "explanation": "Continuous Integration/Continuous Deployment (CI/CD) automates running checks like linting and tests and deploying preview builds on each pull request, catching issues before code reaches production."
+      },
+      {
+        "question": "A team wants to roll out a new checkout flow to only 10% of users first, and be able to instantly turn it off for everyone if something breaks, without deploying new code. Which tool is designed for this?",
+        "options": ["Sentry error monitoring", "Feature flags", "Content Security Policy (CSP)", "Service worker caching for PWA offline support"],
+        "correctIndex": 1,
+        "explanation": "Feature flags let teams control who sees a feature (e.g., a percentage rollout) and toggle it on or off at runtime via configuration, without needing a new code deployment."
+      }
+    ]
+  },
+  {
+    "track": "Backend Engineer",
+    "phaseTitle": "Foundation",
+    "groupTitle": "Programming core",
+    "questions": [
+      {
+        "question": "What will the following code print?\n\nfunction outer() {\n  let count = 0;\n  return function increment() {\n    count += 1;\n    return count;\n  };\n}\n\nconst counter = outer();\nconsole.log(counter());\nconsole.log(counter());",
+        "options": ["1\n1", "1\n2", "undefined\nundefined", "0\n1"],
+        "correctIndex": 1,
+        "explanation": "The inner function forms a closure over `count`, so it retains access to the same variable across calls instead of resetting it. Each call to `counter()` increments and returns the persisted value: 1, then 2."
+      },
+      {
+        "question": "Why does the following code log 'done' before 'data received', even though fetchData() is called first?\n\nconsole.log('start');\nfetchData().then(() => console.log('data received'));\nconsole.log('done');",
+        "options": ["Because .then() callbacks are placed in a queue and only run after the current synchronous code finishes executing", "Because console.log('done') runs on a separate thread from the promise", "Because JavaScript executes function calls in reverse order by default", "Because fetchData() throws an error that gets silently caught"],
+        "correctIndex": 0,
+        "explanation": "Promise callbacks passed to .then() are asynchronous: they are deferred to the microtask queue and only run once the current synchronous code (the rest of the script) has finished, so 'done' logs before 'data received'."
+      },
+      {
+        "question": "A function searches for a target value in a sorted array of n elements by repeatedly checking the middle element and discarding the half that cannot contain the target (binary search). What is the time complexity of this algorithm, and why?",
+        "options": ["O(n), because it still has to look through every element eventually", "O(log n), because each step eliminates half of the remaining elements", "O(n^2), because it compares each element to every other element", "O(1), because it only checks the middle element once"],
+        "correctIndex": 1,
+        "explanation": "Binary search cuts the search space in half at every step, so the number of steps needed grows logarithmically with input size, giving it O(log n) time complexity."
+      }
+    ]
+  },
+  {
+    "track": "Backend Engineer",
+    "phaseTitle": "Foundation",
+    "groupTitle": "How backends work",
+    "questions": [
+      {
+        "question": "A client sends a request to update only the email field of an existing user resource at /users/42. Which HTTP method is most appropriate for this partial update, and what should the server return if the update succeeds?",
+        "options": ["PATCH the resource; return a 2xx status code such as 200 OK or 204 No Content", "GET the resource; return a 201 Created status code", "POST to /users; return a 404 Not Found status code", "DELETE the resource; return a 500 Internal Server Error status code"],
+        "correctIndex": 0,
+        "explanation": "PATCH is the HTTP method intended for partial modifications to a resource, and a successful update should be signaled with a 2xx success status code (e.g., 200 or 204), not an error or unrelated code."
+      },
+      {
+        "question": "In the request-response lifecycle, why is the client-server model considered stateless by default when using plain HTTP?",
+        "options": ["Because each HTTP request is processed independently, with the server not automatically retaining any memory of previous requests from the same client", "Because HTTP servers are not allowed to send back status codes after the first request", "Because JSON cannot be used to send data more than once in a session", "Because clients are required to close their network connection after every single request"],
+        "correctIndex": 0,
+        "explanation": "Statelessness means the server treats every request as independent and does not inherently remember prior interactions; any continuity (like login state) must be added explicitly, e.g. via cookies or tokens."
+      },
+      {
+        "question": "A REST API endpoint is defined as GET /products?category=shoes&sort=price. What role do 'category' and 'sort' play in this URL, and what data format would the server most typically return in the response body?",
+        "options": ["They are query parameters used to filter and sort the results; the response body is typically returned as JSON", "They are HTTP headers embedded in the URL; the response body is typically returned as a cookie", "They are environment variables read from a .env file; the response body is typically returned as a status code", "They are HTTP methods specified inline; the response body is typically returned as a URL"],
+        "correctIndex": 0,
+        "explanation": "Text after '?' in a URL, formatted as key=value pairs joined by '&', are query parameters used for things like filtering and sorting; REST APIs conventionally serialize response data as JSON."
+      }
+    ]
+  },
+  {
+    "track": "Backend Engineer",
+    "phaseTitle": "Foundation",
+    "groupTitle": "Command line & OS",
+    "questions": [
+      {
+        "question": "A file has permissions shown as `-rw-r--r--`. What does this mean for the file's owner and others?",
+        "options": ["The owner can read and write the file; everyone else (group and others) can only read it", "The owner can only read the file; everyone else can read and write it", "The owner can read, write, and execute the file; everyone else has no access", "The owner and everyone else can read and write the file, but no one can execute it"],
+        "correctIndex": 0,
+        "explanation": "In `-rw-r--r--`, the first triplet (rw-) applies to the owner (read+write, no execute), and the next two triplets (r-- and r--) apply to the group and others, giving them read-only access."
+      },
+      {
+        "question": "You run a command in your terminal and it appears to hang, so you want to stop it immediately without closing the terminal window. Which key combination sends an interrupt signal (SIGINT) to the foreground process?",
+        "options": ["Ctrl+Z", "Ctrl+D", "Ctrl+C", "Ctrl+X"],
+        "correctIndex": 2,
+        "explanation": "Ctrl+C sends SIGINT to the foreground process, requesting it to terminate; Ctrl+Z instead sends SIGTSTP to suspend (not kill) the process, and Ctrl+D signals end-of-input, not a termination signal."
+      },
+      {
+        "question": "You want to connect to a remote server via SSH using a specific private key file located at `~/.ssh/id_myserver` instead of the default key. Which command correctly does this?",
+        "options": ["ssh -i ~/.ssh/id_myserver user@remotehost", "ssh -k ~/.ssh/id_myserver user@remotehost", "ssh --key=~/.ssh/id_myserver user@remotehost", "ssh user@remotehost < ~/.ssh/id_myserver"],
+        "correctIndex": 0,
+        "explanation": "The `-i` flag tells the ssh client which identity (private key) file to use for authentication; the other options use flags or syntax that ssh does not recognize for this purpose."
+      }
+    ]
+  },
+  {
+    "track": "Backend Engineer",
+    "phaseTitle": "Core",
+    "groupTitle": "Node.js & Express",
+    "questions": [
+      {
+        "question": "In an Express app, why is it important that error-handling middleware be defined with four parameters, like `(err, req, res, next)`?",
+        "options": ["Express uses the four-parameter signature specifically to identify a function as error-handling middleware", "Four parameters make the function run before all other middleware regardless of where it's placed", "The extra parameter is required so bcrypt can hash the error message", "Four-parameter middleware automatically parses the request body before handling the error"],
+        "correctIndex": 0,
+        "explanation": "Express distinguishes error-handling middleware from regular middleware purely by arity: a function with exactly four arguments (err, req, res, next) is treated as an error handler and is only invoked when next(err) is called or an error is thrown."
+      },
+      {
+        "question": "An intern is building a login endpoint. Which combination correctly describes secure practice for storing passwords and authenticating subsequent requests?",
+        "options": ["Store the plaintext password in the database, then send it back in a cookie on every request", "Hash the password with bcrypt before storing it, then issue a JWT that the client sends on subsequent requests to prove identity", "Store the password using Zod validation as the hashing mechanism, then rely on CORS to keep the account secure", "Encrypt the password with dotenv and validate the user's identity using route parameters"],
+        "correctIndex": 1,
+        "explanation": "bcrypt is a hashing algorithm used to securely store passwords (never store plaintext), and JWTs are commonly issued after login so the client can authenticate future requests without resending credentials. The distractors misuse unrelated tools: Zod is a validation library (not a hashing mechanism), CORS is a browser security policy (not an account-security measure), and dotenv only loads environment variables (it performs no encryption)."
+      },
+      {
+        "question": "A route is defined as `router.get('/users/:id', ...)` and a request comes in for `/users/42?verbose=true`. Which statement correctly describes what the handler receives?",
+        "options": ["`req.params` is `{ body: '42' }` and `req.query` is `{ verbose: true }` (a boolean)", "`req.params` is `{ id: '42' }` (a string) and `req.query` is `{ verbose: 'true' }` (a string) — both route and query values arrive as strings", "`req.params` is `{ id: 42 }` (a number) and `req.query` is `{ verbose: true }` (a boolean), since Express auto-converts recognizable types", "Both values must be parsed manually from `req.url` since Express does not separate params from query"],
+        "correctIndex": 1,
+        "explanation": "Express automatically populates req.params with named route segments (like :id) and req.query with URL query-string values (like ?verbose=true), keeping the two clearly separated — but critically, both are always strings ('42' and 'true'), never numbers or booleans, regardless of how they look. This is exactly why request validation libraries like Zod or Joi are used to coerce and validate these values."
+      }
+    ]
+  },
+  {
+    "track": "Backend Engineer",
+    "phaseTitle": "Core",
+    "groupTitle": "Databases — SQL",
+    "questions": [
+      {
+        "question": "A `users` table has a one-to-many relationship with an `orders` table (one user can place many orders). Following relational modeling and key constraint conventions, where should the foreign key live?",
+        "options": ["On the `orders` table, as a column referencing the primary key of `users`", "On the `users` table, as a column referencing the primary key of `orders`", "On both tables simultaneously, each referencing the other's primary key", "In a separate join table that maps `users` to `orders`"],
+        "correctIndex": 0,
+        "explanation": "In a one-to-many relationship, the foreign key belongs on the 'many' side (orders), storing the id of the related 'one' side (user), which correctly models each order belonging to exactly one user."
+      },
+      {
+        "question": "You run: `SELECT department, AVG(salary) FROM employees GROUP BY department HAVING AVG(salary) > 60000;` What does this query return?",
+        "options": ["The average salary for every department, with departments below 60000 shown as zero", "Only individual employees whose salary is above 60000", "The average salary for each department, but only for departments whose average salary exceeds 60000", "An error, because HAVING cannot be used with AVG()"],
+        "correctIndex": 2,
+        "explanation": "GROUP BY aggregates rows per department, and HAVING filters those grouped results based on the aggregate value, so only departments with an average salary above 60000 are returned."
+      },
+      {
+        "question": "In a Prisma schema for PostgreSQL, why would you run `prisma migrate dev` after changing a model definition, instead of just editing the database directly?",
+        "options": ["It automatically optimizes all existing indexes for faster queries", "It generates a versioned SQL migration file and applies it, keeping the schema, database, and migration history in sync", "It replaces the need for a `schema.prisma` file entirely", "It converts the PostgreSQL database into a NoSQL document store"],
+        "correctIndex": 1,
+        "explanation": "`prisma migrate dev` creates a tracked, versioned SQL migration reflecting the schema change and applies it to the database, ensuring the schema file and actual database structure stay consistent over time."
+      }
+    ]
+  },
+  {
+    "track": "Backend Engineer",
+    "phaseTitle": "Core",
+    "groupTitle": "Databases — NoSQL",
+    "questions": [
+      {
+        "question": "In MongoDB's document model, which statement best describes how related data is typically structured compared to a relational database?",
+        "options": ["Data must always be split across multiple normalized tables joined by foreign keys", "Documents can embed related data as nested objects or arrays within a single document, reducing the need for joins", "MongoDB requires every collection to have a fixed schema enforced at the database level before any documents can be inserted", "Collections can only store one field per document, similar to a key-value store"],
+        "correctIndex": 1,
+        "explanation": "MongoDB's document model allows embedding related data (nested objects/arrays) inside a single document, which is a core reason NoSQL databases can avoid the joins common in relational SQL databases."
+      },
+      {
+        "question": "A collection of orders contains documents like { status: \"shipped\", total: 120 } and { status: \"pending\", total: 45 }. Which query correctly finds all orders with a total greater than 50 AND a status of \"shipped\"?",
+        "options": ["db.orders.find({ total: { $gt: 50 }, status: \"shipped\" })", "db.orders.find({ total: { $lt: 50 }, status: \"shipped\" })", "db.orders.find({ $or: [{ total: { $gt: 50 } }, { status: \"shipped\" }] })", "db.orders.find({ total: 50, status: \"shipped\" })"],
+        "correctIndex": 0,
+        "explanation": "The $gt operator matches values greater than 50, and listing multiple fields in a single query object combines them with an implicit AND, correctly matching shipped orders with a total above 50."
+      },
+      {
+        "question": "A Mongoose schema defines an 'author' field as a reference (ObjectId with a 'ref' to the User model). What must you do to retrieve the actual User document data instead of just the ObjectId when querying a post?",
+        "options": ["Use an aggregation $match stage on the author field", "Create a separate index on the author field", "Call .populate('author') on the query to replace the reference with the referenced document", "Switch the field type from ObjectId to an embedded subdocument"],
+        "correctIndex": 2,
+        "explanation": "Mongoose's population feature uses .populate() to automatically fetch and substitute the referenced document in place of the stored ObjectId, which is how references are resolved into full data."
+      }
+    ]
+  },
+  {
+    "track": "Backend Engineer",
+    "phaseTitle": "Specialization",
+    "groupTitle": "NestJS",
+    "questions": [
+      {
+        "question": "In a NestJS provider, why does using constructor-based dependency injection (e.g., `constructor(private readonly usersService: UsersService) {}`) make unit testing easier?",
+        "options": ["It automatically generates Swagger documentation for the class", "It allows the real service to be swapped for a mock/stub when creating the testing module, without changing the consumer's code", "It removes the need for a module to declare the provider", "It forces the class to run inside an HTTP request context"],
+        "correctIndex": 1,
+        "explanation": "Constructor DI means the class depends on an abstraction it receives rather than constructing it itself, so in tests you can supply a mock implementation via the testing module's provider overrides while the consuming class code stays unchanged."
+      },
+      {
+        "question": "A NestJS route handler needs to reject a request with a 400 response before the controller method body runs if the incoming body doesn't match a DTO's shape (e.g., a required string field is missing). Which mechanism, combined with `class-validator` decorators on the DTO, is designed for this?",
+        "options": ["An Exception Filter, because it formats error responses returned by controllers", "A Guard, because guards decide whether a request is allowed to proceed", "A ValidationPipe, because pipes transform and validate arguments before they reach the route handler", "Middleware, because middleware runs first in the request lifecycle for every route"],
+        "correctIndex": 2,
+        "explanation": "Pipes operate on route arguments before the handler executes, and NestJS's ValidationPipe specifically uses class-validator decorators on DTOs to validate incoming data and throw a 400 automatically on failure."
+      },
+      {
+        "question": "An intern wants to protect a controller route so that only authenticated users with an 'admin' role can access it, reusing the same JWT authentication logic already set up with Passport across the app. What is the correct division of responsibility in NestJS?",
+        "options": ["A single Guard should both verify the JWT and check the user's role, since Guards are the only construct that can access request data", "An Interceptor should verify the JWT, and a Middleware function should check the role afterward", "An AuthGuard (Passport JWT strategy) should verify the token and attach the user, and a separate RolesGuard should check the user's role for authorization", "An Exception Filter should verify the JWT, and a Pipe should validate the role from the request body"],
+        "correctIndex": 2,
+        "explanation": "The standard NestJS pattern separates authentication (verifying identity via the Passport JWT AuthGuard, which attaches the user to the request) from authorization (a RolesGuard that reads metadata, e.g. via a custom @Roles() decorator, to check permissions), keeping each guard focused on one concern."
+      }
+    ]
+  },
+  {
+    "track": "Backend Engineer",
+    "phaseTitle": "Specialization",
+    "groupTitle": "Python + FastAPI",
+    "questions": [
+      {
+        "question": "You are writing a FastAPI path operation function and want the parameter `user_id` to be read from the URL path, validated as an integer, and clearly documented for editor autocomplete and API docs. Which approach correctly achieves this?",
+        "options": ["Annotate the function parameter with a Python type hint, e.g. `def get_user(user_id: int):`, and let FastAPI infer from the route path that it is a path parameter", "Declare `user_id` as a keyword argument with a default value of `None` and check for `None` inside the function body", "Store `user_id` as a global variable set by the ASGI server before the function runs", "Parse `user_id` manually from `request.url.path` using string splitting inside the function"],
+        "correctIndex": 0,
+        "explanation": "FastAPI uses standard Python type hints to validate and convert path parameters automatically; if the parameter name matches a path placeholder (e.g. `/users/{user_id}`), FastAPI treats it as a path parameter and validates it as the declared type."
+      },
+      {
+        "question": "A FastAPI endpoint needs a database session for each request, and that session must be properly closed after the request finishes, whether or not an error occurs. Which mechanism is the idiomatic way to provide this in FastAPI?",
+        "options": ["Create a new SQLAlchemy engine inside every path operation function and dispose of it manually at the end of the function body", "Use FastAPI's dependency injection system with `Depends()`, where the dependency function yields a session and closes it in a `finally` block after the yield", "Store the session in a module-level global variable so all requests share the same session object", "Pass the database session as a query parameter so clients supply their own session token"],
+        "correctIndex": 1,
+        "explanation": "FastAPI's `Depends()` with a generator-style dependency (using `yield`) lets you set up a resource, hand it to the endpoint, and guarantee cleanup code after the yield runs even if the request raises an exception."
+      },
+      {
+        "question": "In a Pydantic model used as a FastAPI request body, why would you use `Optional[str] = None` (or `str | None = None`) for a field instead of just `str`?",
+        "options": ["It makes the field required but allows an empty string to be sent instead of null", "It tells FastAPI to fetch the field's value from environment variables if the client omits it", "It marks the field as optional, so a request body can omit it or send `null`, and Pydantic will accept it and default to `None`", "It converts the field into a path parameter automatically instead of a body field"],
+        "correctIndex": 2,
+        "explanation": "In Pydantic, giving a field the type `Optional[str]` (or `str | None`) with a default of `None` makes it non-required, so validation succeeds whether the client sends a string, null, or omits the field entirely."
+      }
+    ]
+  },
+  {
+    "track": "Backend Engineer",
+    "phaseTitle": "Specialization",
+    "groupTitle": "API design",
+    "questions": [
+      {
+        "question": "A client requests GET /api/orders?page=3&limit=20&status=shipped&sort=-created_at. What are the two distinct API design concepts being applied by the 'status=shipped' and 'sort=-created_at' parameters, respectively?",
+        "options": ["Filtering and sorting", "Pagination and versioning", "Rate limiting and caching", "Idempotency and resource naming"],
+        "correctIndex": 0,
+        "explanation": "'status=shipped' narrows the result set based on a field value (filtering), while 'sort=-created_at' controls the order of results (sorting) — these are separate, commonly combined query-parameter conventions in REST APIs."
+      },
+      {
+        "question": "A client sends a POST request to charge a customer's card, but the network times out before a response arrives, so the client retries the exact same request with the same Idempotency-Key header. What should a well-designed API do to avoid double-charging the customer?",
+        "options": ["Reject the retried request with a 400 Bad Request since POST requests should never be retried", "Process the request again as a new charge, since POST is not idempotent by definition", "Recognize the repeated idempotency key and return the result of the original request without charging the customer again", "Convert the request to a PUT internally so the server treats it as idempotent"],
+        "correctIndex": 2,
+        "explanation": "Idempotency keys let a server detect that a request has already been processed and safely return the original result instead of repeating the side effect, which is exactly why they're used for retry-prone operations like payments."
+      },
+      {
+        "question": "Compared to a typical REST endpoint that returns a fixed JSON structure, what is a defining characteristic of GraphQL that helps reduce over-fetching and under-fetching of data?",
+        "options": ["GraphQL requires a separate API key for every field requested", "GraphQL automatically caches every response in Redis without any server configuration", "The client specifies exactly which fields it needs in a single query, and the server returns only that shape of data", "GraphQL replaces HTTP entirely and communicates only over WebSockets"],
+        "correctIndex": 2,
+        "explanation": "GraphQL lets clients declare the precise fields and nested resources they want in one query, so responses match exactly what's needed instead of returning a fixed shape that may include too much or too little data."
+      }
+    ]
+  },
+  {
+    "track": "Backend Engineer",
+    "phaseTitle": "Mastery",
+    "groupTitle": "Architecture",
+    "questions": [
+      {
+        "question": "A team is deciding between a monolith and a microservices architecture for a new product with a small team and an unproven business model. Which statement best reflects a well-understood tradeoff between the two approaches?",
+        "options": ["Microservices always improve performance because each service runs faster in isolation", "A monolith is simpler to develop and deploy initially, while microservices add operational complexity (service communication, deployment, monitoring) in exchange for independent scaling and deployment of services", "A monolith cannot be scaled horizontally under any circumstances", "Microservices eliminate the need for service communication since each service is self-contained"],
+        "correctIndex": 1,
+        "explanation": "Monoliths are simpler to build, test, and deploy early on, while microservices trade that simplicity for independent scalability and deployability at the cost of added operational and communication complexity."
+      },
+      {
+        "question": "In an event-driven architecture using a message queue like Kafka or RabbitMQ, why would a service publish an event instead of calling another service directly via a synchronous API request?",
+        "options": ["Because message queues guarantee the receiving service will process the event instantly with zero latency", "Because publishing an event decouples the producer from the consumer, allowing the producer to continue without waiting for the consumer to be available or finish processing", "Because event-driven communication removes the need for the consumer service to ever handle failures", "Because message queues convert asynchronous processing into synchronous processing automatically"],
+        "correctIndex": 1,
+        "explanation": "Publishing to a queue decouples producer and consumer in time and availability, letting the producer move on without waiting on the consumer, which is the core benefit of asynchronous, event-driven communication."
+      },
+      {
+        "question": "Which of the following best describes a valid caching strategy consideration in a layered backend architecture?",
+        "options": ["Caching should be applied to all data uniformly with the same expiration time to keep the system simple", "Cached data can become stale, so a caching strategy must define how and when the cache is invalidated or refreshed relative to the underlying data source", "Once data is cached, the underlying database no longer needs to be queried again for that data", "Caching removes the need for load balancing since cached responses do not require server resources"],
+        "correctIndex": 1,
+        "explanation": "A core challenge in caching is invalidation: cached data can drift from the source of truth, so any caching strategy must explicitly handle when cached values are refreshed or invalidated."
+      }
+    ]
+  },
+  {
+    "track": "Backend Engineer",
+    "phaseTitle": "Mastery",
+    "groupTitle": "Production & DevOps",
+    "questions": [
+      {
+        "question": "A backend service currently logs raw error messages to stdout. As part of improving observability, the team wants to quickly answer questions like \"what is the p95 latency of the /checkout endpoint over the last hour?\" without manually grepping logs. What is the most appropriate next step?",
+        "options": ["Increase the log level to DEBUG so more detail is captured in the existing text logs", "Instrument the service to emit structured metrics (e.g., request latency histograms) to a monitoring system such as Prometheus, and visualize them on a dashboard", "Add more print statements around the checkout function so failures are easier to spot", "Store all logs in a single large file and search it with grep whenever a question arises"],
+        "correctIndex": 1,
+        "explanation": "Answering aggregate, time-windowed questions like p95 latency requires metrics and dashboards, not raw text logs; this is the core distinction between logging and observability/monitoring tooling."
+      },
+      {
+        "question": "During a code review, a reviewer flags that an API endpoint builds a SQL query by directly concatenating a user-supplied search string into the query text. Which change best addresses this as an OWASP Top 10 risk?",
+        "options": ["Switch to parameterized queries (prepared statements) instead of string concatenation", "Move the database credentials into environment variables", "Add rate limiting to the endpoint to reduce the number of requests", "Wrap the query execution in a try/catch block to suppress errors"],
+        "correctIndex": 0,
+        "explanation": "Concatenating user input into SQL is the classic SQL injection vulnerability; parameterized queries ensure user input is treated as data, not executable code, which directly fixes the flaw."
+      },
+      {
+        "question": "A team is writing a Dockerfile for a backend service and wants the CI/CD pipeline to build and push the image automatically on every merge to main, while keeping database credentials out of the repository and out of the image itself. Which combination of practices correctly achieves this?",
+        "options": ["Hardcode the production database password in the Dockerfile so the container always has access, and rebuild the image manually after each merge", "Store the database credentials as encrypted secrets in the CI/CD platform, inject them into the container only at deploy/run time (never baked into the image layers), and configure a pipeline stage that automatically builds and pushes the Docker image on merge to main", "Commit a .env file with the production credentials to the repository so the CI/CD pipeline can read it during the build", "Skip Docker entirely and have each developer manually deploy the service from their laptop after merging"],
+        "correctIndex": 1,
+        "explanation": "Proper secrets management means credentials are stored securely outside source control and supplied to the running container at deploy time rather than embedded in the image itself, while CI/CD automation (not manual steps) handles building and pushing the image on each merge."
+      }
+    ]
+  }
+]
