@@ -9,6 +9,7 @@ import {
   TrendingUp, Plus, Pencil, Trash2, UserPlus, UserMinus, UserCog,
   ChevronDown, ChevronUp, ChevronLeft, X, FolderKanban, ChevronRight,
   BarChart2, ArrowLeft, ClipboardList, Filter, FileText, Link2, Upload, Star, Search, Calendar,
+  Loader2, Sparkles,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -685,8 +686,7 @@ export default function DepartmentPage() {
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
                     {deptTeams.map((team) => {
-                      const teamMemberIds = new Set(team.members.map((m) => m.user.id));
-                      const teamTasks = deptTasks.filter((t) => t.assignee?.id && teamMemberIds.has(t.assignee.id));
+                      const teamTasks = deptTasks.filter((t) => t.team?.id === team.id);
                       const doneCt    = teamTasks.filter((t) => t.status === 'DONE').length;
                       const overdueCt = teamTasks.filter((t) => !!t.dueDate && new Date(t.dueDate) < now && t.status !== 'DONE' && t.status !== 'CANCELLED').length;
                       const blockedCt = teamTasks.filter((t) => t.status === 'BLOCKED').length;
@@ -2978,6 +2978,54 @@ function CreateTeamDialog({ deptId, deptName, deptUsers, onClose, onSaved }: {
   const managers  = deptUsers.filter((u) => ['MANAGER', 'DEPARTMENT_HEAD', 'COMPANY_ADMIN'].includes(u.role));
   const deptHeads = deptUsers.filter((u) => ['DEPARTMENT_HEAD', 'OWNER', 'COMPANY_ADMIN'].includes(u.role));
 
+  const [enhancingTitle, setEnhancingTitle] = useState(false);
+  const [enhancingDesc, setEnhancingDesc] = useState(false);
+  const [enhanceTitleCount, setEnhanceTitleCount] = useState(0);
+  const [enhanceDescCount, setEnhanceDescCount] = useState(0);
+  const ENHANCE_LIMIT = 2;
+
+  const handleEnhanceTitle = async () => {
+    if (enhanceTitleCount >= ENHANCE_LIMIT) { toast.error('Enhance limit reached (max 2 times per project)'); return; }
+    const currentName = watch('name')?.trim();
+    if (!currentName) { toast.error('Enter a project name first'); return; }
+    setEnhancingTitle(true);
+    try {
+      const res = await api.post<{ title: string; description: string }>('/tasks/enhance', {
+        title: currentName,
+        field: 'title',
+      });
+      setValue('name', res.data.title);
+      setValue('slug', slugify(res.data.title));
+      setEnhanceTitleCount((c) => c + 1);
+      toast.success(`Project Name enhanced (${enhanceTitleCount + 1}/${ENHANCE_LIMIT})`);
+    } catch {
+      toast.error('AI enhancement failed');
+    } finally {
+      setEnhancingTitle(false);
+    }
+  };
+
+  const handleEnhanceDesc = async () => {
+    if (enhanceDescCount >= ENHANCE_LIMIT) { toast.error('Enhance limit reached (max 2 times per project)'); return; }
+    const currentName = watch('name')?.trim();
+    if (!currentName) { toast.error('Enter a project name first'); return; }
+    setEnhancingDesc(true);
+    try {
+      const res = await api.post<{ title: string; description: string }>('/tasks/enhance', {
+        title: currentName,
+        description: watch('description')?.trim() || undefined,
+        field: 'description',
+      });
+      setValue('description', res.data.description);
+      setEnhanceDescCount((c) => c + 1);
+      toast.success(`Description enhanced (${enhanceDescCount + 1}/${ENHANCE_LIMIT})`);
+    } catch {
+      toast.error('AI enhancement failed');
+    } finally {
+      setEnhancingDesc(false);
+    }
+  };
+
   const onSubmit = async (data: CreateTeamForm) => {
     const result: Team = await api.post('/teams', {
       ...data, departmentId: deptId,
@@ -2998,11 +3046,42 @@ function CreateTeamDialog({ deptId, deptName, deptUsers, onClose, onSaved }: {
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
           <div className="space-y-1.5">
-            <Label>Project Name *</Label>
-            <Input placeholder="e.g. Mobile App Redesign"
-              {...register('name')}
-              onChange={(e) => { register('name').onChange(e); setValue('slug', slugify(e.target.value)); }}
-            />
+            <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Project Name *</Label>
+            <div className="relative">
+              <Input
+                placeholder="e.g. Mobile App Redesign"
+                {...register('name')}
+                disabled={enhancingTitle}
+                className={cn(
+                  'rounded-xl border-border/60 focus-visible:ring-indigo-500/20 pr-16 transition-all',
+                  enhancingTitle && 'opacity-60 bg-violet-50/50 border-violet-300',
+                )}
+                onChange={(e) => {
+                  register('name').onChange(e);
+                  setValue('slug', slugify(e.target.value));
+                }}
+              />
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={handleEnhanceTitle}
+                  disabled={enhancingTitle || enhanceTitleCount >= ENHANCE_LIMIT}
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded-md border transition-all disabled:cursor-not-allowed
+                    bg-violet-50 border-violet-200 text-violet-600 hover:bg-violet-100
+                    disabled:bg-muted/40 disabled:border-border/40 disabled:text-muted-foreground"
+                >
+                  {enhancingTitle
+                    ? <Loader2 className="h-3 w-3 animate-spin" />
+                    : <Sparkles className="h-3 w-3" />}
+                  <span className="text-[10px] font-bold tabular-nums">
+                    {enhanceTitleCount}/{ENHANCE_LIMIT}
+                  </span>
+                </button>
+              </div>
+              {enhancingTitle && (
+                <div className="absolute inset-0 rounded-xl pointer-events-none ring-2 ring-violet-400 ring-offset-0 animate-pulse" />
+              )}
+            </div>
             {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
           </div>
           <div className="space-y-1.5">
@@ -3011,8 +3090,40 @@ function CreateTeamDialog({ deptId, deptName, deptUsers, onClose, onSaved }: {
             {errors.slug && <p className="text-xs text-destructive">{errors.slug.message}</p>}
           </div>
           <div className="space-y-1.5">
-            <Label>Description</Label>
-            <Textarea placeholder="What is this project about?" rows={2} {...register('description')} />
+            <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Description</Label>
+            <div className="relative">
+              <Textarea
+                placeholder="What is this project about?"
+                rows={2}
+                {...register('description')}
+                disabled={enhancingDesc}
+                className={cn(
+                  'rounded-xl border-border/60 resize-none focus-visible:ring-indigo-500/20 pb-8 transition-all',
+                  enhancingDesc && 'opacity-60 bg-violet-50/50 border-violet-300',
+                )}
+              />
+              <button
+                type="button"
+                onClick={handleEnhanceDesc}
+                disabled={enhancingDesc || enhanceDescCount >= ENHANCE_LIMIT}
+                className="absolute right-2 bottom-2 flex items-center gap-1 px-1.5 py-0.5 rounded-md border transition-all disabled:cursor-not-allowed
+                  bg-violet-50 border-violet-200 text-violet-600 hover:bg-violet-100
+                  disabled:bg-muted/40 disabled:border-border/40 disabled:text-muted-foreground"
+              >
+                {enhancingDesc
+                  ? <Loader2 className="h-3 w-3 animate-spin" />
+                  : <Sparkles className="h-3 w-3" />}
+                <span className="text-[10px] font-bold">
+                  {enhancingDesc ? 'Enhancing…' : 'Enhance'}
+                </span>
+                <span className="text-[10px] font-bold tabular-nums opacity-70">
+                  {enhanceDescCount}/{ENHANCE_LIMIT}
+                </span>
+              </button>
+              {enhancingDesc && (
+                <div className="absolute inset-0 rounded-xl pointer-events-none ring-2 ring-violet-400 ring-offset-0 animate-pulse" />
+              )}
+            </div>
           </div>
           <div className="space-y-1.5">
             <Label>Project Manager</Label>
@@ -3075,11 +3186,58 @@ function EditTeamDialog({ team, deptId, onClose, onSaved }: {
     },
   });
 
+  const [enhancingTitle, setEnhancingTitle] = useState(false);
+  const [enhancingDesc, setEnhancingDesc] = useState(false);
+  const [enhanceTitleCount, setEnhanceTitleCount] = useState(0);
+  const [enhanceDescCount, setEnhanceDescCount] = useState(0);
+  const ENHANCE_LIMIT = 2;
+
+  const handleEnhanceTitle = async () => {
+    if (enhanceTitleCount >= ENHANCE_LIMIT) { toast.error('Enhance limit reached (max 2 times per project)'); return; }
+    const currentName = watch('name')?.trim();
+    if (!currentName) { toast.error('Enter a project name first'); return; }
+    setEnhancingTitle(true);
+    try {
+      const res = await api.post<{ title: string; description: string }>('/tasks/enhance', {
+        title: currentName,
+        field: 'title',
+      });
+      setValue('name', res.data.title);
+      setEnhanceTitleCount((c) => c + 1);
+      toast.success(`Project Name enhanced (${enhanceTitleCount + 1}/${ENHANCE_LIMIT})`);
+    } catch {
+      toast.error('AI enhancement failed');
+    } finally {
+      setEnhancingTitle(false);
+    }
+  };
+
+  const handleEnhanceDesc = async () => {
+    if (enhanceDescCount >= ENHANCE_LIMIT) { toast.error('Enhance limit reached (max 2 times per project)'); return; }
+    const currentName = watch('name')?.trim();
+    if (!currentName) { toast.error('Enter a project name first'); return; }
+    setEnhancingDesc(true);
+    try {
+      const res = await api.post<{ title: string; description: string }>('/tasks/enhance', {
+        title: currentName,
+        description: watch('description')?.trim() || undefined,
+        field: 'description',
+      });
+      setValue('description', res.data.description);
+      setEnhanceDescCount((c) => c + 1);
+      toast.success(`Description enhanced (${enhanceDescCount + 1}/${ENHANCE_LIMIT})`);
+    } catch {
+      toast.error('AI enhancement failed');
+    } finally {
+      setEnhancingDesc(false);
+    }
+  };
+
   const onSubmit = async (data: EditTeamForm) => {
     const result: Team = await api.patch(`/teams/${team.id}`, {
       ...data,
-      managerUserId:        data.managerUserId        || undefined,
-      departmentHeadUserId: data.departmentHeadUserId || undefined,
+      managerUserId:        data.managerUserId        || null,
+      departmentHeadUserId: data.departmentHeadUserId || null,
     }).then((r) => r.data);
     reset(); onSaved(result);
   };
@@ -3092,13 +3250,74 @@ function EditTeamDialog({ team, deptId, onClose, onSaved }: {
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-1.5">
-            <Label>Project Name *</Label>
-            <Input {...register('name')} />
+            <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Project Name *</Label>
+            <div className="relative">
+              <Input
+                {...register('name')}
+                disabled={enhancingTitle}
+                className={cn(
+                  'rounded-xl border-border/60 focus-visible:ring-indigo-500/20 pr-16 transition-all',
+                  enhancingTitle && 'opacity-60 bg-violet-50/50 border-violet-300',
+                )}
+              />
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={handleEnhanceTitle}
+                  disabled={enhancingTitle || enhanceTitleCount >= ENHANCE_LIMIT}
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded-md border transition-all disabled:cursor-not-allowed
+                    bg-violet-50 border-violet-200 text-violet-600 hover:bg-violet-100
+                    disabled:bg-muted/40 disabled:border-border/40 disabled:text-muted-foreground"
+                >
+                  {enhancingTitle
+                    ? <Loader2 className="h-3 w-3 animate-spin" />
+                    : <Sparkles className="h-3 w-3" />}
+                  <span className="text-[10px] font-bold tabular-nums">
+                    {enhanceTitleCount}/{ENHANCE_LIMIT}
+                  </span>
+                </button>
+              </div>
+              {enhancingTitle && (
+                <div className="absolute inset-0 rounded-xl pointer-events-none ring-2 ring-violet-400 ring-offset-0 animate-pulse" />
+              )}
+            </div>
             {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
           </div>
           <div className="space-y-1.5">
-            <Label>Description</Label>
-            <Textarea rows={2} {...register('description')} />
+            <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Description</Label>
+            <div className="relative">
+              <Textarea
+                placeholder="What is this project about?"
+                rows={2}
+                {...register('description')}
+                disabled={enhancingDesc}
+                className={cn(
+                  'rounded-xl border-border/60 resize-none focus-visible:ring-indigo-500/20 pb-8 transition-all',
+                  enhancingDesc && 'opacity-60 bg-violet-50/50 border-violet-300',
+                )}
+              />
+              <button
+                type="button"
+                onClick={handleEnhanceDesc}
+                disabled={enhancingDesc || enhanceDescCount >= ENHANCE_LIMIT}
+                className="absolute right-2 bottom-2 flex items-center gap-1 px-1.5 py-0.5 rounded-md border transition-all disabled:cursor-not-allowed
+                  bg-violet-50 border-violet-200 text-violet-600 hover:bg-violet-100
+                  disabled:bg-muted/40 disabled:border-border/40 disabled:text-muted-foreground"
+              >
+                {enhancingDesc
+                  ? <Loader2 className="h-3 w-3 animate-spin" />
+                  : <Sparkles className="h-3 w-3" />}
+                <span className="text-[10px] font-bold">
+                  {enhancingDesc ? 'Enhancing…' : 'Enhance'}
+                </span>
+                <span className="text-[10px] font-bold tabular-nums opacity-70">
+                  {enhanceDescCount}/{ENHANCE_LIMIT}
+                </span>
+              </button>
+              {enhancingDesc && (
+                <div className="absolute inset-0 rounded-xl pointer-events-none ring-2 ring-violet-400 ring-offset-0 animate-pulse" />
+              )}
+            </div>
           </div>
           <div className="space-y-1.5">
             <Label>Project Manager</Label>
@@ -3367,6 +3586,53 @@ function AddProjectTaskDialog({ teamId, members, canAssign, selfId, deptName, on
     defaultValues: { priority: 'MEDIUM', assigneeUserId: canAssign ? '' : selfId },
   });
 
+  const [enhancingTitle, setEnhancingTitle] = useState(false);
+  const [enhancingDesc, setEnhancingDesc] = useState(false);
+  const [enhanceTitleCount, setEnhanceTitleCount] = useState(0);
+  const [enhanceDescCount, setEnhanceDescCount] = useState(0);
+  const ENHANCE_LIMIT = 2;
+
+  const handleEnhanceTitle = async () => {
+    if (enhanceTitleCount >= ENHANCE_LIMIT) { toast.error('Enhance limit reached (max 2 times per task)'); return; }
+    const currentTitle = watch('title')?.trim();
+    if (!currentTitle) { toast.error('Enter a title first'); return; }
+    setEnhancingTitle(true);
+    try {
+      const res = await api.post<{ title: string; description: string }>('/tasks/enhance', {
+        title: currentTitle,
+        field: 'title',
+      });
+      setValue('title', res.data.title);
+      setEnhanceTitleCount((c) => c + 1);
+      toast.success(`Title enhanced (${enhanceTitleCount + 1}/${ENHANCE_LIMIT})`);
+    } catch {
+      toast.error('AI enhancement failed');
+    } finally {
+      setEnhancingTitle(false);
+    }
+  };
+
+  const handleEnhanceDesc = async () => {
+    if (enhanceDescCount >= ENHANCE_LIMIT) { toast.error('Enhance limit reached (max 2 times per task)'); return; }
+    const currentTitle = watch('title')?.trim();
+    if (!currentTitle) { toast.error('Enter a title first'); return; }
+    setEnhancingDesc(true);
+    try {
+      const res = await api.post<{ title: string; description: string }>('/tasks/enhance', {
+        title: currentTitle,
+        description: watch('description')?.trim() || undefined,
+        field: 'description',
+      });
+      setValue('description', res.data.description);
+      setEnhanceDescCount((c) => c + 1);
+      toast.success(`Description enhanced (${enhanceDescCount + 1}/${ENHANCE_LIMIT})`);
+    } catch {
+      toast.error('AI enhancement failed');
+    } finally {
+      setEnhancingDesc(false);
+    }
+  };
+
   const priority = watch('priority') ?? 'MEDIUM';
   const assigneeId = watch('assigneeUserId') ?? '';
   const selectedPhaseId = watch('phaseId') ?? '';
@@ -3416,15 +3682,77 @@ function AddProjectTaskDialog({ teamId, members, canAssign, selfId, deptName, on
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
           {/* Title */}
           <div className="space-y-1.5">
-            <Label>Title *</Label>
-            <Input placeholder="What needs to be done?" {...register('title')} />
+            <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Title *</Label>
+            <div className="relative">
+              <Input
+                placeholder="What needs to be done?"
+                {...register('title')}
+                disabled={enhancingTitle}
+                className={cn(
+                  'rounded-xl border-border/60 focus-visible:ring-indigo-500/20 pr-16 transition-all',
+                  enhancingTitle && 'opacity-60 bg-violet-50/50 border-violet-300',
+                )}
+              />
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={handleEnhanceTitle}
+                  disabled={enhancingTitle || enhanceTitleCount >= ENHANCE_LIMIT}
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded-md border transition-all disabled:cursor-not-allowed
+                    bg-violet-50 border-violet-200 text-violet-600 hover:bg-violet-100
+                    disabled:bg-muted/40 disabled:border-border/40 disabled:text-muted-foreground"
+                >
+                  {enhancingTitle
+                    ? <Loader2 className="h-3 w-3 animate-spin" />
+                    : <Sparkles className="h-3 w-3" />}
+                  <span className="text-[10px] font-bold tabular-nums">
+                    {enhanceTitleCount}/{ENHANCE_LIMIT}
+                  </span>
+                </button>
+              </div>
+              {enhancingTitle && (
+                <div className="absolute inset-0 rounded-xl pointer-events-none ring-2 ring-violet-400 ring-offset-0 animate-pulse" />
+              )}
+            </div>
             {errors.title && <p className="text-xs text-destructive">{errors.title.message}</p>}
           </div>
 
           {/* Description */}
           <div className="space-y-1.5">
-            <Label>Description</Label>
-            <Textarea placeholder="Additional context…" rows={2} {...register('description')} />
+            <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Description</Label>
+            <div className="relative">
+              <Textarea
+                placeholder="Additional context…"
+                rows={2}
+                {...register('description')}
+                disabled={enhancingDesc}
+                className={cn(
+                  'rounded-xl border-border/60 resize-none focus-visible:ring-indigo-500/20 pb-8 transition-all',
+                  enhancingDesc && 'opacity-60 bg-violet-50/50 border-violet-300',
+                )}
+              />
+              <button
+                type="button"
+                onClick={handleEnhanceDesc}
+                disabled={enhancingDesc || enhanceDescCount >= ENHANCE_LIMIT}
+                className="absolute right-2 bottom-2 flex items-center gap-1 px-1.5 py-0.5 rounded-md border transition-all disabled:cursor-not-allowed
+                  bg-violet-50 border-violet-200 text-violet-600 hover:bg-violet-100
+                  disabled:bg-muted/40 disabled:border-border/40 disabled:text-muted-foreground"
+              >
+                {enhancingDesc
+                  ? <Loader2 className="h-3 w-3 animate-spin" />
+                  : <Sparkles className="h-3 w-3" />}
+                <span className="text-[10px] font-bold">
+                  {enhancingDesc ? 'Enhancing…' : 'Enhance'}
+                </span>
+                <span className="text-[10px] font-bold tabular-nums opacity-70">
+                  {enhanceDescCount}/{ENHANCE_LIMIT}
+                </span>
+              </button>
+              {enhancingDesc && (
+                <div className="absolute inset-0 rounded-xl pointer-events-none ring-2 ring-violet-400 ring-offset-0 animate-pulse" />
+              )}
+            </div>
           </div>
 
           {/* Expected Outcome */}

@@ -14,7 +14,7 @@ async function canManagePhases(req: AuthRequest, teamId: string) {
     return true;
   }
 
-  // Check if user is the department head of this project's department
+  // Check if user is the department head of this project's department, or the project manager
   const team = await prisma.team.findFirst({
     where: { id: teamId, orgId },
     include: { department: true },
@@ -22,7 +22,11 @@ async function canManagePhases(req: AuthRequest, teamId: string) {
 
   if (!team) return false;
 
-  if (role === 'DEPARTMENT_HEAD' && team.department.headUserId === userId) {
+  if (role === 'DEPARTMENT_HEAD' && (team.department.headUserId === userId || team.departmentHeadUserId === userId)) {
+    return true;
+  }
+
+  if (team.managerUserId === userId) {
     return true;
   }
 
@@ -48,7 +52,7 @@ router.post('/:teamId/phases', async (req: AuthRequest, res: Response) => {
   const { orgId } = req.user!;
 
   if (!(await canManagePhases(req, teamId))) {
-    res.status(403).json({ error: 'Only owners, admins, or the department head can create phases' });
+    res.status(403).json({ error: 'Only owners, admins, department head, or the project manager can create phases' });
     return;
   }
 
@@ -84,7 +88,7 @@ router.patch('/:teamId/phases/:phaseId', async (req: AuthRequest, res: Response)
   const { orgId } = req.user!;
 
   if (!(await canManagePhases(req, teamId))) {
-    res.status(403).json({ error: 'Only owners, admins, or the department head can extend phase deadlines' });
+    res.status(403).json({ error: 'Only owners, admins, department head, or the project manager can extend phase deadlines' });
     return;
   }
 
@@ -130,7 +134,7 @@ router.delete('/:teamId/phases/:phaseId', async (req: AuthRequest, res: Response
   const { orgId } = req.user!;
 
   if (!(await canManagePhases(req, teamId))) {
-    res.status(403).json({ error: 'Only owners, admins, or the department head can delete phases' });
+    res.status(403).json({ error: 'Only owners, admins, department head, or the project manager can delete phases' });
     return;
   }
 
