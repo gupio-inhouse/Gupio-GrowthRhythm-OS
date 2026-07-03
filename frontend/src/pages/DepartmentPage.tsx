@@ -3371,7 +3371,7 @@ function AddProjectTaskDialog({ teamId, members, canAssign, selfId, deptName, on
   const assigneeId = watch('assigneeUserId') ?? '';
   const selectedPhaseId = watch('phaseId') ?? '';
 
-  const { data: phases = [] } = useQuery<Array<{ id: string; name: string }>>({
+  const { data: phases = [] } = useQuery<Array<{ id: string; name: string; dueDate: string }>>({
     queryKey: ['project-phases', teamId],
     queryFn: () => api.get(`/teams/${teamId}/phases`).then((r) => r.data),
     enabled: isEngTask,
@@ -3381,6 +3381,17 @@ function AddProjectTaskDialog({ teamId, members, canAssign, selfId, deptName, on
     if (isEngTask && !data.phaseId) {
       toast.error('Phase selection is required for Engineering tasks.');
       return;
+    }
+    if (isEngTask && data.phaseId && data.dueDate) {
+      const selectedPhase = phases.find((p) => p.id === data.phaseId);
+      if (selectedPhase) {
+        const taskDueDate = new Date(`${data.dueDate}T${data.dueTime || '23:59:59'}`);
+        const phaseDueDate = new Date(selectedPhase.dueDate);
+        if (taskDueDate > phaseDueDate) {
+          toast.error(`Task due date cannot be beyond the Phase deadline (${selectedPhase.dueDate.split('T')[0]}).`);
+          return;
+        }
+      }
     }
     await api.post(`/teams/${teamId}/tasks`, {
       title:           data.title,

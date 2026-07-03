@@ -364,6 +364,10 @@ router.post('/', auditLog('task', 'CREATE'), async (req: AuthRequest, res: Respo
         res.status(400).json({ error: 'Selected phase does not belong to this project.' });
         return;
       }
+      if (parsed.data.dueDate && new Date(parsed.data.dueDate) > new Date(phase.dueDate)) {
+        res.status(400).json({ error: `Task due date cannot be beyond the Phase deadline (${phase.dueDate.toISOString().split('T')[0]}).` });
+        return;
+      }
     }
   }
 
@@ -465,6 +469,11 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
       });
       if (!phase) {
         res.status(400).json({ error: 'Selected phase does not belong to this project.' });
+        return;
+      }
+      const resolvedDueDate = parsed.data.dueDate !== undefined ? parsed.data.dueDate : existingTask.dueDate?.toISOString();
+      if (resolvedDueDate && new Date(resolvedDueDate) > new Date(phase.dueDate)) {
+        res.status(400).json({ error: `Task due date cannot be beyond the Phase deadline (${phase.dueDate.toISOString().split('T')[0]}).` });
         return;
       }
     }

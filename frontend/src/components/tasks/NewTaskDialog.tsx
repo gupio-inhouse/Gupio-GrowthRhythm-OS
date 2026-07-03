@@ -133,7 +133,7 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
   const deptMap = new Map(departments.map((d) => [d.id, d.name]));
   const isEngInDialog = isEngineeringDept(deptMap.get(watchedDeptId));
 
-  const { data: phases = [] } = useQuery<{ id: string; name: string }[]>({
+  const { data: phases = [] } = useQuery<{ id: string; name: string; dueDate: string }[]>({
     queryKey: ['project-phases', watchedTeamId],
     queryFn:  () => api.get(`/teams/${watchedTeamId}/phases`).then((r) => r.data),
     enabled:  open && !!watchedTeamId && isEngInDialog,
@@ -219,7 +219,19 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
   };
 
   const onSubmit = async (data: FormData) => {
-    const dueDateIso = new Date(`${data.dueDate}T${data.dueTime}`).toISOString();
+    if (isEngInDialog && data.phaseId && data.dueDate) {
+      const selectedPhase = phases.find((p) => p.id === data.phaseId);
+      if (selectedPhase) {
+        const taskDueDate = new Date(`${data.dueDate}T${data.dueTime || '23:59:59'}`);
+        const phaseDueDate = new Date(selectedPhase.dueDate);
+        if (taskDueDate > phaseDueDate) {
+          toast.error(`Task due date cannot be beyond the Phase deadline (${selectedPhase.dueDate.split('T')[0]}).`);
+          return;
+        }
+      }
+    }
+
+    const dueDateIso = data.dueDate ? new Date(`${data.dueDate}T${data.dueTime || '23:59:59'}`).toISOString() : undefined;
 
     const payload: Record<string, unknown> = isTeamMember && isEditMode
       ? { title: data.title, description: data.description || undefined }
