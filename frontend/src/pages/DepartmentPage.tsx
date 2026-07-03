@@ -2120,13 +2120,13 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
                         AI Overview
                       </span>
                     </div>
-                    <div className="space-y-2.5 text-sm text-slate-300 leading-relaxed">
+                    <div className="space-y-2.5 text-sm text-slate-700 leading-relaxed">
                       {overview.aiOverview.split('\n\n').map((line, idx) => {
                         const match = line.match(/^\*\*(.*?)\*\*:\s*(.*)$/);
                         if (match) {
                           return (
                             <p key={idx}>
-                              <span className="font-semibold text-white">{match[1]}:</span> {match[2]}
+                              <span className="font-semibold text-slate-900">{match[1]}:</span> {match[2]}
                             </p>
                           );
                         }

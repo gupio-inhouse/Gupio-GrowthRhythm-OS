@@ -5,6 +5,9 @@ import prisma from '../lib/prisma';
 import { authenticate, AuthRequest, requireRole } from '../middleware/auth';
 import { auditLog } from '../middleware/audit';
 import { getUserDeptAccess } from '../lib/deptAccess';
+import { getCache, setCache, cacheKey } from '../lib/cache';
+
+const AI_OVERVIEW_TTL = 12 * 60 * 60; // 12h — matches other periodic-digest TTLs in ai.service.ts
 
 const router = Router();
 router.use(authenticate);
@@ -202,8 +205,12 @@ router.get(
       overdueCount: ms.stats.overdue,
     }));
 
-    let aiOverview = '';
-    if (activeMembersData.length > 0) {
+    // AI overview is generated once per team and cached — repeat views of this
+    // tab must not re-call the AI provider every time.
+    const aiOverviewCacheKey = cacheKey('team-overview:ai', teamId);
+    let aiOverview = (await getCache<string>(aiOverviewCacheKey)) ?? '';
+
+    if (!aiOverview && activeMembersData.length > 0) {
       const prompt = `You are a professional project manager. Summarize the status and progress of the following team members in this project.
 Write a concise 1-2 sentence overview for each member highlighting their focus, completed work, and potential blockers/overdue items.
 Keep it direct, professional, and action-oriented.
@@ -224,6 +231,7 @@ ${JSON.stringify(activeMembersData, null, 2)}
           aiOverview = Object.entries(parsed)
             .map(([name, desc]) => `**${name}**: ${desc}`)
             .join('\n\n');
+          if (aiOverview) await setCache(aiOverviewCacheKey, aiOverview, AI_OVERVIEW_TTL);
         }
       } catch (e) {
         console.error('Error generating project AI overview:', e);
