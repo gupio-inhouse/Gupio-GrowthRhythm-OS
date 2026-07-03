@@ -96,6 +96,7 @@ const createSchema = z.object({
   startDate: z.string().datetime().optional(),
   dueDate: z.string().datetime().optional(),
   recurrence: z.string().optional(),
+  phaseId: z.string().optional(),
 });
 
 const updateSchema = createSchema.partial().extend({
@@ -243,6 +244,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       department: { select: { id: true, name: true, slug: true } },
       team: { select: { id: true, name: true } },
       dependency: { select: { id: true, title: true, status: true } },
+      phase: true,
       _count: { select: { comments: true, attachments: true } },
     },
     orderBy: [{ priority: 'desc' }, { dueDate: 'asc' }],
@@ -268,6 +270,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
       department: true,
       team: { select: { id: true, name: true } },
       dependency: { select: { id: true, title: true, status: true } },
+      phase: true,
       comments: {
         include: { user: { select: { id: true, name: true, avatarUrl: true } } },
         orderBy: { createdAt: 'asc' },
@@ -343,6 +346,27 @@ router.post('/', auditLog('task', 'CREATE'), async (req: AuthRequest, res: Respo
   // Only fall back to the provided departmentId when there's no assignee.
   const resolvedDeptId = assignee?.departmentId ?? parsed.data.departmentId ?? undefined;
 
+  // Validate phase-wise tasks for Engineering department projects
+  if (parsed.data.teamId) {
+    const team = await prisma.team.findFirst({
+      where: { id: parsed.data.teamId, orgId: req.user!.orgId },
+      include: { department: true },
+    });
+    if (team && team.department && team.department.name.toLowerCase().includes('engineering')) {
+      if (!parsed.data.phaseId) {
+        res.status(400).json({ error: 'Engineering project tasks must belong to a phase.' });
+        return;
+      }
+      const phase = await prisma.projectPhase.findFirst({
+        where: { id: parsed.data.phaseId, teamId: team.id },
+      });
+      if (!phase) {
+        res.status(400).json({ error: 'Selected phase does not belong to this project.' });
+        return;
+      }
+    }
+  }
+
   const task = await prisma.task.create({
     data: {
       ...parsed.data,
@@ -400,6 +424,8 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
       assigneeUserId: true,
       assignedByUserId: true,
       departmentId: true,
+      teamId: true,
+      phaseId: true,
       title: true,
       description: true,
       priority: true,
@@ -418,6 +444,30 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
   if (!(await canMutateTask(actor, existingTask))) {
     res.status(403).json({ error: 'Forbidden' });
     return;
+  }
+
+  // Validate phase-wise tasks for Engineering department projects
+  const resolvedTeamId = parsed.data.teamId !== undefined ? parsed.data.teamId : existingTask.teamId;
+  const resolvedPhaseId = parsed.data.phaseId !== undefined ? parsed.data.phaseId : existingTask.phaseId;
+
+  if (resolvedTeamId) {
+    const team = await prisma.team.findFirst({
+      where: { id: resolvedTeamId, orgId: req.user!.orgId },
+      include: { department: true },
+    });
+    if (team && team.department && team.department.name.toLowerCase().includes('engineering')) {
+      if (!resolvedPhaseId) {
+        res.status(400).json({ error: 'Engineering project tasks must belong to a phase.' });
+        return;
+      }
+      const phase = await prisma.projectPhase.findFirst({
+        where: { id: resolvedPhaseId, teamId: team.id },
+      });
+      if (!phase) {
+        res.status(400).json({ error: 'Selected phase does not belong to this project.' });
+        return;
+      }
+    }
   }
 
   if (actor.role === 'TEAM_MEMBER') {

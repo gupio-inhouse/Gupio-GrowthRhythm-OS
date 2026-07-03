@@ -31,6 +31,7 @@ const elevatedSchema = z.object({
   priority:        z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).default('MEDIUM'),
   dueDate:         z.string().min(1, 'Due date is required'),
   dueTime:         z.string().min(1, 'Due time is required'),
+  phaseId:         z.string().optional(),
 });
 
 const memberSchema = z.object({
@@ -44,6 +45,7 @@ const memberSchema = z.object({
   priority:        z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).default('MEDIUM'),
   dueDate:         z.string().min(1, 'Due date is required'),
   dueTime:         z.string().min(1, 'Due time is required'),
+  phaseId:         z.string().optional(),
 });
 
 type FormData = z.infer<typeof elevatedSchema>;
@@ -61,6 +63,8 @@ export type TaskToEdit = {
   dueDate?: string;
   assignee?: { id: string; name: string } | null;
   department?: { id: string; name: string };
+  teamId?: string;
+  phaseId?: string;
 };
 
 interface Props {
@@ -126,6 +130,15 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
   const watchedTeamId      = watch('teamId')          || '';
   const watchedDeptId      = watch('departmentId')    || '';
 
+  const deptMap = new Map(departments.map((d) => [d.id, d.name]));
+  const isEngInDialog = isEngineeringDept(deptMap.get(watchedDeptId));
+
+  const { data: phases = [] } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ['project-phases', watchedTeamId],
+    queryFn:  () => api.get(`/teams/${watchedTeamId}/phases`).then((r) => r.data),
+    enabled:  open && !!watchedTeamId && isEngInDialog,
+  });
+
   useEffect(() => {
     if (!open) return;
     setUserSearch('');
@@ -142,6 +155,8 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
         priority:        taskToEdit.priority as FormData['priority'],
         assigneeUserId:  taskToEdit.assignee?.id ?? '',
         departmentId:    taskToEdit.department?.id ?? '',
+        teamId:          taskToEdit.teamId ?? '',
+        phaseId:         taskToEdit.phaseId ?? '',
         dueDate:         taskToEdit.dueDate ? new Date(taskToEdit.dueDate).toISOString().split('T')[0] : '',
         dueTime: (() => {
           if (!taskToEdit.dueDate) return '';
@@ -218,6 +233,7 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
           dependencyId:    data.dependencyId     || undefined,
           priority:        data.priority,
           dueDate:         dueDateIso,
+          phaseId:         data.phaseId          || undefined,
         };
 
     if (!isEngInDialog && !isEditMode && recurrence !== 'NONE') {
@@ -248,10 +264,7 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
     !userSearch || u.name.toLowerCase().includes(userSearch.toLowerCase())
   );
 
-  // Group by department for the dropdown
-  const deptMap = new Map(departments.map((d) => [d.id, d.name]));
   const assigneeName = baseUsers.find((u) => u.id === watchedAssigneeId)?.name;
-  const isEngInDialog = isEngineeringDept(deptMap.get(watchedDeptId));
 
   const availableTeams = isTeamMember
     ? teams.filter((t) => t.members.some((m) => m.user.id === user?.id))
@@ -660,7 +673,10 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
                 </div>
                 <Select
                   value={watchedTeamId || '__none__'}
-                  onValueChange={(v) => setValue('teamId', v === '__none__' ? '' : v)}
+                  onValueChange={(v) => {
+                    setValue('teamId', v === '__none__' ? '' : v);
+                    setValue('phaseId', '');
+                  }}
                 >
                   <SelectTrigger className="h-9 rounded-xl border-border/60 text-sm">
                     <SelectValue placeholder="Link to a project..." />
@@ -668,6 +684,30 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
                   <SelectContent className="rounded-xl">
                     <SelectItem value="__none__">None</SelectItem>
                     {availableTeams.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Phase link — Engineering dept only when project selected */}
+            {isEngInDialog && watchedTeamId && (
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1.5">
+                  <FolderKanban className="h-3.5 w-3.5 text-muted-foreground" />
+                  <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Phase *
+                  </Label>
+                </div>
+                <Select
+                  value={watch('phaseId') || '__none__'}
+                  onValueChange={(v) => setValue('phaseId', v === '__none__' ? '' : v)}
+                >
+                  <SelectTrigger className="h-9 rounded-xl border-border/60 text-sm">
+                    <SelectValue placeholder="Select a phase..." />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl">
+                    <SelectItem value="__none__" disabled>Select a phase...</SelectItem>
+                    {phases.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>

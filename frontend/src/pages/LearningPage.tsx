@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Navigate } from 'react-router-dom';
 import {
   GraduationCap, BookOpen, CheckCircle2, Clock, Award,
   Loader2, AlertCircle, Play, Flame, Layers, CalendarDays,
@@ -38,10 +38,16 @@ const TYPE_LABELS: Record<string, string> = {
   OTHER: 'Course',
 };
 
-export default function LearningPage() {
+export default function LearningPage({ isEmbedded = false }: { isEmbedded?: boolean }) {
   const { user } = useAuthStore();
   const navigate = useNavigate();
   const qc = useQueryClient();
+
+  const isAdmin = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'].includes(user?.role || '');
+
+  if (isAdmin && !isEmbedded) {
+    return <Navigate to="/learning/admin" replace />;
+  }
 
   const { data: myModules = [], isLoading: loadingMine } = useQuery({
     queryKey: ['learning:my'],
@@ -87,29 +93,37 @@ export default function LearningPage() {
   }
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-8">
+    <div className={cn(isEmbedded ? 'space-y-10' : 'p-8 max-w-full mx-auto space-y-10')}>
       {/* Hero */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-600 text-white p-8">
-        <div className="absolute -top-24 -right-16 h-64 w-64 rounded-full bg-white/10 blur-2xl" />
-        <div className="absolute -bottom-28 left-1/3 h-72 w-72 rounded-full bg-fuchsia-400/20 blur-3xl" />
-        <div className="relative flex flex-wrap items-center justify-between gap-6">
-          <div>
-            <p className="text-white/70 text-sm font-medium flex items-center gap-1.5">
-              <GraduationCap className="h-4 w-4" /> Gupio Learning
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-indigo-900 via-indigo-800 to-violet-900 text-white p-10 shadow-2xl shadow-indigo-900/20 border border-white/10 group">
+        {/* Animated glowing mesh backdrops */}
+        <div className="absolute -top-24 -right-16 h-80 w-80 rounded-full bg-fuchsia-500/20 blur-3xl transition-transform duration-1000 group-hover:scale-110" />
+        <div className="absolute -bottom-28 left-1/3 h-80 w-80 rounded-full bg-sky-400/20 blur-3xl transition-transform duration-1000 group-hover:scale-125" />
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:24px_24px]" />
+        
+        <div className="relative flex flex-wrap items-center justify-between gap-8">
+          <div className="space-y-2">
+            <p className="text-indigo-200 text-xs font-semibold uppercase tracking-widest flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-fuchsia-400 animate-pulse" /> Gupio Learning Experience
             </p>
-            <h1 className="text-3xl font-bold mt-1">Welcome back, {firstName} 👋</h1>
-            <p className="text-white/80 mt-1.5 max-w-md">
+            <h1 className="text-4xl font-extrabold tracking-tight mt-1 bg-gradient-to-r from-white via-white to-indigo-200 bg-clip-text text-transparent">
+              Welcome back, {firstName} 👋
+            </h1>
+            <p className="text-indigo-100/80 text-base max-w-lg font-medium leading-relaxed">
               {inProgress.length > 0
-                ? 'Pick up where you left off — consistency beats intensity.'
-                : 'Explore a course below and start building your streak.'}
+                ? 'Your knowledge stream is active. Continue your momentum today.'
+                : 'Discover curated learning paths and elevate your workflow.'}
             </p>
           </div>
           {(stats?.streakDays ?? 0) > 0 && (
-            <div className="flex items-center gap-3 bg-white/15 backdrop-blur rounded-2xl px-5 py-4">
-              <Flame className="h-9 w-9 text-amber-300" />
+            <div className="flex items-center gap-4 bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl px-6 py-5 shadow-lg hover:bg-white/15 transition-all duration-300">
+              <div className="relative">
+                <Flame className="h-10 w-10 text-amber-400 animate-bounce" style={{ animationDuration: '2s' }} />
+                <span className="absolute inset-0 rounded-full bg-amber-400/30 blur-md animate-ping" />
+              </div>
               <div>
-                <p className="text-2xl font-bold leading-none">{stats!.streakDays}</p>
-                <p className="text-xs text-white/80 mt-1">day streak — keep it alive!</p>
+                <p className="text-3xl font-black tracking-tight leading-none text-amber-300">{stats!.streakDays}</p>
+                <p className="text-xs text-indigo-100 font-semibold mt-1.5 uppercase tracking-wider">day streak</p>
               </div>
             </div>
           )}
@@ -117,22 +131,22 @@ export default function LearningPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={Clock} tint="text-sky-600 bg-sky-500/10" value={formatWatchTime(stats?.totalWatchSec ?? 0)} label="Watch time" />
-        <StatCard icon={Flame} tint="text-orange-600 bg-orange-500/10" value={`${stats?.streakDays ?? 0} ${(stats?.streakDays ?? 0) === 1 ? 'day' : 'days'}`} label="Learning streak" />
-        <StatCard icon={CheckCircle2} tint="text-emerald-600 bg-emerald-500/10" value={String(stats?.lessonsCompleted ?? 0)} label="Lessons completed" />
-        <StatCard icon={Award} tint="text-violet-600 bg-violet-500/10" value={String(stats?.certificateCount ?? 0)} label="Certificates" />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
+        <StatCard icon={Clock} tint="text-sky-500 bg-sky-500/10 border-sky-500/20" value={formatWatchTime(stats?.totalWatchSec ?? 0)} label="Time Invested" />
+        <StatCard icon={Flame} tint="text-amber-500 bg-amber-500/10 border-amber-500/20" value={`${stats?.streakDays ?? 0} ${(stats?.streakDays ?? 0) === 1 ? 'day' : 'days'}`} label="Streak Goal" />
+        <StatCard icon={CheckCircle2} tint="text-emerald-500 bg-emerald-500/10 border-emerald-500/20" value={String(stats?.lessonsCompleted ?? 0)} label="Lessons Completed" />
+        <StatCard icon={Award} tint="text-violet-500 bg-violet-500/10 border-violet-500/20" value={String(stats?.certificateCount ?? 0)} label="Certificates Earned" />
       </div>
 
       {/* Continue learning */}
       {inProgress.length > 0 && (
-        <section className="space-y-4">
+        <section className="space-y-5">
           <div className="flex items-center justify-between">
-            <h2 className="font-semibold text-lg flex items-center gap-2">
-              <Play className="h-5 w-5 text-primary" /> Continue learning
+            <h2 className="font-bold text-xl flex items-center gap-2.5 text-foreground/90">
+              <Play className="h-5 w-5 text-indigo-500 fill-indigo-500/20 animate-pulse" /> Resume Progress
             </h2>
           </div>
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-6 md:grid-cols-2">
             {inProgress.map((enrollment) => {
               const mod = enrollment.module;
               const totalLessons = mod._count?.lessons ?? 0;
@@ -144,28 +158,33 @@ export default function LearningPage() {
                 <button
                   key={enrollment.id}
                   onClick={() => navigate(`/learning/modules/${mod.id}`)}
-                  className="group text-left bg-card border rounded-2xl overflow-hidden hover:shadow-lg hover:border-primary/40 transition-all"
+                  className="group text-left bg-card/65 backdrop-blur-md border border-muted/50 rounded-2xl overflow-hidden shadow-sm hover:shadow-xl hover:border-primary/40 hover:-translate-y-0.5 transition-all duration-300"
                 >
-                  <div className={cn('h-2 bg-gradient-to-r', coverGradient(mod.title))} />
-                  <div className="p-5 flex items-center gap-4">
-                    <ProgressRing pct={pct} size={56} stroke={5} />
+                  <div className={cn('h-1.5 bg-gradient-to-r', coverGradient(mod.title))} />
+                  <div className="p-6 flex items-center gap-5">
+                    <div className="relative shrink-0 transition-transform duration-300 group-hover:scale-105">
+                      <ProgressRing pct={pct} size={64} stroke={6} />
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <span className="text-xs font-bold text-foreground/80">{pct}%</span>
+                      </div>
+                    </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <h3 className="font-semibold truncate">{mod.title}</h3>
+                        <h3 className="font-bold text-lg text-foreground/90 group-hover:text-primary transition-colors truncate">{mod.title}</h3>
                         {overdue && (
-                          <Badge variant="secondary" className="bg-red-50 text-red-600 border-red-200 shrink-0">
+                          <Badge variant="secondary" className="bg-red-500/10 text-red-500 border border-red-500/20 shadow-sm shrink-0">
                             <AlertCircle className="h-3 w-3 mr-1" /> Overdue
                           </Badge>
                         )}
                       </div>
-                      <p className="text-sm text-muted-foreground mt-0.5">
-                        {done} of {totalLessons} lessons
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {done} of {totalLessons} modules completed
                         {enrollment.dueDate && (
-                          <span> · due {new Date(enrollment.dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>
+                          <span className="text-xs ml-2 px-2 py-0.5 rounded-full bg-muted font-medium">due {new Date(enrollment.dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>
                         )}
                       </p>
-                      <span className="inline-flex items-center gap-1 text-sm font-medium text-primary mt-2 group-hover:gap-2 transition-all">
-                        Resume <ArrowRight className="h-4 w-4" />
+                      <span className="inline-flex items-center gap-1.5 text-sm font-bold text-primary mt-3 group-hover:gap-2.5 transition-all">
+                        Continue module <ArrowRight className="h-4 w-4" />
                       </span>
                     </div>
                   </div>
@@ -178,11 +197,11 @@ export default function LearningPage() {
 
       {/* Explore */}
       {availableModules.length > 0 && (
-        <section className="space-y-4">
-          <h2 className="font-semibold text-lg flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-primary" /> Explore courses
+        <section className="space-y-5">
+          <h2 className="font-bold text-xl flex items-center gap-2.5 text-foreground/90">
+            <Sparkles className="h-5 w-5 text-indigo-500" /> Explore paths
           </h2>
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {availableModules.map((mod) => (
               <CourseCard
                 key={mod.id}
@@ -197,32 +216,32 @@ export default function LearningPage() {
 
       {/* Completed */}
       {completed.length > 0 && (
-        <section className="space-y-4">
-          <h2 className="font-semibold text-lg flex items-center gap-2">
-            <Award className="h-5 w-5 text-emerald-600" /> Completed
+        <section className="space-y-5">
+          <h2 className="font-bold text-xl flex items-center gap-2.5 text-foreground/90">
+            <Award className="h-5 w-5 text-emerald-500" /> Finished Courses
           </h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {completed.map((enrollment) => {
               const mod = enrollment.module;
               return (
                 <button
                   key={enrollment.id}
                   onClick={() => navigate(`/learning/modules/${mod.id}`)}
-                  className="text-left bg-card border rounded-2xl p-5 hover:border-emerald-300 hover:shadow-md transition-all"
+                  className="group text-left bg-card/65 backdrop-blur-md border border-muted/50 rounded-2xl p-6 shadow-sm hover:shadow-xl hover:border-emerald-500/40 hover:-translate-y-0.5 transition-all duration-300"
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <div className="rounded-xl p-2.5 bg-emerald-500/10">
-                      <Award className="h-5 w-5 text-emerald-600" />
+                    <div className="rounded-2xl p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 transition-transform duration-300 group-hover:scale-105">
+                      <Award className="h-6 w-6" />
                     </div>
                     {enrollment.passed && (
-                      <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-50">
-                        {enrollment.score?.toFixed(0)}% · Passed
+                      <Badge className="bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 hover:bg-emerald-500/15">
+                        {enrollment.score?.toFixed(0)}% Score
                       </Badge>
                     )}
                   </div>
-                  <h3 className="font-semibold mt-3 line-clamp-1">{mod.title}</h3>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Completed {enrollment.completedAt ? new Date(enrollment.completedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : ''}
+                  <h3 className="font-bold text-lg text-foreground/90 mt-4 group-hover:text-emerald-600 transition-colors line-clamp-1">{mod.title}</h3>
+                  <p className="text-xs text-muted-foreground mt-2 font-medium flex items-center gap-1.5">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> Completed on {enrollment.completedAt ? new Date(enrollment.completedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : ''}
                   </p>
                 </button>
               );
@@ -232,13 +251,13 @@ export default function LearningPage() {
       )}
 
       {myModules.length === 0 && availableModules.length === 0 && (
-        <div className="border-2 border-dashed rounded-2xl p-16 text-center">
-          <div className="mx-auto h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
-            <GraduationCap className="h-8 w-8 text-primary" />
+        <div className="border-2 border-dashed border-muted rounded-3xl p-20 text-center bg-card/25 backdrop-blur-sm">
+          <div className="mx-auto h-20 w-20 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center mb-6 animate-pulse">
+            <GraduationCap className="h-10 w-10 text-primary" />
           </div>
-          <p className="text-lg font-semibold">No courses yet</p>
-          <p className="text-sm text-muted-foreground mt-1 max-w-sm mx-auto">
-            Your department admin will publish courses for you. Check back soon.
+          <h3 className="text-xl font-bold text-foreground/95">No active courses</h3>
+          <p className="text-sm text-muted-foreground mt-2 max-w-sm mx-auto">
+            Your department administrator will assign and publish learning modules for you here.
           </p>
         </div>
       )}
@@ -258,13 +277,13 @@ function StatCard({
   label: string;
 }) {
   return (
-    <div className="bg-card border rounded-2xl p-4 flex items-center gap-3.5">
-      <div className={cn('rounded-xl p-2.5 shrink-0', tint)}>
-        <Icon className="h-5 w-5" />
+    <div className="relative overflow-hidden bg-card/65 backdrop-blur-md border border-muted/50 rounded-2xl p-5 flex items-center gap-4 transition-all duration-300 hover:shadow-xl hover:shadow-primary/5 hover:border-primary/20 hover:-translate-y-0.5">
+      <div className={cn('rounded-xl p-3 border shrink-0 transition-transform duration-300 hover:scale-105', tint)}>
+        <Icon className="h-6 w-6" />
       </div>
       <div className="min-w-0">
-        <p className="text-xl font-bold leading-tight truncate">{value}</p>
-        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className="text-2xl font-extrabold tracking-tight leading-tight truncate">{value}</p>
+        <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mt-0.5">{label}</p>
       </div>
     </div>
   );
@@ -280,38 +299,40 @@ function CourseCard({
   onEnroll: () => void;
 }) {
   return (
-    <div className="group bg-card border rounded-2xl overflow-hidden flex flex-col hover:shadow-lg hover:border-primary/30 transition-all">
-      <div className={cn('relative h-28 bg-gradient-to-br', coverGradient(mod.title))}>
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_20%,rgba(255,255,255,0.25),transparent_50%)]" />
-        <BookOpen className="absolute bottom-4 right-4 h-8 w-8 text-white/40" />
-        <div className="absolute top-3 left-3 flex gap-1.5">
-          <Badge className="bg-white/20 text-white border-0 backdrop-blur hover:bg-white/20">
+    <div className="group bg-card/60 backdrop-blur-sm border border-muted/60 rounded-3xl overflow-hidden flex flex-col hover:shadow-2xl hover:shadow-primary/5 hover:border-primary/30 transition-all duration-300 hover:-translate-y-1">
+      <div className="relative h-32 overflow-hidden">
+        <div className={cn('absolute inset-0 bg-gradient-to-br transition-transform duration-500 group-hover:scale-105', coverGradient(mod.title))}>
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_20%,rgba(255,255,255,0.2),transparent_60%)]" />
+        </div>
+        <BookOpen className="absolute bottom-4 right-4 h-10 w-10 text-white/30" />
+        <div className="absolute top-4 left-4 flex gap-2">
+          <Badge className="bg-white/15 text-white border border-white/20 backdrop-blur-md hover:bg-white/25">
             {TYPE_LABELS[mod.type] ?? 'Course'}
           </Badge>
           {mod.isMandatory && (
-            <Badge className="bg-black/30 text-white border-0 backdrop-blur hover:bg-black/30">Mandatory</Badge>
+            <Badge className="bg-red-500/20 text-white border border-red-500/30 backdrop-blur-md hover:bg-red-500/25">Mandatory</Badge>
           )}
         </div>
       </div>
-      <div className="p-5 flex flex-col flex-1 gap-3">
-        <div className="flex-1">
-          <h3 className="font-semibold leading-snug">{mod.title}</h3>
+      <div className="p-6 flex flex-col flex-1 gap-4">
+        <div className="flex-1 space-y-1.5">
+          <h3 className="font-bold text-lg text-foreground/90 group-hover:text-primary transition-colors line-clamp-1 leading-snug">{mod.title}</h3>
           {mod.description && (
-            <p className="text-sm text-muted-foreground mt-1.5 line-clamp-2">{mod.description}</p>
+            <p className="text-sm text-muted-foreground line-clamp-2 leading-relaxed">{mod.description}</p>
           )}
         </div>
-        <div className="flex items-center gap-3.5 text-xs text-muted-foreground">
+        <div className="flex items-center gap-4 text-xs font-semibold text-muted-foreground border-t border-muted/50 pt-4">
           {(mod._count?.phases ?? 0) > 0 && (
-            <span className="flex items-center gap-1"><Layers className="h-3.5 w-3.5" />{mod._count!.phases} phases</span>
+            <span className="flex items-center gap-1.5"><Layers className="h-4 w-4 text-indigo-500/70" />{mod._count!.phases} phases</span>
           )}
-          <span className="flex items-center gap-1"><BookOpen className="h-3.5 w-3.5" />{mod._count?.lessons ?? 0} lessons</span>
+          <span className="flex items-center gap-1.5"><BookOpen className="h-4 w-4 text-indigo-500/70" />{mod._count?.lessons ?? 0} lessons</span>
           {mod.durationDays && (
-            <span className="flex items-center gap-1"><CalendarDays className="h-3.5 w-3.5" />{mod.durationDays} days</span>
+            <span className="flex items-center gap-1.5"><CalendarDays className="h-4 w-4 text-indigo-500/70" />{mod.durationDays} days</span>
           )}
         </div>
-        <Button className="w-full" onClick={onEnroll} disabled={enrolling}>
+        <Button className="w-full font-bold shadow-md hover:shadow-lg transition-all" onClick={onEnroll} disabled={enrolling}>
           {enrolling ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Play className="h-4 w-4 mr-2" />}
-          Start Learning
+          Start Course
         </Button>
       </div>
     </div>

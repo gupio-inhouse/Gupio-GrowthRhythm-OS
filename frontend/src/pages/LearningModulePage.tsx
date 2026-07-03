@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, CheckCircle2, Circle, BookOpen, Video, FileText,
   Link2, CheckSquare, HelpCircle, ChevronRight, ChevronLeft, Award, Loader2,
-  Clock, Play, ChevronDown, ChevronUp, ListVideo, X, Download, Trophy,
+  Clock, Play, ChevronDown, ChevronUp, ListVideo, X, Download, Trophy, Layers,
 } from 'lucide-react';
 import { learningApi, LearningLesson, LessonProgress, LearningCertificate } from '@/api/learning';
 import { Button } from '@/components/ui/button';
@@ -200,44 +200,54 @@ export default function LearningModulePage() {
       {/* Main */}
       <main className="flex-1 overflow-y-auto">
         {/* Top bar */}
-        <div className="sticky top-0 z-20 bg-background/90 backdrop-blur border-b px-4 lg:px-6 py-3 flex items-center gap-3">
+        <div className="sticky top-0 z-20 bg-background/70 backdrop-blur-md border-b border-muted/60 px-6 py-4 flex items-center gap-4 shadow-sm">
           <button
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground shrink-0"
+            className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground hover:text-foreground shrink-0 transition-colors"
             onClick={() => navigate('/learning')}
           >
-            <ArrowLeft className="h-4 w-4" /> <span className="hidden sm:inline">Back</span>
+            <ArrowLeft className="h-4 w-4" /> <span className="hidden sm:inline">Dashboard</span>
           </button>
-          <div className="h-4 w-px bg-border shrink-0" />
-          <h2 className="font-semibold text-sm truncate flex-1">{module.title}</h2>
+          <div className="h-5 w-px bg-muted-foreground/20 shrink-0" />
+          <h2 className="font-bold text-base text-foreground/90 truncate flex-1">{module.title}</h2>
           {myEnrollment && (
-            <div className="hidden sm:flex items-center gap-2 shrink-0">
-              <div className="w-28 h-1.5 bg-muted rounded-full overflow-hidden">
+            <div className="hidden sm:flex items-center gap-3 shrink-0 bg-muted/40 border border-muted/60 px-4 py-1.5 rounded-full">
+              <div className="w-24 h-1.5 bg-muted rounded-full overflow-hidden">
                 <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${pct}%` }} />
               </div>
-              <span className="text-xs font-medium text-muted-foreground">{pct}%</span>
+              <span className="text-xs font-bold text-muted-foreground">{pct}%</span>
             </div>
           )}
-          <Button variant="outline" size="sm" className="lg:hidden shrink-0" onClick={() => setContentOpen(true)}>
+          <Button variant="outline" size="sm" className="lg:hidden shrink-0 font-semibold" onClick={() => setContentOpen(true)}>
             <ListVideo className="h-4 w-4 mr-1.5" /> Content
           </Button>
+          {myEnrollment && (
+            <div className="absolute bottom-0 left-0 h-0.5 bg-primary/75 transition-all duration-500" style={{ width: `${pct}%` }} />
+          )}
         </div>
 
         {!myEnrollment ? (
-          <div className="flex flex-col items-center justify-center min-h-[70vh] gap-5 text-center p-8">
-            <div className="h-20 w-20 rounded-3xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 flex items-center justify-center">
-              <BookOpen className="h-10 w-10 text-white" />
+          <div className="flex flex-col items-center justify-center min-h-[80vh] gap-6 text-center p-8 max-w-2xl mx-auto">
+            <div className="h-24 w-24 rounded-3xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-xl shadow-indigo-500/20 animate-pulse">
+              <BookOpen className="h-12 w-12 text-white" />
             </div>
-            <div>
-              <h2 className="text-2xl font-bold">{module.title}</h2>
-              <p className="text-muted-foreground max-w-md mt-2">{module.description}</p>
+            <div className="space-y-2.5">
+              <h2 className="text-3xl font-extrabold tracking-tight text-foreground/90">{module.title}</h2>
+              <p className="text-muted-foreground text-base leading-relaxed">{module.description}</p>
             </div>
-            <div className="flex items-center gap-4 text-sm text-muted-foreground">
-              <span>{module.phases.length} phases</span>·<span>{lessons.length} lessons</span>
-              {module.durationDays && <>·<span>{module.durationDays}-day program</span></>}
+            <div className="flex flex-wrap items-center justify-center gap-4 text-xs font-semibold text-muted-foreground bg-muted/40 border border-muted/60 px-5 py-2.5 rounded-full shadow-inner">
+              <span className="flex items-center gap-1.5"><Layers className="h-4 w-4 text-indigo-500" />{module.phases.length} phases</span>
+              <span className="h-4 w-px bg-muted-foreground/20" />
+              <span className="flex items-center gap-1.5"><BookOpen className="h-4 w-4 text-indigo-500" />{lessons.length} lessons</span>
+              {module.durationDays && (
+                <>
+                  <span className="h-4 w-px bg-muted-foreground/20" />
+                  <span className="flex items-center gap-1.5"><Clock className="h-4 w-4 text-indigo-500" />{module.durationDays}-day program</span>
+                </>
+              )}
             </div>
-            <Button size="lg" onClick={() => selfEnrollMutation.mutate()} disabled={selfEnrollMutation.isPending}>
+            <Button size="lg" className="font-bold px-8 shadow-lg hover:shadow-xl transition-all" onClick={() => selfEnrollMutation.mutate()} disabled={selfEnrollMutation.isPending}>
               {selfEnrollMutation.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-              Enroll now — it's free
+              Enroll & Start Learning
             </Button>
           </div>
         ) : !activeLesson ? (
@@ -245,75 +255,75 @@ export default function LearningModulePage() {
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         ) : (
-          <div className="px-4 lg:px-8 py-6 max-w-4xl mx-auto space-y-6">
+          <div className="px-6 lg:px-10 py-8 max-w-5xl mx-auto space-y-8">
             {/* Media */}
             {activeLesson.contentType === 'VIDEO' && (
               activeLesson.contentUrl ? (
                 <VideoPlayer url={activeLesson.contentUrl} />
               ) : (
-                <div className="aspect-video rounded-2xl bg-gradient-to-br from-slate-800 via-slate-900 to-black flex flex-col items-center justify-center gap-3 text-white/70">
-                  <div className="h-14 w-14 rounded-full bg-white/10 flex items-center justify-center">
-                    <Play className="h-7 w-7 ml-0.5" />
+                <div className="aspect-video rounded-3xl bg-gradient-to-br from-slate-900 via-slate-800 to-black border border-white/5 flex flex-col items-center justify-center gap-4 text-white/60 shadow-xl shadow-slate-950/20">
+                  <div className="h-16 w-16 rounded-full bg-white/10 flex items-center justify-center shadow-md animate-bounce" style={{ animationDuration: '3s' }}>
+                    <Play className="h-8 w-8 text-indigo-400 ml-1 fill-indigo-400/20" />
                   </div>
-                  <p className="text-sm">Video coming soon — check the overview and quiz below</p>
+                  <p className="text-base font-semibold">Video lecture coming soon — check the materials below</p>
                 </div>
               )
             )}
             {activeLesson.contentType === 'EMBED' && activeLesson.contentUrl && (
-              <div className="aspect-video rounded-2xl overflow-hidden border">
+              <div className="aspect-video rounded-3xl overflow-hidden border border-muted bg-card shadow-lg">
                 <iframe src={activeLesson.contentUrl} className="w-full h-full" />
               </div>
             )}
             {activeLesson.contentType === 'PDF' && activeLesson.contentUrl && (
-              <div className="border rounded-2xl overflow-hidden" style={{ height: '620px' }}>
+              <div className="border border-muted rounded-3xl overflow-hidden shadow-lg" style={{ height: '640px' }}>
                 <iframe src={activeLesson.contentUrl} className="w-full h-full" />
               </div>
             )}
 
             {/* Lesson header */}
-            <div>
-              <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground mb-2">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2.5 flex-wrap text-xs font-semibold text-muted-foreground">
                 {activeLesson.dayStart && activeLesson.dayEnd && (
-                  <Badge variant="outline" className="font-normal">
+                  <Badge variant="outline" className="font-bold border-indigo-500/20 text-indigo-500 bg-indigo-500/5 px-2.5 py-0.5">
                     Day {activeLesson.dayStart}{activeLesson.dayEnd !== activeLesson.dayStart && `–${activeLesson.dayEnd}`}
                   </Badge>
                 )}
                 {activeLesson.durationMins && (
-                  <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{activeLesson.durationMins} min</span>
+                  <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-muted/65 border border-muted/80"><Clock className="h-3.5 w-3.5 text-indigo-500" />{activeLesson.durationMins} min</span>
                 )}
                 {activeCompleted && (
-                  <span className="flex items-center gap-1 text-emerald-600 font-medium">
-                    <CheckCircle2 className="h-3.5 w-3.5" /> Completed
-                    {activeProgress?.quizScore != null && ` · ${activeProgress.quizScore.toFixed(0)}%`}
+                  <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 font-bold">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> Completed
+                    {activeProgress?.quizScore != null && ` · Score ${activeProgress.quizScore.toFixed(0)}%`}
                   </span>
                 )}
               </div>
-              <h1 className="text-2xl font-bold">{activeLesson.title}</h1>
+              <h1 className="text-3xl font-extrabold tracking-tight text-foreground/90">{activeLesson.title}</h1>
               {activeLesson.description && (
-                <p className="text-muted-foreground mt-1.5">{activeLesson.description}</p>
+                <p className="text-muted-foreground text-base leading-relaxed mt-2">{activeLesson.description}</p>
               )}
             </div>
 
             {/* Tabs */}
-            <Tabs value={tab} onValueChange={setTab}>
-              <TabsList>
-                <TabsTrigger value="overview">Overview</TabsTrigger>
-                {hasNotes && <TabsTrigger value="notes">Notes</TabsTrigger>}
+            <Tabs value={tab} onValueChange={setTab} className="w-full space-y-6">
+              <TabsList className="bg-muted/80 p-1 rounded-xl border border-muted/60 shadow-inner">
+                <TabsTrigger value="overview" className="px-4 py-2 font-semibold">Overview</TabsTrigger>
+                {hasNotes && <TabsTrigger value="notes" className="px-4 py-2 font-semibold">Notes</TabsTrigger>}
                 {hasQuiz && (
-                  <TabsTrigger value="quiz" className="gap-1.5">
+                  <TabsTrigger value="quiz" className="gap-1.5 px-4 py-2 font-semibold">
                     Quiz
-                    <span className="rounded-full bg-primary/15 text-primary text-[10px] font-semibold px-1.5 py-0.5">
+                    <span className="rounded-full bg-primary/10 border border-primary/25 text-primary text-[10px] font-bold px-2 py-0.5 shadow-sm">
                       {activeLesson.quizzes!.length}
                     </span>
                   </TabsTrigger>
                 )}
               </TabsList>
 
-              <TabsContent value="overview" className="mt-5 space-y-5">
+              <TabsContent value="overview" className="mt-0 space-y-6">
                 {activeLesson.contentBody && activeLesson.contentType !== 'CHECKPOINT' && (
-                  <div className="prose prose-sm max-w-none bg-muted/20 rounded-2xl p-6">
+                  <div className="prose prose-sm max-w-none bg-muted/20 border border-muted/50 rounded-2xl p-6 leading-relaxed text-muted-foreground">
                     {activeLesson.contentBody.split('\n').map((line, i) => (
-                      <p key={i}>{line}</p>
+                      <p key={i} className="mb-3 last:mb-0">{line}</p>
                     ))}
                   </div>
                 )}
@@ -324,14 +334,14 @@ export default function LearningModulePage() {
                   />
                 )}
                 {activeLesson.topics && activeLesson.topics.length > 0 && (
-                  <div>
-                    <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2.5">
+                  <div className="bg-card/40 border border-muted/60 p-6 rounded-2xl space-y-3 shadow-sm">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                       What you'll learn
                     </h3>
-                    <div className="grid sm:grid-cols-2 gap-1.5">
+                    <div className="grid sm:grid-cols-2 gap-3">
                       {activeLesson.topics.map((t) => (
-                        <div key={t} className="flex items-center gap-2 text-sm">
-                          <CheckCircle2 className="h-3.5 w-3.5 text-primary/60 shrink-0" />
+                        <div key={t} className="flex items-center gap-2.5 text-sm font-medium text-foreground/80">
+                          <CheckCircle2 className="h-4 w-4 text-primary/75 shrink-0" />
                           <span>{t}</span>
                         </div>
                       ))}
@@ -341,19 +351,19 @@ export default function LearningModulePage() {
               </TabsContent>
 
               {hasNotes && (
-                <TabsContent value="notes" className="mt-5">
-                  <div className="border rounded-2xl overflow-hidden">
-                    <div className="flex items-center justify-between px-4 py-2.5 bg-muted/30 border-b">
-                      <span className="flex items-center gap-2 text-sm font-medium">
-                        <FileText className="h-4 w-4" /> Study notes
+                <TabsContent value="notes" className="mt-0">
+                  <div className="border border-muted rounded-2xl overflow-hidden shadow-lg bg-card">
+                    <div className="flex items-center justify-between px-5 py-3 bg-muted/30 border-b border-muted">
+                      <span className="flex items-center gap-2.5 text-sm font-bold text-foreground/80">
+                        <FileText className="h-4 w-4 text-primary" /> Study Notes Attachment
                       </span>
                       <a
                         href={activeLesson.notesUrl!}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                        className="flex items-center gap-1 text-xs font-bold text-primary hover:underline"
                       >
-                        <Download className="h-3.5 w-3.5" /> Download
+                        <Download className="h-4 w-4" /> Download
                       </a>
                     </div>
                     <iframe src={activeLesson.notesUrl!} className="w-full" style={{ height: '560px' }} />
@@ -362,7 +372,7 @@ export default function LearningModulePage() {
               )}
 
               {hasQuiz && (
-                <TabsContent value="quiz" className="mt-5">
+                <TabsContent value="quiz" className="mt-0">
                   <QuizContent
                     quizzes={activeLesson.quizzes!}
                     answers={quizAnswers}
@@ -376,13 +386,13 @@ export default function LearningModulePage() {
             </Tabs>
 
             {/* Bottom nav */}
-            <div className="flex items-center justify-between gap-3 pt-5 border-t">
-              <Button variant="outline" disabled={!prevLesson} onClick={() => prevLesson && goTo(prevLesson)}>
+            <div className="flex items-center justify-between gap-4 pt-6 border-t border-muted/80">
+              <Button variant="outline" className="font-semibold shadow-sm" disabled={!prevLesson} onClick={() => prevLesson && goTo(prevLesson)}>
                 <ChevronLeft className="h-4 w-4 mr-1" /> Previous
               </Button>
               <div className="flex items-center gap-3">
                 {!activeCompleted && !hasQuiz && (
-                  <Button onClick={markComplete} disabled={progressMutation.isPending}>
+                  <Button className="font-bold shadow-md" onClick={markComplete} disabled={progressMutation.isPending}>
                     {progressMutation.isPending ? (
                       <Loader2 className="h-4 w-4 animate-spin mr-2" />
                     ) : (
@@ -392,11 +402,11 @@ export default function LearningModulePage() {
                   </Button>
                 )}
                 {!activeCompleted && hasQuiz && tab !== 'quiz' && (
-                  <Button onClick={() => setTab('quiz')}>
-                    <HelpCircle className="h-4 w-4 mr-2" /> Take quiz to complete
+                  <Button className="font-bold shadow-md" onClick={() => setTab('quiz')}>
+                    <HelpCircle className="h-4 w-4 mr-2" /> Start Quiz
                   </Button>
                 )}
-                <Button variant={nextLesson ? 'default' : 'outline'} disabled={!nextLesson} onClick={() => nextLesson && goTo(nextLesson)}>
+                <Button variant={nextLesson ? 'default' : 'outline'} className="font-semibold shadow-sm" disabled={!nextLesson} onClick={() => nextLesson && goTo(nextLesson)}>
                   Next <ChevronRight className="h-4 w-4 ml-1" />
                 </Button>
               </div>
@@ -407,46 +417,46 @@ export default function LearningModulePage() {
 
       {/* Mobile backdrop */}
       {contentOpen && (
-        <div className="fixed inset-0 bg-black/40 z-30 lg:hidden" onClick={() => setContentOpen(false)} />
+        <div className="fixed inset-0 bg-black/50 z-30 lg:hidden backdrop-blur-sm" onClick={() => setContentOpen(false)} />
       )}
 
       {/* Course content sidebar */}
       <aside
         className={cn(
-          'fixed inset-y-0 right-0 z-40 w-[320px] bg-background border-l shadow-2xl flex flex-col transition-transform',
+          'fixed inset-y-0 right-0 z-40 w-[320px] bg-background border-l border-muted flex flex-col shadow-2xl transition-transform duration-300',
           'lg:static lg:w-[340px] lg:shadow-none lg:shrink-0 lg:translate-x-0',
           contentOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'
         )}
       >
-        <div className="p-4 border-b flex items-center gap-3">
+        <div className="p-5 border-b border-muted flex items-center gap-3.5 bg-muted/20">
           {myEnrollment ? (
-            <ProgressRing pct={pct} size={48} stroke={4} />
+            <ProgressRing pct={pct} size={52} stroke={5} />
           ) : (
-            <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center">
-              <ListVideo className="h-5 w-5 text-primary" />
+            <div className="h-12 w-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-primary">
+              <ListVideo className="h-5 w-5" />
             </div>
           )}
           <div className="flex-1 min-w-0">
-            <p className="font-semibold text-sm">Course content</p>
-            <p className="text-xs text-muted-foreground">
-              {myEnrollment ? `${completedCount} of ${requiredLessons.length} lessons done` : `${lessons.length} lessons`}
+            <p className="font-bold text-sm text-foreground/90">Course Content</p>
+            <p className="text-xs font-semibold text-muted-foreground mt-0.5">
+              {myEnrollment ? `${completedCount} of ${requiredLessons.length} completed` : `${lessons.length} lessons`}
             </p>
           </div>
-          <button className="lg:hidden text-muted-foreground" onClick={() => setContentOpen(false)}>
+          <button className="lg:hidden text-muted-foreground hover:text-foreground transition-colors" onClick={() => setContentOpen(false)}>
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        <nav className="flex-1 overflow-y-auto p-2.5 space-y-1.5">
-          {module.phases.map((phase) => {
+        <nav className="flex-1 overflow-y-auto p-4 space-y-3.5 bg-muted/10">
+          {module.phases.map((phase, pi) => {
             const pLessons = lessonsByPhase[phase.id] ?? [];
             const phaseDone = pLessons.filter((l) => progressMap[l.id]?.status === 'COMPLETED').length;
             const open = expandedPhases.has(phase.id);
             return (
-              <div key={phase.id} className="rounded-xl overflow-hidden border bg-card/50">
+              <div key={phase.id} className="rounded-2xl overflow-hidden border border-muted bg-card/60 shadow-sm transition-all duration-300 hover:shadow-md">
                 <button
-                  className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-muted/40 transition-colors"
-                  style={{ borderLeft: `3px solid ${phase.color ?? '#6366f1'}` }}
+                  className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/40 transition-colors"
+                  style={{ borderLeft: `4px solid ${phase.color ?? '#6366f1'}` }}
                   onClick={() =>
                     setExpandedPhases((prev) => {
                       const next = new Set(prev);
@@ -456,17 +466,17 @@ export default function LearningModulePage() {
                   }
                 >
                   <div className="flex-1 text-left min-w-0">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                       Phase {phase.phaseNumber}
                       {phase.dayStart && phase.dayEnd && ` · Day ${phase.dayStart}–${phase.dayEnd}`}
                     </p>
-                    <p className="text-sm font-semibold truncate">{phase.title}</p>
+                    <p className="text-sm font-bold text-foreground/80 truncate mt-0.5">{phase.title}</p>
                   </div>
-                  <span className="text-xs text-muted-foreground shrink-0">{phaseDone}/{pLessons.length}</span>
-                  {open ? <ChevronUp className="h-3.5 w-3.5 shrink-0" /> : <ChevronDown className="h-3.5 w-3.5 shrink-0" />}
+                  <span className="text-xs font-bold text-muted-foreground shrink-0">{phaseDone}/{pLessons.length}</span>
+                  {open ? <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0" /> : <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />}
                 </button>
                 {open && (
-                  <div className="pb-1.5 px-1.5 space-y-0.5">
+                  <div className="pb-2 px-2 space-y-1 border-t border-muted/30 pt-1.5">
                     {pLessons.map((lesson) => (
                       <LessonNavItem
                         key={lesson.id}
@@ -483,7 +493,7 @@ export default function LearningModulePage() {
           })}
 
           {ungrouped.length > 0 && (
-            <div className="space-y-0.5 pt-1">
+            <div className="space-y-1.5 pt-1.5">
               {ungrouped.map((lesson) => (
                 <LessonNavItem
                   key={lesson.id}
@@ -498,12 +508,12 @@ export default function LearningModulePage() {
         </nav>
 
         {enrollment?.certificate && (
-          <div className="p-3 border-t">
-            <div className="rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-white p-3.5 flex items-center gap-3">
-              <Trophy className="h-7 w-7 shrink-0" />
+          <div className="p-4 border-t border-muted bg-muted/20">
+            <div className="rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 text-white p-4 flex items-center gap-3.5 shadow-md shadow-emerald-500/10 transition-transform duration-300 hover:scale-[1.02]">
+              <Trophy className="h-8 w-8 shrink-0 text-amber-200 animate-pulse" />
               <div>
-                <p className="text-sm font-semibold">Certificate earned!</p>
-                <p className="text-xs text-white/85">Final score: {enrollment.score?.toFixed(0)}%</p>
+                <p className="text-sm font-extrabold tracking-tight">Certificate Earned!</p>
+                <p className="text-xs text-white/90 font-medium">Final grade score: {enrollment.score?.toFixed(0)}%</p>
               </div>
             </div>
           </div>

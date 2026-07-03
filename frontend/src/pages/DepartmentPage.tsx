@@ -1832,7 +1832,7 @@ function InviteMemberDialog({ deptId, onClose }: { deptId: string; onClose: () =
 
 // ── Project Full View (drill-down, with own tabs) ─────────────────────────────
 
-type ProjectTab = 'overview' | 'members' | 'tasks' | 'documents';
+type ProjectTab = 'overview' | 'members' | 'tasks' | 'documents' | 'phases';
 
 function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete, isDeleting, onViewMember, hideBack }: {
   team: Team; canManage: boolean; deptId: string;
@@ -1854,6 +1854,14 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
   const [search,             setSearch]            = useState('');
   const [projectDateFilter,  setProjectDateFilter] = useState('');
   const [projectMemberFilter,setProjectMemberFilter] = useState('');
+  
+  // Phase management state
+  const [addPhaseOpen,      setAddPhaseOpen]      = useState(false);
+  const [extendPhaseOpen,   setExtendPhaseOpen]   = useState<{ id: string; name: string; dueDate: string } | null>(null);
+  const [newPhaseName,      setNewPhaseName]      = useState('');
+  const [newPhaseDueDate,   setNewPhaseDueDate]   = useState('');
+  const [extendedDueDate,   setExtendedDueDate]   = useState('');
+
   const now           = new Date();
   const todayMidnight = new Date(); todayMidnight.setHours(0, 0, 0, 0);
   const endOfToday    = new Date(); endOfToday.setHours(23, 59, 59, 999);
@@ -1871,6 +1879,49 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
     queryKey: ['team-overview', team.id],
     queryFn:  () => api.get(`/teams/${team.id}/overview`).then((r) => r.data),
     refetchOnWindowFocus: false,
+  });
+
+  const { data: phases = [], refetch: refetchPhases } = useQuery<Array<{ id: string; name: string; dueDate: string }>>({
+    queryKey: ['project-phases', team.id],
+    queryFn: () => api.get(`/teams/${team.id}/phases`).then((r) => r.data),
+    enabled: !!team.id && isEngProject,
+  });
+
+  const createPhase = useMutation({
+    mutationFn: (data: { name: string; dueDate: string }) =>
+      api.post(`/teams/${team.id}/phases`, data).then((r) => r.data),
+    onSuccess: () => {
+      toast.success('Phase created successfully');
+      refetchPhases();
+    },
+    onError: (err: any) => {
+      toast.error(err.response?.data?.error || 'Failed to create phase');
+    },
+  });
+
+  const extendPhase = useMutation({
+    mutationFn: ({ phaseId, dueDate }: { phaseId: string; dueDate: string }) =>
+      api.patch(`/teams/${team.id}/phases/${phaseId}`, { dueDate }).then((r) => r.data),
+    onSuccess: () => {
+      toast.success('Phase deadline extended');
+      refetchPhases();
+      setExtendPhaseOpen(null);
+    },
+    onError: (err: any) => {
+      toast.error(err.response?.data?.error || 'Failed to extend phase deadline');
+    },
+  });
+
+  const deletePhase = useMutation({
+    mutationFn: (phaseId: string) =>
+      api.delete(`/teams/${team.id}/phases/${phaseId}`).then((r) => r.data),
+    onSuccess: () => {
+      toast.success('Phase deleted successfully');
+      refetchPhases();
+    },
+    onError: (err: any) => {
+      toast.error(err.response?.data?.error || 'Failed to delete phase');
+    },
   });
 
   const removeMember = useMutation({
@@ -2025,6 +2076,9 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
           <TabsTrigger value="documents">
             <FileText className="h-3.5 w-3.5 mr-1" /> Docs
           </TabsTrigger>
+          {isEngProject && (
+            <TabsTrigger value="phases">Phases</TabsTrigger>
+          )}
           </TabsList>
 
           {/* Search — shown on Members and Tasks tabs only */}
@@ -2323,6 +2377,200 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
               <CheckSquare className="h-7 w-7 mx-auto mb-2 opacity-20" />
               <p className="text-sm font-medium">{q ? `No tasks match "${search}"` : 'No tasks match this filter'}</p>
             </div>
+          ) : isEngProject ? (
+            <div className="space-y-8">
+              {phases.map((phase) => {
+                const phaseTasks = filteredProjectTasks.filter((t) => (t as any).phaseId === phase.id);
+                if (phaseTasks.length === 0) return null;
+                return (
+                  <div key={phase.id} className="space-y-3 rounded-2xl border border-border/80 bg-muted/10 p-5 shadow-sm">
+                    <div className="flex items-center justify-between border-b pb-3 mb-2">
+                      <div className="flex items-center gap-2">
+                        <div className="h-2 w-2 rounded-full bg-indigo-500" />
+                        <h4 className="font-bold text-base text-foreground/80">{phase.name} Tasks</h4>
+                      </div>
+                      <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+                        Phase Deadline: {formatDate(phase.dueDate)}
+                      </span>
+                    </div>
+
+                    <div className="space-y-2">
+                      {phaseTasks.map((task) => {
+                        const isOverdue = !!task.dueDate && new Date(task.dueDate) < now && task.status !== 'DONE' && task.status !== 'CANCELLED';
+                        return (
+                          <div
+                            key={task.id}
+                            onClick={() => setSelectedTaskId(task.id)}
+                            className={cn(
+                              'flex items-center gap-3 rounded-xl border px-4 py-3 bg-card hover:bg-muted/30 transition-colors cursor-pointer',
+                              isOverdue && 'border-red-200 bg-red-50/30 hover:bg-red-50/50'
+                            )}
+                          >
+                            <div className={cn('h-2.5 w-2.5 rounded-full shrink-0', {
+                              'bg-red-500':   task.status === 'BLOCKED',
+                              'bg-blue-500':  task.status === 'IN_PROGRESS',
+                              'bg-amber-400': task.status === 'IN_REVIEW',
+                              'bg-green-500': task.status === 'DONE',
+                              'bg-gray-300':  task.status === 'TODO',
+                            })} />
+                            <div className="flex-1 min-w-0">
+                              <p className={cn('text-sm font-medium truncate', task.status === 'DONE' && 'line-through text-muted-foreground')}>
+                                {task.title}
+                              </p>
+                              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                {isOverdue && <span className="text-xs text-red-600 font-medium">⚠ Overdue</span>}
+                                {task.dueDate && (
+                                  <span className={cn('text-xs', isOverdue ? 'text-red-500' : 'text-muted-foreground')}>
+                                    {formatDate(task.dueDate)}
+                                  </span>
+                                )}
+                                {task.status === 'DONE' && doneLateLabel(task.dueDate, task.completionSubmittedAt, task.completedAt, isEngProject)}
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); onViewMember(task.memberId); }}
+                                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                                >
+                                  <Avatar className="h-4 w-4">
+                                    <AvatarImage src={task.memberAvatar} />
+                                    <AvatarFallback className="text-[8px] bg-primary/10">{getInitials(task.memberName)}</AvatarFallback>
+                                  </Avatar>
+                                  {task.memberName}
+                                </button>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <Badge className={cn('text-xs border hidden sm:inline-flex', priorityColor(task.priority))}>
+                                {task.priority}
+                              </Badge>
+                              <Select
+                                value={task.status}
+                                onValueChange={(newStatus) => {
+                                  if (newStatus === 'DONE' && task.status !== 'IN_REVIEW') {
+                                    const isOwnTask = authUser?.id === task.memberId;
+                                    if (isOwnTask && (task._count?.attachments ?? 0) === 0) {
+                                      toast.error('Delivery proof required', 'Upload a screenshot, document, or PR link before submitting.');
+                                      setSelectedTaskId(task.id);
+                                      return;
+                                    }
+                                  }
+                                  updateTaskStatus.mutate({ taskId: task.id, status: newStatus });
+                                }}
+                              >
+                                <SelectTrigger
+                                  onClick={(e) => e.stopPropagation()}
+                                  className={cn('h-6 text-xs px-2 py-0 rounded-full border-0 font-medium gap-1 w-auto', statusColor(task.status))}
+                                >
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent onClick={(e) => e.stopPropagation()}>
+                                  {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                                    <SelectItem key={value} value={value} className="text-xs">{label}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Ungrouped/Other Tasks section */}
+              {(() => {
+                const ungrouped = filteredProjectTasks.filter((t) => !(t as any).phaseId);
+                if (ungrouped.length === 0) return null;
+                return (
+                  <div className="space-y-3 rounded-2xl border border-border/80 bg-muted/10 p-5 shadow-sm">
+                    <div className="flex items-center justify-between border-b pb-3 mb-2">
+                      <div className="flex items-center gap-2">
+                        <div className="h-2 w-2 rounded-full bg-amber-500" />
+                        <h4 className="font-bold text-base text-amber-700">Ungrouped Tasks</h4>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      {ungrouped.map((task) => {
+                        const isOverdue = !!task.dueDate && new Date(task.dueDate) < now && task.status !== 'DONE' && task.status !== 'CANCELLED';
+                        return (
+                          <div
+                            key={task.id}
+                            onClick={() => setSelectedTaskId(task.id)}
+                            className={cn(
+                              'flex items-center gap-3 rounded-xl border px-4 py-3 bg-card hover:bg-muted/30 transition-colors cursor-pointer',
+                              isOverdue && 'border-red-200 bg-red-50/30 hover:bg-red-50/50'
+                            )}
+                          >
+                            <div className={cn('h-2.5 w-2.5 rounded-full shrink-0', {
+                              'bg-red-500':   task.status === 'BLOCKED',
+                              'bg-blue-500':  task.status === 'IN_PROGRESS',
+                              'bg-amber-400': task.status === 'IN_REVIEW',
+                              'bg-green-500': task.status === 'DONE',
+                              'bg-gray-300':  task.status === 'TODO',
+                            })} />
+                            <div className="flex-1 min-w-0">
+                              <p className={cn('text-sm font-medium truncate', task.status === 'DONE' && 'line-through text-muted-foreground')}>
+                                {task.title}
+                              </p>
+                              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                {isOverdue && <span className="text-xs text-red-600 font-medium">⚠ Overdue</span>}
+                                {task.dueDate && (
+                                  <span className={cn('text-xs', isOverdue ? 'text-red-500' : 'text-muted-foreground')}>
+                                    {formatDate(task.dueDate)}
+                                  </span>
+                                )}
+                                {task.status === 'DONE' && doneLateLabel(task.dueDate, task.completionSubmittedAt, task.completedAt, isEngProject)}
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); onViewMember(task.memberId); }}
+                                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                                >
+                                  <Avatar className="h-4 w-4">
+                                    <AvatarImage src={task.memberAvatar} />
+                                    <AvatarFallback className="text-[8px] bg-primary/10">{getInitials(task.memberName)}</AvatarFallback>
+                                  </Avatar>
+                                  {task.memberName}
+                                </button>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <Badge className={cn('text-xs border hidden sm:inline-flex', priorityColor(task.priority))}>
+                                {task.priority}
+                              </Badge>
+                              <Select
+                                value={task.status}
+                                onValueChange={(newStatus) => {
+                                  if (newStatus === 'DONE' && task.status !== 'IN_REVIEW') {
+                                    const isOwnTask = authUser?.id === task.memberId;
+                                    if (isOwnTask && (task._count?.attachments ?? 0) === 0) {
+                                      toast.error('Delivery proof required', 'Upload a screenshot, document, or PR link before submitting.');
+                                      setSelectedTaskId(task.id);
+                                      return;
+                                    }
+                                  }
+                                  updateTaskStatus.mutate({ taskId: task.id, status: newStatus });
+                                }}
+                              >
+                                <SelectTrigger
+                                  onClick={(e) => e.stopPropagation()}
+                                  className={cn('h-6 text-xs px-2 py-0 rounded-full border-0 font-medium gap-1 w-auto', statusColor(task.status))}
+                                >
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent onClick={(e) => e.stopPropagation()}>
+                                  {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                                    <SelectItem key={value} value={value} className="text-xs">{label}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
           ) : (
             <>
               <div className="space-y-1.5">
@@ -2412,6 +2660,126 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
         <TabsContent value="documents" className="mt-5">
           <ProjectDocuments teamId={team.id} orgId={team.department.id} canDelete={canDelete} />
         </TabsContent>
+
+        {/* ── Phases tab ── */}
+        {isEngProject && (
+          <TabsContent value="phases" className="mt-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold">Project Phases ({phases.length})</p>
+              {['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'].includes(authUser?.role || '') && (
+                <Button size="sm" className="gap-1.5" onClick={() => {
+                  setNewPhaseName('');
+                  setNewPhaseDueDate('');
+                  setAddPhaseOpen(true);
+                }}>
+                  <Plus className="h-4 w-4" /> Add Phase
+                </Button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {phases.map((phase) => (
+                <Card key={phase.id} className="relative overflow-hidden">
+                  <CardContent className="pt-5">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-bold text-lg text-foreground/80">{phase.name}</h3>
+                      <div className="flex items-center gap-1.5">
+                        {['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'].includes(authUser?.role || '') && (
+                          <>
+                            <Button size="sm" variant="outline" onClick={() => {
+                              setExtendedDueDate(phase.dueDate.split('T')[0]);
+                              setExtendPhaseOpen(phase);
+                            }}>
+                              Extend Deadline
+                            </Button>
+                            <Button size="icon" variant="ghost" className="text-destructive hover:bg-destructive/10" onClick={() => deletePhase.mutate(phase.id)}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Deadline: <span className="font-bold text-foreground">{formatDate(phase.dueDate)}</span>
+                    </p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            {/* Add Phase Dialog */}
+            {addPhaseOpen && (
+              <Dialog open={addPhaseOpen} onOpenChange={setAddPhaseOpen}>
+                <DialogContent className="sm:max-w-sm">
+                  <DialogHeader>
+                    <DialogTitle>Add Project Phase</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4 py-2">
+                    <div className="space-y-1">
+                      <Label>Phase Name</Label>
+                      <Input placeholder="e.g. Phase 1" value={newPhaseName} onChange={(e) => setNewPhaseName(e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Due Date</Label>
+                      <WeekdayDatePicker
+                        value={newPhaseDueDate}
+                        onChange={setNewPhaseDueDate}
+                        excludeSat={isEngProject}
+                        placeholder="Select deadline"
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setAddPhaseOpen(false)}>Cancel</Button>
+                    <Button disabled={!newPhaseName || !newPhaseDueDate || createPhase.isPending} onClick={() => {
+                      createPhase.mutate({
+                        name: newPhaseName,
+                        dueDate: new Date(newPhaseDueDate).toISOString(),
+                      });
+                      setAddPhaseOpen(false);
+                    }}>
+                      Create Phase
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            )}
+
+            {/* Extend Phase Dialog */}
+            {extendPhaseOpen && (
+              <Dialog open={!!extendPhaseOpen} onOpenChange={(v) => !v && setExtendPhaseOpen(null)}>
+                <DialogContent className="sm:max-w-sm">
+                  <DialogHeader>
+                    <DialogTitle>Extend Phase Deadline</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4 py-2">
+                    <p className="text-sm text-muted-foreground">Extend deadline for {extendPhaseOpen.name}</p>
+                    <div className="space-y-1">
+                      <Label>New Due Date</Label>
+                      <WeekdayDatePicker
+                        value={extendedDueDate}
+                        onChange={setExtendedDueDate}
+                        excludeSat={isEngProject}
+                        placeholder="Select new deadline"
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setExtendPhaseOpen(null)}>Cancel</Button>
+                    <Button disabled={!extendedDueDate || extendPhase.isPending} onClick={() => {
+                      extendPhase.mutate({
+                        phaseId: extendPhaseOpen.id,
+                        dueDate: new Date(extendedDueDate).toISOString(),
+                      });
+                    }}>
+                      Extend Deadline
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            )}
+          </TabsContent>
+        )}
       </Tabs>
 
       {editOpen && (
@@ -2980,6 +3348,7 @@ const addProjectTaskSchema = z.object({
   priority:        z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']),
   dueDate:         z.string().optional(),
   dueTime:         z.string().optional(),
+  phaseId:         z.string().optional(),
 });
 type AddProjectTaskForm = z.infer<typeof addProjectTaskSchema>;
 
@@ -3000,14 +3369,26 @@ function AddProjectTaskDialog({ teamId, members, canAssign, selfId, deptName, on
 
   const priority = watch('priority') ?? 'MEDIUM';
   const assigneeId = watch('assigneeUserId') ?? '';
+  const selectedPhaseId = watch('phaseId') ?? '';
+
+  const { data: phases = [] } = useQuery<Array<{ id: string; name: string }>>({
+    queryKey: ['project-phases', teamId],
+    queryFn: () => api.get(`/teams/${teamId}/phases`).then((r) => r.data),
+    enabled: isEngTask,
+  });
 
   const onSubmit = async (data: AddProjectTaskForm) => {
+    if (isEngTask && !data.phaseId) {
+      toast.error('Phase selection is required for Engineering tasks.');
+      return;
+    }
     await api.post(`/teams/${teamId}/tasks`, {
       title:           data.title,
       description:     data.description || undefined,
       priority:        data.priority,
       dueDate:         data.dueDate ? new Date(`${data.dueDate}T${data.dueTime || '23:59:59'}`).toISOString() : undefined,
       assignToUserId:  canAssign ? data.assigneeUserId : selfId,
+      phaseId:         data.phaseId || undefined,
     });
     onCreated();
   };
@@ -3087,6 +3468,22 @@ function AddProjectTaskDialog({ teamId, members, canAssign, selfId, deptName, on
               </SelectContent>
             </Select>
           </div>
+
+          {isEngTask && (
+            <div className="space-y-1.5">
+              <Label>Phase *</Label>
+              <Select value={selectedPhaseId} onValueChange={(v) => setValue('phaseId', v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select phase" />
+                </SelectTrigger>
+                <SelectContent>
+                  {phases.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           {/* Due date + time */}
           <div className="grid grid-cols-2 gap-4">

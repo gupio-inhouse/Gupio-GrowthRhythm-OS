@@ -16,6 +16,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { toast } from '@/hooks/use-toast';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/api/client';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import LearningPage from './LearningPage';
+import { Building2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 const MODULE_TYPES = [
   { value: 'ONBOARDING', label: 'Onboarding' },
@@ -183,140 +187,173 @@ export default function LearningAdmin() {
   const isAdmin = user?.role === 'OWNER' || user?.role === 'COMPANY_ADMIN';
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <GraduationCap className="h-6 w-6 text-primary" />
-            Learning Modules
-          </h1>
-          <p className="text-muted-foreground text-sm mt-0.5">
-            Build, manage, and track training modules for your team
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <input ref={fileRef} type="file" accept=".pdf" className="hidden" onChange={handlePdfImport} />
-          <Button variant="outline" onClick={() => fileRef.current?.click()} disabled={pdfImporting}>
-            {pdfImporting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Upload className="h-4 w-4 mr-2" />}
-            Import PDF
-          </Button>
-          <Button onClick={openCreate}>
-            <Plus className="h-4 w-4 mr-2" />
-            New Module
-          </Button>
-        </div>
-      </div>
-
-      {/* Analytics strip */}
-      {analytics && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          {[
-            { label: 'Total Modules', value: analytics.moduleCount, icon: BookOpen, color: 'text-blue-600' },
-            { label: 'Enrollments', value: analytics.enrollmentCount, icon: Users, color: 'text-purple-600' },
-            { label: 'Completions', value: analytics.completionCount, icon: CheckCircle2, color: 'text-green-600' },
-            { label: 'Completion Rate', value: `${analytics.completionRate}%`, icon: BarChart2, color: 'text-orange-600' },
-          ].map((stat) => (
-            <div key={stat.label} className="bg-card border rounded-lg p-4 flex items-center gap-3">
-              <div className={`${stat.color} bg-current/10 rounded-lg p-2`}>
-                <stat.icon className={`h-5 w-5 ${stat.color}`} />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{stat.value}</p>
-                <p className="text-xs text-muted-foreground">{stat.label}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Modules list */}
-      {isLoading ? (
-        <div className="flex items-center justify-center h-48">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        </div>
-      ) : modules.length === 0 ? (
-        <div className="border-2 border-dashed rounded-xl p-12 text-center">
-          <GraduationCap className="h-12 w-12 mx-auto mb-4 text-muted-foreground/40" />
-          <p className="text-lg font-medium text-muted-foreground">No modules yet</p>
-          <p className="text-sm text-muted-foreground mt-1">Create your first module or import a PDF roadmap</p>
-          <div className="flex items-center justify-center gap-3 mt-4">
-            <Button onClick={openCreate}><Plus className="h-4 w-4 mr-2" />New Module</Button>
-            <Button variant="outline" onClick={() => fileRef.current?.click()}>
-              <Upload className="h-4 w-4 mr-2" />Import PDF
-            </Button>
+    <div className="p-8 max-w-full mx-auto space-y-8">
+      <Tabs defaultValue="learner" className="w-full space-y-8">
+        {/* Header with Tabs */}
+        <div className="flex items-center justify-between border-b border-muted pb-5 flex-wrap gap-4">
+          <div>
+            <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-foreground via-foreground/90 to-muted-foreground bg-clip-text text-transparent flex items-center gap-3">
+              <GraduationCap className="h-8 w-8 text-primary" />
+              Learning Hub
+            </h1>
+            <p className="text-muted-foreground text-sm mt-1 font-medium">
+              Access your personal roadmap or orchestrate team training courses
+            </p>
           </div>
+          <TabsList className="bg-muted/80 p-1 rounded-xl border border-muted/60 shadow-inner">
+            <TabsTrigger value="learner" className="gap-2 px-4 py-2 font-semibold transition-all rounded-lg data-[state=active]:shadow-md">
+              <BookOpen className="h-4 w-4" />
+              My Learning
+            </TabsTrigger>
+            <TabsTrigger value="admin" className="gap-2 px-4 py-2 font-semibold transition-all rounded-lg data-[state=active]:shadow-md">
+              <Building2 className="h-4 w-4" />
+              Admin Console
+            </TabsTrigger>
+          </TabsList>
         </div>
-      ) : (
-        <div className="grid gap-4">
-          {modules.map((mod) => (
-            <div
-              key={mod.id}
-              className="bg-card border rounded-xl p-5 flex items-center gap-4 hover:border-primary/30 transition-colors"
-            >
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap mb-1">
-                  <h3 className="font-semibold truncate">{mod.title}</h3>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${TYPE_COLORS[mod.type]}`}>
-                    {mod.type}
-                  </span>
-                  {mod.isMandatory && (
-                    <Badge variant="secondary" className="text-xs">Mandatory</Badge>
-                  )}
-                  {mod.isPublished ? (
-                    <span className="flex items-center gap-1 text-xs text-green-600 font-medium">
-                      <CheckCircle2 className="h-3 w-3" /> Published
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-1 text-xs text-amber-600 font-medium">
-                      <AlertCircle className="h-3 w-3" /> Draft
-                    </span>
-                  )}
+
+        {/* Tab 1: Learner View */}
+        <TabsContent value="learner" className="mt-0">
+          <LearningPage isEmbedded={true} />
+        </TabsContent>
+
+        {/* Tab 2: Admin View */}
+        <TabsContent value="admin" className="mt-0 space-y-8">
+          <div className="flex items-center justify-between flex-wrap gap-4 border-b border-muted/40 pb-5">
+            <div>
+              <h2 className="text-2xl font-bold text-foreground/90">Training Directory</h2>
+              <p className="text-muted-foreground text-sm mt-0.5 font-medium">
+                Create new learning streams and track organizational enrollments
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <input ref={fileRef} type="file" accept=".pdf" className="hidden" onChange={handlePdfImport} />
+              <Button variant="outline" className="font-semibold shadow-sm border-muted/80" onClick={() => fileRef.current?.click()} disabled={pdfImporting}>
+                {pdfImporting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Upload className="h-4 w-4 mr-2" />}
+                Import PDF
+              </Button>
+              <Button className="font-bold shadow-md hover:shadow-lg transition-all" onClick={openCreate}>
+                <Plus className="h-4 w-4 mr-2" />
+                New Module
+              </Button>
+            </div>
+          </div>
+
+          {/* Analytics strip */}
+          {analytics && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-5">
+              {[
+                { label: 'Total Modules', value: analytics.moduleCount, icon: BookOpen, color: 'text-blue-500 bg-blue-500/10 border-blue-500/20' },
+                { label: 'Active Enrollments', value: analytics.enrollmentCount, icon: Users, color: 'text-purple-500 bg-purple-500/10 border-purple-500/20' },
+                { label: 'Completions', value: analytics.completionCount, icon: CheckCircle2, color: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20' },
+                { label: 'Completion Rate', value: `${analytics.completionRate}%`, icon: BarChart2, color: 'text-amber-500 bg-amber-500/10 border-amber-500/20' },
+              ].map((stat) => (
+                <div key={stat.label} className="relative overflow-hidden bg-card/65 backdrop-blur-md border border-muted/50 rounded-2xl p-5 flex items-center gap-4 transition-all duration-300 hover:shadow-xl hover:shadow-primary/5 hover:border-primary/20 hover:-translate-y-0.5">
+                  <div className={cn('rounded-xl p-3 border shrink-0 transition-transform duration-300 hover:scale-105', stat.color)}>
+                    <stat.icon className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-extrabold tracking-tight leading-tight">{stat.value}</p>
+                    <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mt-0.5">{stat.label}</p>
+                  </div>
                 </div>
-                {mod.description && (
-                  <p className="text-sm text-muted-foreground line-clamp-1">{mod.description}</p>
-                )}
-                <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
-                  {mod.department && <span className="flex items-center gap-1"><Layers className="h-3 w-3" />{mod.department.name}</span>}
-                  <span className="flex items-center gap-1"><FileText className="h-3 w-3" />{mod._count?.lessons ?? 0} lessons</span>
-                  <span className="flex items-center gap-1"><Users className="h-3 w-3" />{mod._count?.enrollments ?? 0} enrolled</span>
-                  {mod.durationDays && <span>{mod.durationDays} days</span>}
-                </div>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => publishMutation.mutate(mod.id)}
-                  disabled={publishMutation.isPending}
-                  title={mod.isPublished ? 'Unpublish' : 'Publish'}
-                >
-                  {mod.isPublished ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => openEdit(mod)} title="Edit">
-                  <Edit2 className="h-4 w-4" />
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="text-destructive hover:text-destructive"
-                  onClick={() => setDeleteId(mod.id)}
-                  title="Delete"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => navigate(`/learning/admin/modules/${mod.id}`)}
-                >
-                  Manage <ChevronRight className="h-4 w-4 ml-1" />
+              ))}
+            </div>
+          )}
+
+          {/* Modules list */}
+          {isLoading ? (
+            <div className="flex items-center justify-center h-48">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : modules.length === 0 ? (
+            <div className="border-2 border-dashed border-muted rounded-3xl p-16 text-center bg-card/25 backdrop-blur-sm">
+              <GraduationCap className="h-16 w-16 mx-auto mb-5 text-muted-foreground/40 animate-pulse" />
+              <h3 className="text-xl font-bold text-foreground/95">No training modules</h3>
+              <p className="text-sm text-muted-foreground mt-2 max-w-sm mx-auto">
+                Establish your first module or drag and drop a PDF syllabus to get started.
+              </p>
+              <div className="flex items-center justify-center gap-3 mt-6">
+                <Button className="font-bold shadow-md" onClick={openCreate}><Plus className="h-4 w-4 mr-2" />New Module</Button>
+                <Button variant="outline" className="font-semibold shadow-sm" onClick={() => fileRef.current?.click()}>
+                  <Upload className="h-4 w-4 mr-2" />Import PDF
                 </Button>
               </div>
             </div>
-          ))}
-        </div>
-      )}
+          ) : (
+            <div className="grid gap-5">
+              {modules.map((mod) => (
+                <div
+                  key={mod.id}
+                  className="group bg-card/60 backdrop-blur-sm border border-muted/60 rounded-2xl p-6 flex items-center gap-5 hover:shadow-xl hover:shadow-primary/5 hover:border-primary/30 transition-all duration-300"
+                >
+                  <div className="flex-1 min-w-0 space-y-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-bold text-lg text-foreground/90 group-hover:text-primary transition-colors truncate leading-snug">{mod.title}</h3>
+                      <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold border ${TYPE_COLORS[mod.type] || 'bg-gray-100 text-gray-800'}`}>
+                        {mod.type}
+                      </span>
+                      {mod.isMandatory && (
+                        <Badge variant="secondary" className="bg-red-500/10 text-red-500 border border-red-500/20 shadow-sm shrink-0">Mandatory</Badge>
+                      )}
+                      {mod.isPublished ? (
+                        <span className="inline-flex items-center gap-1 text-xs text-emerald-600 font-bold bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
+                          <CheckCircle2 className="h-3 w-3" /> Published
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-xs text-amber-600 font-bold bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full">
+                          <AlertCircle className="h-3 w-3" /> Draft
+                        </span>
+                      )}
+                    </div>
+                    {mod.description && (
+                      <p className="text-sm text-muted-foreground line-clamp-1 leading-relaxed">{mod.description}</p>
+                    )}
+                    <div className="flex items-center gap-4 text-xs font-semibold text-muted-foreground pt-1 border-t border-muted/30 max-w-fit">
+                      {mod.department && <span className="flex items-center gap-1.5"><Layers className="h-3.5 w-3.5 text-indigo-500/70" />{mod.department.name}</span>}
+                      <span className="flex items-center gap-1.5"><FileText className="h-3.5 w-3.5 text-indigo-500/70" />{mod._count?.lessons ?? 0} lessons</span>
+                      <span className="flex items-center gap-1.5"><Users className="h-3.5 w-3.5 text-indigo-500/70" />{mod._count?.enrollments ?? 0} enrolled</span>
+                      {mod.durationDays && <span>{mod.durationDays} days</span>}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="hover:bg-muted text-muted-foreground hover:text-foreground h-9 w-9 p-0 rounded-lg transition-colors"
+                      onClick={() => publishMutation.mutate(mod.id)}
+                      disabled={publishMutation.isPending}
+                      title={mod.isPublished ? 'Unpublish' : 'Publish'}
+                    >
+                      {mod.isPublished ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </Button>
+                    <Button size="sm" variant="ghost" className="hover:bg-muted text-muted-foreground hover:text-foreground h-9 w-9 p-0 rounded-lg transition-colors" onClick={() => openEdit(mod)} title="Edit">
+                      <Edit2 className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-destructive/80 hover:text-destructive hover:bg-red-500/10 h-9 w-9 p-0 rounded-lg transition-colors"
+                      onClick={() => setDeleteId(mod.id)}
+                      title="Delete"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="font-bold border-muted/80 shadow-sm transition-all hover:bg-primary hover:text-primary-foreground hover:border-primary"
+                      onClick={() => navigate(`/learning/admin/modules/${mod.id}`)}
+                    >
+                      Manage
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
 
       {/* Create / Edit Dialog */}
       <Dialog open={showCreate || !!editModule} onOpenChange={(o) => { if (!o) { setShowCreate(false); setEditModule(null); } }}>

@@ -23,6 +23,7 @@ import feedbackRouter from './routes/feedback';
 import auditLogsRouter from './routes/auditlogs';
 import learningRouter from './routes/learning';
 import sopsRouter from './routes/sops';
+import phasesRouter from './routes/phases';
 import { setOrgContext } from './middleware/rls';
 
 export function createApp() {
@@ -56,6 +57,7 @@ export function createApp() {
   app.use('/api/standups', standupsRouter);
   app.use('/api/users', usersRouter);
   app.use('/api/teams', teamsRouter);
+  app.use('/api/teams', phasesRouter);
   app.use('/api/owner', ownerRouter);
   app.use('/api/notifications', notificationsRouter);
   app.use('/api/superadmin', superAdminRouter);

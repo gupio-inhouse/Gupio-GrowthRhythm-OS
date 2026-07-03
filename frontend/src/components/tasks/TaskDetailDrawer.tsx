@@ -240,6 +240,8 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
   const taskToEdit: TaskToEdit | null = task ? {
     id: task.id, title: task.title, description: task.description, expectedOutcome: task.expectedOutcome,
     priority: task.priority, dueDate: task.dueDate, assignee: task.assignee, department: task.department,
+    teamId: task.team?.id,
+    phaseId: (task as any).phase?.id,
   } : null;
 
   const screenshots   = (task?.attachments ?? []).filter((a) => a.type === 'SCREENSHOT');
@@ -450,6 +452,14 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
                       content: (
                         <span className="text-xs px-2.5 py-1 rounded-full bg-violet-50 text-violet-700 border border-violet-200 font-semibold">
                           {task.team.name}
+                        </span>
+                      ),
+                    },
+                    (task as any).phase && {
+                      icon: Layers, label: 'Phase',
+                      content: (
+                        <span className="text-xs px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 font-semibold">
+                          {(task as any).phase.name}
                         </span>
                       ),
                     },

@@ -284,6 +284,7 @@ model Team {
   members        TeamMember[]
   documents      TeamDocument[]
   tasks          Task[]
+  phases         ProjectPhase[]
 
   @@unique([orgId, slug])
   @@map("teams")
@@ -347,6 +348,7 @@ model Task {
   dependencyId   String?      @map("dependency_id")
   sourceType     String?      @map("source_type")
   recurrence     String?      @map("recurrence")
+  phaseId        String?      @map("phase_id")
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
 
@@ -358,6 +360,7 @@ model Task {
   completionReviewedBy User? @relation("TaskReviewer", fields: [completionReviewedByUserId], references: [id])
   dependency   Task?        @relation("TaskDependency", fields: [dependencyId], references: [id])
   dependents   Task[]       @relation("TaskDependency")
+  phase        ProjectPhase? @relation(fields: [phaseId], references: [id])
   comments     TaskComment[]
   attachments  TaskAttachment[]
   statusHistories TaskStatusHistory[]
@@ -898,5 +901,20 @@ model LearningCertificate {
   module     LearningModule     @relation(fields: [moduleId], references: [id])
 
   @@map("learning_certificates")
+}
+
+model ProjectPhase {
+  id        String   @id @default(cuid())
+  teamId    String   @map("team_id")
+  name      String   // e.g. "Phase 1"
+  dueDate   DateTime @map("due_date")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  tasks     Task[]
+
+  @@unique([teamId, name])
+  @@map("project_phases")
 }
 

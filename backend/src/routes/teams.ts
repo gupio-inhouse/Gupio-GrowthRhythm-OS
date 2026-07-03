@@ -462,6 +462,7 @@ router.post(
       priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).default('MEDIUM'),
       dueDate: z.string().optional(),
       assignToUserId: z.string().optional(),
+      phaseId: z.string().optional(),
     });
 
     const parsed = taskSchema.safeParse(req.body);
@@ -469,9 +470,24 @@ router.post(
 
     const team = await prisma.team.findFirst({
       where: { id: teamId, orgId },
-      select: { id: true, departmentId: true, managerUserId: true, members: { select: { userId: true } } },
+      select: { id: true, departmentId: true, managerUserId: true, department: { select: { name: true } }, members: { select: { userId: true } } },
     });
     if (!team) { res.status(404).json({ error: 'Team not found' }); return; }
+
+    // Validate phase-wise tasks for Engineering department projects
+    if (team.department && team.department.name.toLowerCase().includes('engineering')) {
+      if (!parsed.data.phaseId) {
+        res.status(400).json({ error: 'Engineering project tasks must belong to a phase.' });
+        return;
+      }
+      const phase = await prisma.projectPhase.findFirst({
+        where: { id: parsed.data.phaseId, teamId: team.id },
+      });
+      if (!phase) {
+        res.status(400).json({ error: 'Selected phase does not belong to this project.' });
+        return;
+      }
+    }
 
     const isProjectManager = team.managerUserId === userId;
 
@@ -485,7 +501,7 @@ router.post(
       res.status(403).json({ error: 'You can only assign tasks for teams in your own department' }); return;
     }
 
-    const { assignToUserId, dueDate, ...taskBase } = parsed.data;
+    const { assignToUserId, dueDate, phaseId, ...taskBase } = parsed.data;
 
     // Project managers can assign to any member; regular team members only to themselves
     const canAssignOthers = role !== 'TEAM_MEMBER' || isProjectManager;
@@ -511,6 +527,7 @@ router.post(
             departmentId: team.departmentId,
             assigneeUserId: assigneeId,
             assignedByUserId: userId,
+            phaseId: phaseId || null,
             ...(dueDateVal && { dueDate: dueDateVal }),
           },
           select: { id: true, title: true, assignee: { select: { id: true, name: true } } },

@@ -237,32 +237,36 @@ export default function LearningModuleBuilder() {
   const ungroupedLessons = module.lessons.filter((l) => !l.phaseId);
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
+    <div className="p-8 max-w-full mx-auto space-y-8">
       {/* Header */}
-      <div className="flex items-start gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/learning/admin')} className="shrink-0 mt-0.5">
-          <ArrowLeft className="h-4 w-4" />
+      <div className="flex items-center gap-4 flex-wrap border-b border-muted pb-6">
+        <Button variant="ghost" size="icon" onClick={() => navigate('/learning/admin')} className="shrink-0 rounded-xl hover:bg-muted transition-colors">
+          <ArrowLeft className="h-5 w-5" />
         </Button>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-xl font-bold truncate">{module.title}</h1>
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h1 className="text-2xl font-extrabold text-foreground/90 tracking-tight truncate">{module.title}</h1>
             {module.isPublished ? (
-              <Badge className="bg-green-100 text-green-800 border-green-200">Published</Badge>
+              <span className="inline-flex items-center gap-1 text-xs text-emerald-600 font-bold bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full">
+                Published
+              </span>
             ) : (
-              <Badge variant="outline" className="text-amber-600 border-amber-300">Draft</Badge>
+              <span className="inline-flex items-center gap-1 text-xs text-amber-600 font-bold bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded-full">
+                Draft
+              </span>
             )}
           </div>
           {module.description && (
-            <p className="text-sm text-muted-foreground mt-0.5 line-clamp-1">{module.description}</p>
+            <p className="text-sm text-muted-foreground mt-1 font-medium leading-relaxed">{module.description}</p>
           )}
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <Button variant="outline" size="sm" onClick={() => setShowEnroll(true)}>
-            <Users className="h-4 w-4 mr-2" />
+        <div className="flex items-center gap-3 shrink-0">
+          <Button variant="outline" className="font-semibold shadow-sm border-muted/80" onClick={() => setShowEnroll(true)}>
+            <Users className="h-4 w-4 mr-2 text-indigo-500" />
             Enroll Users
           </Button>
           <Button
-            size="sm"
+            className="font-bold shadow-md hover:shadow-lg transition-all"
             onClick={() => publishMutation.mutate()}
             disabled={publishMutation.isPending}
             variant={module.isPublished ? 'outline' : 'default'}
@@ -280,77 +284,86 @@ export default function LearningModuleBuilder() {
       </div>
 
       {/* Stats */}
-      <div className="flex items-center gap-6 text-sm text-muted-foreground border-b pb-4">
-        <span><strong className="text-foreground">{module.phases.length}</strong> phases</span>
-        <span><strong className="text-foreground">{module.lessons.length}</strong> lessons</span>
-        <span><strong className="text-foreground">{module._count?.enrollments ?? 0}</strong> enrolled</span>
-        {module.durationDays && <span><strong className="text-foreground">{module.durationDays}</strong> day program</span>}
-        <span>Pass score: <strong className="text-foreground">{module.passScore}%</strong></span>
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 bg-muted/20 border border-muted/60 p-5 rounded-2xl shadow-sm text-center">
+        {[
+          { label: 'Phases Count', value: module.phases.length },
+          { label: 'Total Lessons', value: module.lessons.length },
+          { label: 'Users Enrolled', value: module._count?.enrollments ?? 0 },
+          { label: 'Course Duration', value: module.durationDays ? `${module.durationDays} days` : 'Flexible' },
+          { label: 'Pass Score Limit', value: `${module.passScore}%` },
+        ].map((stat) => (
+          <div key={stat.label} className="space-y-1">
+            <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">{stat.label}</p>
+            <p className="text-lg font-extrabold text-foreground/90">{stat.value}</p>
+          </div>
+        ))}
       </div>
 
       {/* Phases */}
-      {module.phases.map((phase, pi) => (
-        <div key={phase.id} className="border rounded-xl overflow-hidden">
-          <div
-            className="flex items-center gap-3 p-4 cursor-pointer hover:bg-muted/30 transition-colors"
-            style={{ borderLeft: `4px solid ${phase.color ?? PHASE_COLORS[pi % PHASE_COLORS.length]}` }}
-            onClick={() => setExpandedPhase(expandedPhase === phase.id ? null : phase.id)}
-          >
-            <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" />
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Phase {phase.phaseNumber}
-                </span>
-                {phase.dayStart && phase.dayEnd && (
-                  <span className="text-xs text-muted-foreground">Day {phase.dayStart}–{phase.dayEnd}</span>
-                )}
-              </div>
-              <h3 className="font-semibold">{phase.title}</h3>
-            </div>
-            <span className="text-sm text-muted-foreground">{phaseLessons(phase.id).length} lessons</span>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-7 w-7 text-destructive hover:text-destructive"
-              onClick={(e) => { e.stopPropagation(); deletePhaseMutation.mutate(phase.id); }}
+      <div className="space-y-5">
+        {module.phases.map((phase, pi) => (
+          <div key={phase.id} className="border border-muted rounded-2xl overflow-hidden shadow-sm bg-card/60 backdrop-blur-sm transition-all duration-300 hover:shadow-md hover:border-muted-foreground/20">
+            <div
+              className="flex items-center gap-4 p-5 cursor-pointer hover:bg-muted/40 transition-colors"
+              style={{ borderLeft: `5px solid ${phase.color ?? PHASE_COLORS[pi % PHASE_COLORS.length]}` }}
+              onClick={() => setExpandedPhase(expandedPhase === phase.id ? null : phase.id)}
             >
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
-            {expandedPhase === phase.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-          </div>
-
-          {expandedPhase === phase.id && (
-            <div className="border-t p-4 space-y-2 bg-muted/10">
-              {phaseLessons(phase.id).map((lesson) => (
-                <LessonRow
-                  key={lesson.id}
-                  lesson={lesson}
-                  onEdit={() => openEditLesson(lesson)}
-                  onDelete={() => setDeleteLesson(lesson.id)}
-                />
-              ))}
+              <GripVertical className="h-4 w-4 text-muted-foreground shrink-0 cursor-grab" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Phase {phase.phaseNumber}
+                  </span>
+                  {phase.dayStart && phase.dayEnd && (
+                    <span className="text-[10px] font-semibold text-indigo-500 bg-indigo-500/5 px-2 py-0.5 rounded-full">Day {phase.dayStart}–{phase.dayEnd}</span>
+                  )}
+                </div>
+                <h3 className="font-bold text-base text-foreground/80 mt-0.5">{phase.title}</h3>
+              </div>
+              <span className="text-xs font-bold text-muted-foreground shrink-0">{phaseLessons(phase.id).length} lessons</span>
               <Button
-                variant="outline"
-                size="sm"
-                className="w-full border-dashed"
-                onClick={() => openCreateLesson(phase.id)}
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8 text-destructive hover:text-destructive hover:bg-red-500/10 rounded-lg transition-colors"
+                onClick={(e) => { e.stopPropagation(); deletePhaseMutation.mutate(phase.id); }}
               >
-                <Plus className="h-4 w-4 mr-2" />
-                Add Lesson
+                <Trash2 className="h-4 w-4" />
               </Button>
+              {expandedPhase === phase.id ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
             </div>
-          )}
-        </div>
-      ))}
+
+            {expandedPhase === phase.id && (
+              <div className="border-t border-muted/50 p-5 space-y-3.5 bg-muted/10">
+                {phaseLessons(phase.id).map((lesson) => (
+                  <LessonRow
+                    key={lesson.id}
+                    lesson={lesson}
+                    onEdit={() => openEditLesson(lesson)}
+                    onDelete={() => setDeleteLesson(lesson.id)}
+                  />
+                ))}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full border-dashed font-semibold hover:border-primary hover:text-primary transition-all rounded-xl"
+                  onClick={() => openCreateLesson(phase.id)}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Lesson
+                </Button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
 
       {/* Ungrouped lessons */}
       {ungroupedLessons.length > 0 && (
-        <div className="border rounded-xl overflow-hidden">
-          <div className="p-4 border-b bg-muted/20">
-            <h3 className="font-semibold text-muted-foreground">Ungrouped Lessons</h3>
+        <div className="border border-muted rounded-2xl overflow-hidden shadow-sm bg-card/60 backdrop-blur-sm">
+          <div className="p-4 border-b border-muted bg-muted/20">
+            <h3 className="font-bold text-sm text-muted-foreground uppercase tracking-wider">Ungrouped Lessons</h3>
           </div>
-          <div className="p-4 space-y-2">
+          <div className="p-5 space-y-3.5">
             {ungroupedLessons.map((lesson) => (
               <LessonRow
                 key={lesson.id}
@@ -364,12 +377,12 @@ export default function LearningModuleBuilder() {
       )}
 
       {/* Add Phase / Add Lesson buttons */}
-      <div className="flex items-center gap-3">
-        <Button variant="outline" onClick={() => setShowPhaseForm(true)}>
+      <div className="flex items-center gap-3 pt-2">
+        <Button variant="outline" className="font-semibold shadow-sm rounded-xl" onClick={() => setShowPhaseForm(true)}>
           <Plus className="h-4 w-4 mr-2" />
           Add Phase
         </Button>
-        <Button variant="outline" onClick={() => openCreateLesson()}>
+        <Button variant="outline" className="font-semibold shadow-sm rounded-xl" onClick={() => openCreateLesson()}>
           <Plus className="h-4 w-4 mr-2" />
           Add Lesson
         </Button>
@@ -678,33 +691,35 @@ function LessonRow({
 }) {
   const Icon = CONTENT_TYPE_ICONS[lesson.contentType] ?? BookOpen;
   return (
-    <div className="flex items-center gap-3 p-3 rounded-lg bg-background border hover:border-primary/20 transition-colors">
-      <GripVertical className="h-4 w-4 text-muted-foreground shrink-0 cursor-grab" />
-      <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
+    <div className="flex items-center gap-4 p-4 rounded-xl bg-card border border-muted hover:border-primary/30 shadow-sm transition-all duration-300">
+      <GripVertical className="h-4 w-4 text-muted-foreground shrink-0 cursor-grab hover:text-foreground transition-colors" />
+      <div className="h-10 w-10 rounded-xl bg-muted/60 border border-muted flex items-center justify-center text-muted-foreground shrink-0">
+        <Icon className="h-5 w-5" />
+      </div>
       <div className="flex-1 min-w-0">
-        <span className="text-sm font-medium truncate block">{lesson.title}</span>
-        <div className="flex items-center gap-2 mt-0.5">
-          <span className="text-xs text-muted-foreground">{CONTENT_TYPE_LABELS[lesson.contentType]}</span>
+        <span className="text-sm font-bold text-foreground/80 truncate block">{lesson.title}</span>
+        <div className="flex items-center gap-2.5 mt-1 text-xs font-semibold text-muted-foreground">
+          <Badge variant="outline" className="text-[10px] px-2 py-0 font-bold border-muted/80">{CONTENT_TYPE_LABELS[lesson.contentType]}</Badge>
           {lesson.dayStart && lesson.dayEnd && (
-            <span className="text-xs text-muted-foreground">Day {lesson.dayStart}–{lesson.dayEnd}</span>
+            <span>Day {lesson.dayStart}–{lesson.dayEnd}</span>
           )}
-          {lesson.durationMins && <span className="text-xs text-muted-foreground">{lesson.durationMins} min</span>}
-          {!lesson.isRequired && <span className="text-xs text-muted-foreground italic">Optional</span>}
+          {lesson.durationMins && <span>· {lesson.durationMins} min</span>}
+          {!lesson.isRequired && <span className="text-muted-foreground/60 italic font-normal">Optional</span>}
         </div>
       </div>
       {lesson.topics && lesson.topics.length > 0 && (
-        <div className="hidden sm:flex gap-1 flex-wrap">
+        <div className="hidden sm:flex gap-1.5 flex-wrap">
           {lesson.topics.slice(0, 2).map((t) => (
-            <span key={t} className="text-xs bg-muted px-2 py-0.5 rounded-full">{t}</span>
+            <span key={t} className="text-[11px] font-bold bg-muted px-2 py-0.5 rounded-md border border-muted-foreground/10 text-muted-foreground">{t}</span>
           ))}
           {lesson.topics.length > 2 && (
-            <span className="text-xs bg-muted px-2 py-0.5 rounded-full">+{lesson.topics.length - 2}</span>
+            <span className="text-[11px] font-bold bg-muted px-2 py-0.5 rounded-md border border-muted-foreground/10 text-muted-foreground">+{lesson.topics.length - 2}</span>
           )}
         </div>
       )}
-      <div className="flex items-center gap-1 shrink-0">
-        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onEdit}>
-          <Edit2 className="h-3.5 w-3.5" />
+      <div className="flex items-center gap-1.5 shrink-0">
+        <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-muted rounded-lg transition-colors" onClick={onEdit}>
+          <Edit2 className="h-4 w-4 text-muted-foreground" />
         </Button>
         <Button
           size="icon"
