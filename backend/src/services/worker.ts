@@ -7,6 +7,7 @@ import { generateMeetUrl } from './meet.service';
 import { sendTaskDueTodayEmail, sendTaskDueReminderEmail, sendTaskOverdueEmail, sendStandupReminderEmail, deliverEmail, setEmailQueue, sendEmail } from './email.service';
 import { emailQueue, reportQueue, recurringTaskQueue } from './queues';
 import { buildOrgReport, renderReportHtml, renderReportText, isLastDayOfMonthIST } from './report.service';
+import { getUserDeptAccess } from '../lib/deptAccess';
 
 const APP_URL = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();
 
@@ -412,16 +413,29 @@ export const reportWorker = new Worker('report', async (job: Job) => {
         sendEmail({ to: owner.email, subject, html, text }).catch(console.error);
       }
 
-      // Send dept heads their department's section (daily + weekly + monthly)
+      // Send dept heads their department's section (daily + weekly + monthly).
+      // A cross-department access grant widens this: SPECIFIC adds those
+      // departments' sections too, FULL sends the complete org report.
       {
         const deptHeads = await prisma.user.findMany({
           where: { orgId: org.id, role: 'DEPARTMENT_HEAD', status: 'ACTIVE' },
-          select: { id: true, name: true, email: true, departmentId: true },
+          select: { id: true, name: true, email: true, departmentId: true, role: true },
         });
 
         for (const head of deptHeads) {
-          if (!head.departmentId) continue;
-          const html = renderReportHtml(report, 'DEPT_HEAD', head.name, head.departmentId, APP_URL);
+          const access = await getUserDeptAccess(head.id, org.id, head.role);
+
+          if (access?.accessType === 'FULL') {
+            const html = renderReportHtml(report, 'DEPT_HEAD', head.name, undefined, APP_URL);
+            sendEmail({ to: head.email, subject, html, text }).catch(console.error);
+            continue;
+          }
+
+          const deptIds = new Set<string>(access?.accessType === 'SPECIFIC' ? access.departmentIds : []);
+          if (head.departmentId) deptIds.add(head.departmentId);
+          if (deptIds.size === 0) continue;
+
+          const html = renderReportHtml(report, 'DEPT_HEAD', head.name, [...deptIds], APP_URL);
           sendEmail({ to: head.email, subject, html, text }).catch(console.error);
         }
       }

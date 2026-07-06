@@ -363,7 +363,7 @@ export function renderReportHtml(
   report: OrgReport,
   recipientRole: 'OWNER' | 'DEPT_HEAD',
   recipientName: string,
-  filterDeptId?: string,
+  filterDeptIds?: string[],
   appUrl = 'https://app.growthrhythm.in',
 ): string {
   const firstName = recipientName.split(' ')[0];
@@ -372,12 +372,19 @@ export function renderReportHtml(
     report.period === 'weekly' ? 'Weekly Report' : 'Monthly Report';
   const periodWord = report.period === 'daily' ? 'day' : report.period === 'weekly' ? 'week' : 'month';
 
-  const depts = filterDeptId
-    ? report.departments.filter((d) => d.deptId === filterDeptId)
+  const depts = filterDeptIds
+    ? report.departments.filter((d) => filterDeptIds.includes(d.deptId))
     : report.departments;
 
-  const grandStats = filterDeptId
-    ? depts[0] ?? { totalDone: 0, totalOnTime: 0, totalLate: 0, totalReviewPending: 0, totalPending: 0, totalOverdue: 0 }
+  const grandStats = filterDeptIds
+    ? {
+        totalDone:           depts.reduce((s, d) => s + d.totalDone, 0),
+        totalOnTime:         depts.reduce((s, d) => s + d.totalOnTime, 0),
+        totalLate:           depts.reduce((s, d) => s + d.totalLate, 0),
+        totalReviewPending:  depts.reduce((s, d) => s + d.totalReviewPending, 0),
+        totalPending:        depts.reduce((s, d) => s + d.totalPending, 0),
+        totalOverdue:        depts.reduce((s, d) => s + d.totalOverdue, 0),
+      }
     : report;
 
   // ── 9. Preheader text ──────────────────────────────────────────────────────
