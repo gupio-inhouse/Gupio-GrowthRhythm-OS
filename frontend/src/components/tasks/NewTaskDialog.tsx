@@ -45,8 +45,10 @@ function applyDateRules(data: DateFields, ctx: z.RefinementCtx) {
   }
 }
 
-// Start date/time is required for new tasks, but editing an existing task never
-// force-fills it retroactively — plenty of tasks predate this field.
+// Start/End date+time are only meaningful once the task has an owner — an
+// unassigned task gets both later, when someone actually assigns it. Editing
+// an existing task never force-fills either retroactively (plenty of tasks
+// predate this field).
 function buildElevatedSchema(isEditMode: boolean) {
   return z.object({
     title:           z.string().min(2, 'Title is required'),
@@ -57,14 +59,16 @@ function buildElevatedSchema(isEditMode: boolean) {
     teamId:          z.string().optional(),
     dependencyId:    z.string().optional(),
     priority:        z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).default('MEDIUM'),
-    startDate:       isEditMode ? z.string().optional() : z.string().min(1, 'Start date is required'),
-    startTime:       isEditMode ? z.string().optional() : z.string().min(1, 'Start time is required'),
+    startDate:       z.string().optional(),
+    startTime:       z.string().optional(),
     dueDate:         z.string().optional(),
     dueTime:         z.string().optional(),
     phaseId:         z.string().optional(),
   }).superRefine((data, ctx) => {
-    // End date/time are only meaningful once the task has an owner — an unassigned
-    // task gets its end date later, when someone actually assigns it.
+    if (!isEditMode && data.assigneeUserId) {
+      if (!data.startDate) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Start date is required', path: ['startDate'] });
+      if (!data.startTime) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Start time is required', path: ['startTime'] });
+    }
     if (data.assigneeUserId) {
       if (!data.dueDate) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'End date is required', path: ['dueDate'] });
       if (!data.dueTime) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'End time is required', path: ['dueTime'] });
@@ -228,9 +232,11 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
     }
   }, [open, taskToEdit]);
 
-  // Unassigned tasks don't get an end date yet — it's set later, once someone assigns the task.
+  // Unassigned tasks don't get a start/end date yet — both are set later, once someone assigns the task.
   useEffect(() => {
     if (canAssignToAny && !watchedAssigneeId) {
+      setValue('startDate', '');
+      setValue('startTime', '');
       setValue('dueDate', '');
       setValue('dueTime', '');
     }
@@ -652,80 +658,79 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
               </div>
             )}
 
-            {/* Start date + time */}
-            {!(isTeamMember && isEditMode) && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <div className="flex items-center gap-1.5">
-                    <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                    <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Start Date{!isEditMode && ' *'}</Label>
-                  </div>
-                  <WeekdayDatePicker
-                    value={watch('startDate') ?? ''}
-                    onChange={(v) => setValue('startDate', v, { shouldValidate: true })}
-                    excludeSat={isEngInDialog}
-                    placeholder="Pick start date"
-                    inputClassName="w-full"
-                  />
-                  {errors.startDate && <p className="text-xs text-destructive">{errors.startDate.message}</p>}
-                </div>
-                <div className="space-y-1.5">
-                  <div className="flex items-center gap-1.5">
-                    <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                    <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Start Time{!isEditMode && ' *'}</Label>
-                  </div>
-                  <Input
-                    type="time"
-                    min={WORK_START_TIME}
-                    max={WORK_END_TIME}
-                    {...register('startTime')}
-                    className="rounded-xl border-border/60 h-9 text-sm"
-                  />
-                  <p className="text-[10px] text-muted-foreground/70">Working hours: 9:30 AM – 7:30 PM</p>
-                  {errors.startTime && <p className="text-xs text-destructive">{errors.startTime.message}</p>}
-                </div>
-              </div>
-            )}
-
-            {/* End date + time */}
+            {/* Start + end date/time — hidden until the task has an owner */}
             {!(isTeamMember && isEditMode) && (
               canAssignToAny && !watchedAssigneeId ? (
                 <div className="rounded-xl border border-dashed border-border/60 bg-muted/20 px-3 py-2.5 flex items-center gap-2">
                   <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                  <p className="text-xs text-muted-foreground">End date &amp; time can be set once this task is assigned to someone.</p>
+                  <p className="text-xs text-muted-foreground">Start &amp; end date/time can be set once this task is assigned to someone.</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-1.5">
-                      <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                      <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">End Date *</Label>
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                        <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Start Date{!isEditMode && ' *'}</Label>
+                      </div>
+                      <WeekdayDatePicker
+                        value={watch('startDate') ?? ''}
+                        onChange={(v) => setValue('startDate', v, { shouldValidate: true })}
+                        excludeSat={isEngInDialog}
+                        placeholder="Pick start date"
+                        inputClassName="w-full"
+                      />
+                      {errors.startDate && <p className="text-xs text-destructive">{errors.startDate.message}</p>}
                     </div>
-                    <WeekdayDatePicker
-                      value={watch('dueDate') ?? ''}
-                      onChange={(v) => setValue('dueDate', v, { shouldValidate: true })}
-                      excludeSat={isEngInDialog}
-                      placeholder="Pick end date"
-                      inputClassName="w-full"
-                    />
-                    {errors.dueDate && <p className="text-xs text-destructive">{errors.dueDate.message}</p>}
-                  </div>
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-1.5">
-                      <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                      <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">End Time *</Label>
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                        <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Start Time{!isEditMode && ' *'}</Label>
+                      </div>
+                      <Input
+                        type="time"
+                        min={WORK_START_TIME}
+                        max={WORK_END_TIME}
+                        {...register('startTime')}
+                        className="rounded-xl border-border/60 h-9 text-sm"
+                      />
+                      <p className="text-[10px] text-muted-foreground/70">Working hours: 9:30 AM – 7:30 PM</p>
+                      {errors.startTime && <p className="text-xs text-destructive">{errors.startTime.message}</p>}
                     </div>
-                    <Input
-                      type="time"
-                      min={WORK_START_TIME}
-                      max={WORK_END_TIME}
-                      {...register('dueTime')}
-                      className="rounded-xl border-border/60 h-9 text-sm"
-                    />
-                    <p className="text-[10px] text-muted-foreground/70">Working hours: 9:30 AM – 7:30 PM</p>
-                    {errors.dueTime && <p className="text-xs text-destructive">{errors.dueTime.message}</p>}
                   </div>
-                </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                        <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">End Date *</Label>
+                      </div>
+                      <WeekdayDatePicker
+                        value={watch('dueDate') ?? ''}
+                        onChange={(v) => setValue('dueDate', v, { shouldValidate: true })}
+                        excludeSat={isEngInDialog}
+                        placeholder="Pick end date"
+                        inputClassName="w-full"
+                      />
+                      {errors.dueDate && <p className="text-xs text-destructive">{errors.dueDate.message}</p>}
+                    </div>
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                        <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">End Time *</Label>
+                      </div>
+                      <Input
+                        type="time"
+                        min={WORK_START_TIME}
+                        max={WORK_END_TIME}
+                        {...register('dueTime')}
+                        className="rounded-xl border-border/60 h-9 text-sm"
+                      />
+                      <p className="text-[10px] text-muted-foreground/70">Working hours: 9:30 AM – 7:30 PM</p>
+                      {errors.dueTime && <p className="text-xs text-destructive">{errors.dueTime.message}</p>}
+                    </div>
+                  </div>
+                </>
               )
             )}
 
@@ -843,7 +848,7 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
             {canAssignToAny && !watchedAssigneeId && !isEditMode && (
               <p className="text-xs text-amber-600 font-medium flex items-center gap-1">
                 <span className="h-1.5 w-1.5 rounded-full bg-amber-500 inline-block" />
-                Will be saved as unassigned — no end date yet
+                Will be saved as unassigned — no start/end date yet
               </p>
             )}
             <div className="flex items-center gap-2 ml-auto">

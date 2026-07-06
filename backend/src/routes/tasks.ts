@@ -93,7 +93,7 @@ const createSchema = z.object({
   teamId: z.string().optional(),
   assigneeUserId: z.string().optional(),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).default('MEDIUM'),
-  startDate: z.string().datetime(),
+  startDate: z.string().datetime().optional(),
   dueDate: z.string().datetime().optional(),
   recurrence: z.string().optional(),
   phaseId: z.string().optional(),
@@ -324,7 +324,7 @@ router.post('/', auditLog('task', 'CREATE'), async (req: AuthRequest, res: Respo
     return;
   }
 
-  if (parsed.data.dueDate && new Date(parsed.data.startDate) > new Date(parsed.data.dueDate)) {
+  if (parsed.data.startDate && parsed.data.dueDate && new Date(parsed.data.startDate) > new Date(parsed.data.dueDate)) {
     res.status(400).json({ error: 'Start date must be before the end date.' });
     return;
   }
