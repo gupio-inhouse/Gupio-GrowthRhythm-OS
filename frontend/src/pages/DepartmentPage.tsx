@@ -3683,7 +3683,7 @@ function AddProjectTaskDialog({ teamId, members, canAssign, selfId, deptName, on
         const taskDueDate = new Date(`${data.dueDate}T${data.dueTime || '23:59:59'}`);
         const phaseDueDate = new Date(selectedPhase.dueDate);
         if (taskDueDate > phaseDueDate) {
-          toast.error(`Task due date cannot be beyond the Phase deadline (${selectedPhase.dueDate.split('T')[0]}).`);
+          toast.error(`Task end date cannot be beyond the Phase deadline (${selectedPhase.dueDate.split('T')[0]}).`);
           return;
         }
       }
@@ -3853,20 +3853,20 @@ function AddProjectTaskDialog({ teamId, members, canAssign, selfId, deptName, on
             </div>
           )}
 
-          {/* Due date + time */}
+          {/* End date + time */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label>Due Date</Label>
+              <Label>End Date</Label>
               <WeekdayDatePicker
                 value={watch('dueDate') ?? ''}
                 onChange={(v) => setValue('dueDate', v)}
                 excludeSat={isEngTask}
-                placeholder="Pick due date"
+                placeholder="Pick end date"
                 inputClassName="w-full"
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Due Time</Label>
+              <Label>End Time</Label>
               <Input type="time" {...register('dueTime')} />
             </div>
           </div>

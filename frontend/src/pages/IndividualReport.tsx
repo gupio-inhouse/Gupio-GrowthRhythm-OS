@@ -267,7 +267,7 @@ export default function IndividualReport() {
                         )}
                       </div>
                       <div className="text-xs text-muted-foreground text-right">
-                        <p>{task.dueDate ? `Due ${formatDate(task.dueDate)}` : 'No due date'}</p>
+                        <p>{task.dueDate ? `End ${formatDate(task.dueDate)}` : 'No end date'}</p>
                         <p className="mt-1">Created {formatDate(task.createdAt)}</p>
                       </div>
                     </div>

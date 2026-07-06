@@ -80,6 +80,20 @@ export async function callClaude(
   return callAI(prompt, systemPrompt, cacheTtl);
 }
 
+// Models sometimes ignore the "array of strings" instruction and return each
+// suggestion as an object (e.g. {"step 1": "..."}) instead of a plain string.
+// Flatten whatever shape comes back into plain, renderable strings.
+function normalizeSuggestions(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      if (typeof item === 'string') return item.trim();
+      if (item && typeof item === 'object') return Object.values(item).map(String).join(' ').trim();
+      return item == null ? '' : String(item);
+    })
+    .filter(Boolean);
+}
+
 // ── Prompt registry ───────────────────────────────────────────────────────────
 
 export const PROMPTS = {
@@ -200,8 +214,8 @@ export async function generateTaskSuggestions(taskId: string, orgId: string): Pr
   );
 
   try {
-    const parsed = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] ?? '{}') as { suggestions?: string[] };
-    return parsed.suggestions ?? [];
+    const parsed = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] ?? '{}') as { suggestions?: unknown };
+    return normalizeSuggestions(parsed.suggestions);
   } catch { return []; }
 }
 
@@ -238,8 +252,9 @@ export async function generateStatusChangeSuggestions(
     const context = blockerDetails || task.description || '';
     const p = PROMPTS.STATUS_CHANGE_SUGGESTIONS;
     const text = await callAI(p.user(task.title, status, context), p.system, 1800);
-    const parsed = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] ?? '{}') as { suggestions?: string[] };
-    return parsed.suggestions?.length ? parsed.suggestions : fallbacks;
+    const parsed = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] ?? '{}') as { suggestions?: unknown };
+    const suggestions = normalizeSuggestions(parsed.suggestions);
+    return suggestions.length ? suggestions : fallbacks;
   } catch (error) {
     console.error('Error generating status suggestions, using fallback:', error);
     return fallbacks;

@@ -30,7 +30,7 @@ type TaskStatusHistory = {
   id: string; fromStatus: string | null; toStatus: string; changedAt: string;
   changedBy: { id: string; name: string; avatarUrl?: string };
   blockerType?: string | null; blockerDescription?: string | null;
-  blockerExpectedResolution?: string | null; suggestions?: string[] | null;
+  blockerExpectedResolution?: string | null; suggestions?: unknown[] | null;
 };
 type TaskDetail = {
   id: string; title: string; description?: string; expectedOutcome?: string;
@@ -419,7 +419,7 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
                       content: <span className="text-sm">{formatDateTime(task.createdAt)}</span>,
                     },
                     task.dueDate && {
-                      icon: Calendar, label: 'Due date',
+                      icon: Calendar, label: 'End date',
                       content: (
                         <span className={cn('text-sm font-semibold', overdueTask ? 'text-red-600' : 'text-foreground')}>
                           {formatDateTime(task.dueDate)}
@@ -712,7 +712,9 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
                                       </div>
                                       <ol className="text-xs space-y-1.5 text-muted-foreground list-decimal list-inside pl-1">
                                         {h.suggestions.map((s, i) => (
-                                          <li key={i} className="leading-relaxed hover:text-foreground transition-colors">{s}</li>
+                                          <li key={i} className="leading-relaxed hover:text-foreground transition-colors">
+                                            {typeof s === 'string' ? s : Object.values(s as Record<string, unknown>).map(String).join(' ')}
+                                          </li>
                                         ))}
                                       </ol>
                                     </div>

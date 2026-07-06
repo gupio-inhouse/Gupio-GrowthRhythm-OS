@@ -13,10 +13,16 @@ function istStartOfDay(d: Date): Date {
 function istEndOfDay(d: Date): Date {
   const ist = new Date(d); ist.setUTCHours(23, 59, 59, 999); return fromIST(ist);
 }
+function istStartOfWorkingDay(d: Date): Date {
+  const ist = new Date(d); ist.setUTCHours(9, 30, 0, 0); return fromIST(ist);
+}
+function istEndOfWorkingDay(d: Date): Date {
+  const ist = new Date(d); ist.setUTCHours(19, 30, 0, 0); return fromIST(ist);
+}
 
 export function getPeriodRange(period: 'daily' | 'weekly' | 'monthly') {
   const now = toIST(new Date());
-  if (period === 'daily') return { from: istStartOfDay(now), to: istEndOfDay(now) };
+  if (period === 'daily') return { from: istStartOfWorkingDay(now), to: istEndOfWorkingDay(now) };
   if (period === 'weekly') {
     const dow = now.getUTCDay();
     const monday = new Date(now); monday.setUTCDate(now.getUTCDate() - (dow === 0 ? 6 : dow - 1));
@@ -32,7 +38,7 @@ function getPriorPeriodRange(period: 'daily' | 'weekly' | 'monthly', currentFrom
   const istFrom = toIST(currentFrom);
   if (period === 'daily') {
     const prev = new Date(istFrom); prev.setUTCDate(istFrom.getUTCDate() - 1);
-    return { from: istStartOfDay(prev), to: istEndOfDay(prev) };
+    return { from: istStartOfWorkingDay(prev), to: istEndOfWorkingDay(prev) };
   }
   if (period === 'weekly') {
     const prevMon = new Date(istFrom); prevMon.setUTCDate(istFrom.getUTCDate() - 7);

@@ -538,7 +538,7 @@ router.post(
         return;
       }
       if (parsed.data.dueDate && new Date(parsed.data.dueDate) > new Date(phase.dueDate)) {
-        res.status(400).json({ error: `Task due date cannot be beyond the Phase deadline (${phase.dueDate.toISOString().split('T')[0]}).` });
+        res.status(400).json({ error: `Task end date cannot be beyond the Phase deadline (${phase.dueDate.toISOString().split('T')[0]}).` });
         return;
       }
     }
