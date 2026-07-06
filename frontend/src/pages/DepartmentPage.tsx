@@ -3588,6 +3588,9 @@ function AddMemberToTeamDialog({ team, onClose, onAdded }: {
 
 // ── Add Project Task Dialog ───────────────────────────────────────────────────
 
+const PROJECT_TASK_WORK_START_TIME = '09:30';
+const PROJECT_TASK_WORK_END_TIME   = '19:30';
+
 const addProjectTaskSchema = z.object({
   title:           z.string().min(2, 'Title required'),
   description:     z.string().optional(),
@@ -3597,6 +3600,10 @@ const addProjectTaskSchema = z.object({
   dueDate:         z.string().optional(),
   dueTime:         z.string().optional(),
   phaseId:         z.string().optional(),
+}).superRefine((data, ctx) => {
+  if (data.dueTime && (data.dueTime < PROJECT_TASK_WORK_START_TIME || data.dueTime > PROJECT_TASK_WORK_END_TIME)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'End time must be within working hours (9:30 AM – 7:30 PM)', path: ['dueTime'] });
+  }
 });
 type AddProjectTaskForm = z.infer<typeof addProjectTaskSchema>;
 
@@ -3867,7 +3874,9 @@ function AddProjectTaskDialog({ teamId, members, canAssign, selfId, deptName, on
             </div>
             <div className="space-y-1.5">
               <Label>End Time</Label>
-              <Input type="time" {...register('dueTime')} />
+              <Input type="time" min={PROJECT_TASK_WORK_START_TIME} max={PROJECT_TASK_WORK_END_TIME} {...register('dueTime')} />
+              <p className="text-[10px] text-muted-foreground/70">Working hours: 9:30 AM – 7:30 PM</p>
+              {errors.dueTime && <p className="text-xs text-destructive">{errors.dueTime.message}</p>}
             </div>
           </div>
 

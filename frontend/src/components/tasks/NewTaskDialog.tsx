@@ -20,6 +20,11 @@ import { toast } from '@/hooks/use-toast';
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
 
+const WORK_START_TIME = '09:30';
+const WORK_END_TIME   = '19:30';
+const isWithinWorkingHours = (time: string) => time >= WORK_START_TIME && time <= WORK_END_TIME;
+const WORK_HOURS_MESSAGE = 'End time must be within working hours (9:30 AM – 7:30 PM)';
+
 const elevatedSchema = z.object({
   title:           z.string().min(2, 'Title is required'),
   description:     z.string().optional(),
@@ -39,6 +44,9 @@ const elevatedSchema = z.object({
     if (!data.dueDate) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'End date is required', path: ['dueDate'] });
     if (!data.dueTime) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'End time is required', path: ['dueTime'] });
   }
+  if (data.dueTime && !isWithinWorkingHours(data.dueTime)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: WORK_HOURS_MESSAGE, path: ['dueTime'] });
+  }
 });
 
 const memberSchema = z.object({
@@ -53,6 +61,10 @@ const memberSchema = z.object({
   dueDate:         z.string().min(1, 'End date is required'),
   dueTime:         z.string().min(1, 'End time is required'),
   phaseId:         z.string().optional(),
+}).superRefine((data, ctx) => {
+  if (data.dueTime && !isWithinWorkingHours(data.dueTime)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: WORK_HOURS_MESSAGE, path: ['dueTime'] });
+  }
 });
 
 type FormData = z.infer<typeof elevatedSchema>;
@@ -632,7 +644,14 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
                       <Clock className="h-3.5 w-3.5 text-muted-foreground" />
                       <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">End Time *</Label>
                     </div>
-                    <Input type="time" {...register('dueTime')} className="rounded-xl border-border/60 h-9 text-sm" />
+                    <Input
+                      type="time"
+                      min={WORK_START_TIME}
+                      max={WORK_END_TIME}
+                      {...register('dueTime')}
+                      className="rounded-xl border-border/60 h-9 text-sm"
+                    />
+                    <p className="text-[10px] text-muted-foreground/70">Working hours: 9:30 AM – 7:30 PM</p>
                     {errors.dueTime && <p className="text-xs text-destructive">{errors.dueTime.message}</p>}
                   </div>
                 </div>

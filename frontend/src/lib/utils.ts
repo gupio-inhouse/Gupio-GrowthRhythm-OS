@@ -52,7 +52,13 @@ export function isEngineeringDept(name?: string): boolean {
   return !!name && name.toLowerCase().includes('engineering');
 }
 
-// Returns milliseconds of working time between start and end, skipping weekends.
+// Working hours: 9:30 AM – 7:30 PM (10h/day).
+const WORK_START = [9, 30] as const;
+const WORK_END   = [19, 30] as const;
+const WORK_DAY_HOURS = (WORK_END[0] + WORK_END[1] / 60) - (WORK_START[0] + WORK_START[1] / 60);
+
+// Returns milliseconds of working time between start and end — skips weekends
+// and, on working days, only counts the 9:30 AM–7:30 PM window.
 export function calcWorkingMs(start: Date, end: Date, excludeSat: boolean): number {
   if (end <= start) return 0;
   let ms = 0;
@@ -60,9 +66,10 @@ export function calcWorkingMs(start: Date, end: Date, excludeSat: boolean): numb
   while (d.getTime() < end.getTime()) {
     const day = d.getDay();
     if (day !== 0 && !(excludeSat && day === 6)) {
-      const dayEnd = new Date(d); dayEnd.setDate(d.getDate() + 1);
-      const s = Math.max(d.getTime(), start.getTime());
-      const e = Math.min(dayEnd.getTime(), end.getTime());
+      const workStart = new Date(d); workStart.setHours(...WORK_START, 0, 0);
+      const workEnd   = new Date(d); workEnd.setHours(...WORK_END, 0, 0);
+      const s = Math.max(workStart.getTime(), start.getTime());
+      const e = Math.min(workEnd.getTime(), end.getTime());
       if (e > s) ms += e - s;
     }
     d.setDate(d.getDate() + 1);
@@ -70,14 +77,15 @@ export function calcWorkingMs(start: Date, end: Date, excludeSat: boolean): numb
   return ms;
 }
 
-// Human label from working ms (e.g. "2d 3h", "5h", "10d").
+// Human label from working ms (e.g. "2d 3h", "5h", "10d") — a "day" here is one
+// 10-hour working day (9:30 AM–7:30 PM), not a 24h calendar day.
 export function workingDurationLabel(start: Date, end: Date, excludeSat: boolean): string | null {
   const ms = calcWorkingMs(start, end, excludeSat);
   if (ms <= 0) return null;
   const totalHours = Math.floor(ms / 3_600_000);
-  const days       = Math.floor(ms / 86_400_000);
-  const remHours   = totalHours - days * 24;
-  if (totalHours < 24) return `${totalHours}h`;
+  const days       = Math.floor(totalHours / WORK_DAY_HOURS);
+  const remHours   = totalHours - days * WORK_DAY_HOURS;
+  if (totalHours < WORK_DAY_HOURS) return `${totalHours}h`;
   if (remHours > 0 && days < 7) return `${days}d ${remHours}h`;
   return `${days}d`;
 }
