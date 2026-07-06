@@ -850,7 +850,7 @@ function BlockerTaskDialog({
     if (!title.trim()) return;
     setSaving(true);
     try {
-      await api.post('/tasks', { title: title.trim(), assigneeUserId, departmentId, status: 'BLOCKED', blockerType, priority: 'HIGH' });
+      await api.post('/tasks', { title: title.trim(), assigneeUserId, departmentId, status: 'BLOCKED', blockerType, priority: 'HIGH', startDate: new Date().toISOString() });
       onCreated();
     } finally { setSaving(false); }
   };

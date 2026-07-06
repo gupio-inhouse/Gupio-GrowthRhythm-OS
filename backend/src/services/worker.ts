@@ -516,6 +516,7 @@ export const recurringTaskWorker = new Worker('recurring-task', async (job: Job)
         departmentId:    task.departmentId,
         teamId:          task.teamId,
         priority:        task.priority,
+        startDate:       now,
         dueDate:         todayEnd,
         sourceType:      `RECURRING:${task.id}`,
       },

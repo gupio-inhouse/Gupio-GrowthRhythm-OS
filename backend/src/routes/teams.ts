@@ -510,6 +510,7 @@ router.post(
       title: z.string().min(2),
       description: z.string().optional(),
       priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).default('MEDIUM'),
+      startDate: z.string(),
       dueDate: z.string().optional(),
       assignToUserId: z.string().optional(),
       phaseId: z.string().optional(),
@@ -517,6 +518,11 @@ router.post(
 
     const parsed = taskSchema.safeParse(req.body);
     if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+
+    if (parsed.data.dueDate && new Date(parsed.data.startDate) > new Date(parsed.data.dueDate)) {
+      res.status(400).json({ error: 'Start date must be before the end date.' });
+      return;
+    }
 
     const team = await prisma.team.findFirst({
       where: { id: teamId, orgId },
@@ -555,7 +561,7 @@ router.post(
       res.status(403).json({ error: 'You can only assign tasks for teams in your own department' }); return;
     }
 
-    const { assignToUserId, dueDate, phaseId, ...taskBase } = parsed.data;
+    const { assignToUserId, startDate, dueDate, phaseId, ...taskBase } = parsed.data;
 
     // Project managers can assign to any member; regular team members only to themselves
     const canAssignOthers = role !== 'TEAM_MEMBER' || isProjectManager;
@@ -582,6 +588,7 @@ router.post(
             assigneeUserId: assigneeId,
             assignedByUserId: userId,
             phaseId: phaseId || null,
+            startDate: new Date(startDate),
             ...(dueDateVal && { dueDate: dueDateVal }),
           },
           select: { id: true, title: true, assignee: { select: { id: true, name: true } } },

@@ -93,7 +93,7 @@ const createSchema = z.object({
   teamId: z.string().optional(),
   assigneeUserId: z.string().optional(),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).default('MEDIUM'),
-  startDate: z.string().datetime().optional(),
+  startDate: z.string().datetime(),
   dueDate: z.string().datetime().optional(),
   recurrence: z.string().optional(),
   phaseId: z.string().optional(),
@@ -324,6 +324,11 @@ router.post('/', auditLog('task', 'CREATE'), async (req: AuthRequest, res: Respo
     return;
   }
 
+  if (parsed.data.dueDate && new Date(parsed.data.startDate) > new Date(parsed.data.dueDate)) {
+    res.status(400).json({ error: 'Start date must be before the end date.' });
+    return;
+  }
+
   // Resolve assignee (optional for elevated roles — they can leave it unassigned)
   let assignee: { id: string; name: string; email: string; departmentId: string | null; managerId: string | null } | null = null;
   if (parsed.data.assigneeUserId) {
@@ -433,6 +438,7 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
       title: true,
       description: true,
       priority: true,
+      startDate: true,
       dueDate: true,
       status: true,
       completionSubmittedAt: true,
@@ -448,6 +454,15 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
   if (!(await canMutateTask(actor, existingTask))) {
     res.status(403).json({ error: 'Forbidden' });
     return;
+  }
+
+  {
+    const resolvedStartDate = parsed.data.startDate !== undefined ? parsed.data.startDate : existingTask.startDate?.toISOString();
+    const resolvedDueDateForRange = parsed.data.dueDate !== undefined ? parsed.data.dueDate : existingTask.dueDate?.toISOString();
+    if (resolvedStartDate && resolvedDueDateForRange && new Date(resolvedStartDate) > new Date(resolvedDueDateForRange)) {
+      res.status(400).json({ error: 'Start date must be before the end date.' });
+      return;
+    }
   }
 
   // Validate phase-wise tasks for Engineering department projects
@@ -840,6 +855,8 @@ router.post('/import-csv', auditLog('task', 'CREATE'), async (req: AuthRequest, 
         assigneeUserId,
         departmentId,
         teamId,
+        // CSV template predates the start-date field — default to now for imported rows.
+        startDate: row.startDate ? new Date(row.startDate).toISOString() : new Date().toISOString(),
         dueDate: row.dueDate ? new Date(row.dueDate).toISOString() : undefined,
         recurrence: row.recurrence?.toUpperCase() || undefined,
       });

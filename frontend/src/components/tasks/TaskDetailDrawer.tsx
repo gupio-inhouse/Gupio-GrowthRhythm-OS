@@ -34,7 +34,7 @@ type TaskStatusHistory = {
 };
 type TaskDetail = {
   id: string; title: string; description?: string; expectedOutcome?: string;
-  status: string; priority: string; dueDate?: string; createdAt?: string;
+  status: string; priority: string; startDate?: string; dueDate?: string; createdAt?: string;
   completionSubmittedAt?: string; completedAt?: string;
   completionReviewedAt?: string; blockerType?: string; blockerExpectedResolution?: string;
   assignee: { id: string; name: string; avatarUrl?: string };
@@ -418,6 +418,10 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
                       icon: Calendar, label: 'Created',
                       content: <span className="text-sm">{formatDateTime(task.createdAt)}</span>,
                     },
+                    task.startDate && {
+                      icon: Calendar, label: 'Start date',
+                      content: <span className="text-sm font-semibold">{formatDateTime(task.startDate)}</span>,
+                    },
                     task.dueDate && {
                       icon: Calendar, label: 'End date',
                       content: (
@@ -427,9 +431,9 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
                         </span>
                       ),
                     },
-                    (task.createdAt && task.dueDate) && (() => {
+                    ((task.startDate || task.createdAt) && task.dueDate) && (() => {
                       const isEng  = isEngineeringDept(task.department?.name);
-                      const label  = workingDurationLabel(new Date(task.createdAt!), new Date(task.dueDate!), isEng);
+                      const label  = workingDurationLabel(new Date(task.startDate || task.createdAt!), new Date(task.dueDate!), isEng);
                       if (!label) return null;
                       return {
                         icon: Clock, label: 'Duration',

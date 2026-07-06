@@ -27,7 +27,7 @@ import { toast } from '@/hooks/use-toast';
 // ── Types ─────────────────────────────────────────────────────────────────────
 type Task = {
   id: string; title: string; status: string; priority: string;
-  dueDate?: string; createdAt?: string;
+  startDate?: string; dueDate?: string; createdAt?: string;
   completionSubmittedAt?: string; completedAt?: string;
   assignee?: { id: string; name: string; avatarUrl?: string };
   department?: { id: string; name: string };
@@ -124,13 +124,14 @@ function DueBadge({
 }
 
 // ── DurationBadge ─────────────────────────────────────────────────────────────
-function DurationBadge({ createdAt, dueDate, isEng = false }: { createdAt?: string; dueDate?: string; isEng?: boolean }) {
-  if (!createdAt || !dueDate) return null;
-  const label = workingDurationLabel(new Date(createdAt), new Date(dueDate), isEng);
+function DurationBadge({ startDate, createdAt, dueDate, isEng = false }: { startDate?: string; createdAt?: string; dueDate?: string; isEng?: boolean }) {
+  const start = startDate || createdAt;
+  if (!start || !dueDate) return null;
+  const label = workingDurationLabel(new Date(start), new Date(dueDate), isEng);
   if (!label) return null;
   return (
     <span
-      title={`Working duration: created → due (${isEng ? 'Mon–Sat' : 'Mon–Fri'})`}
+      title={`Working duration: ${startDate ? 'start' : 'created'} → due (${isEng ? 'Mon–Sat' : 'Mon–Fri'})`}
       className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-50 text-slate-500 border border-slate-200 tabular-nums"
     >
       <Clock className="h-2.5 w-2.5" />
@@ -738,7 +739,7 @@ function TaskListRow({
                 )}
                 {/* Mobile due badge + duration */}
                 {task.dueDate && <DueBadge dueDate={task.dueDate} status={task.status} isEng={isEngineeringDept(task.department?.name)} completionSubmittedAt={task.completionSubmittedAt} completedAt={task.completedAt} className="sm:hidden" />}
-                <DurationBadge createdAt={task.createdAt} dueDate={task.dueDate} isEng={isEngineeringDept(task.department?.name)} />
+                <DurationBadge startDate={task.startDate} createdAt={task.createdAt} dueDate={task.dueDate} isEng={isEngineeringDept(task.department?.name)} />
               </div>
 
               {/* Delivery buttons */}
@@ -764,7 +765,7 @@ function TaskListRow({
 
             {/* Duration + due date (desktop) + extend */}
             <div className="hidden sm:flex items-center gap-1.5 shrink-0">
-              <DurationBadge createdAt={task.createdAt} dueDate={task.dueDate} isEng={isEngineeringDept(task.department?.name)} />
+              <DurationBadge startDate={task.startDate} createdAt={task.createdAt} dueDate={task.dueDate} isEng={isEngineeringDept(task.department?.name)} />
               {task.dueDate && <DueBadge dueDate={task.dueDate} status={task.status} isEng={isEngineeringDept(task.department?.name)} completionSubmittedAt={task.completionSubmittedAt} completedAt={task.completedAt} />}
               {canExtend && !['DONE', 'CANCELLED'].includes(task.status) && (
                 extendOpen ? (
@@ -984,7 +985,7 @@ function KanbanCard({
             {!!task._count?.attachments && (
               <span className="text-[10px] text-muted-foreground">📎{task._count.attachments}</span>
             )}
-            <DurationBadge createdAt={task.createdAt} dueDate={task.dueDate} isEng={isEngineeringDept(task.department?.name)} />
+            <DurationBadge startDate={task.startDate} createdAt={task.createdAt} dueDate={task.dueDate} isEng={isEngineeringDept(task.department?.name)} />
             {task.dueDate && <DueBadge dueDate={task.dueDate} status={task.status} isEng={isEngineeringDept(task.department?.name)} completionSubmittedAt={task.completionSubmittedAt} completedAt={task.completedAt} />}
             {canExtend && !['DONE', 'CANCELLED'].includes(task.status) && (
               extendOpen ? (
@@ -1128,6 +1129,7 @@ function CsvImportDialog({ open, onClose, onImported }: { open: boolean; onClose
     { key: 'departmentName',  aliases: ['departmentName', 'department'],    label: 'department' },
     { key: 'projectName',     aliases: ['projectName', 'project'],          label: 'project' },
     { key: 'priority',        aliases: ['priority'],                        label: 'priority' },
+    { key: 'startDate',       aliases: ['startDate'],                       label: 'startDate' },
     { key: 'dueDate',         aliases: ['dueDate'],                         label: 'dueDate' },
     { key: 'recurrence',      aliases: ['recurrence'],                      label: 'recurrence' },
   ];
@@ -1213,6 +1215,7 @@ function CsvImportDialog({ open, onClose, onImported }: { open: boolean; onClose
                 <p className="font-mono pl-1">description, expectedOutcome</p>
                 <p className="font-mono pl-1">departmentName, projectName <span className="font-sans">(exact names)</span></p>
                 <p className="font-mono pl-1">priority <span className="font-sans">(LOW/MEDIUM/HIGH/CRITICAL)</span></p>
+                <p className="font-mono pl-1">startDate <span className="font-sans">(YYYY-MM-DD, defaults to today)</span></p>
                 <p className="font-mono pl-1">dueDate <span className="font-sans">(YYYY-MM-DD)</span></p>
                 <p className="font-mono pl-1">recurrence <span className="font-sans">(NONE/DAILY/WEEKLY/MONTHLY/YEARLY)</span></p>
               </div>
@@ -1221,10 +1224,10 @@ function CsvImportDialog({ open, onClose, onImported }: { open: boolean; onClose
               type="button"
               onClick={() => {
                 const csv = [
-                  'title,assigneeEmail,description,expectedOutcome,departmentName,projectName,priority,dueDate,recurrence',
-                  'Design homepage mockup,john@company.com,Create wireframes for homepage,Approved mockup ready for dev,Marketing,,HIGH,2025-08-01,NONE',
-                  'Write API documentation,sarah@company.com,Document all REST endpoints,,Engineering,Backend API,MEDIUM,2025-08-15,NONE',
-                  'Weekly status report,dev@company.com,Compile team progress,,,,LOW,2025-08-07,WEEKLY',
+                  'title,assigneeEmail,description,expectedOutcome,departmentName,projectName,priority,startDate,dueDate,recurrence',
+                  'Design homepage mockup,john@company.com,Create wireframes for homepage,Approved mockup ready for dev,Marketing,,HIGH,2025-07-28,2025-08-01,NONE',
+                  'Write API documentation,sarah@company.com,Document all REST endpoints,,Engineering,Backend API,MEDIUM,2025-08-10,2025-08-15,NONE',
+                  'Weekly status report,dev@company.com,Compile team progress,,,,LOW,,2025-08-07,WEEKLY',
                 ].join('\n');
                 const blob = new Blob([csv], { type: 'text/csv' });
                 const url = URL.createObjectURL(blob);

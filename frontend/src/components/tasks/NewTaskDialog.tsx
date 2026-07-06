@@ -23,51 +23,77 @@ import { toast } from '@/hooks/use-toast';
 const WORK_START_TIME = '09:30';
 const WORK_END_TIME   = '19:30';
 const isWithinWorkingHours = (time: string) => time >= WORK_START_TIME && time <= WORK_END_TIME;
-const WORK_HOURS_MESSAGE = 'End time must be within working hours (9:30 AM – 7:30 PM)';
+const START_WORK_HOURS_MESSAGE = 'Start time must be within working hours (9:30 AM – 7:30 PM)';
+const END_WORK_HOURS_MESSAGE   = 'End time must be within working hours (9:30 AM – 7:30 PM)';
 
-const elevatedSchema = z.object({
-  title:           z.string().min(2, 'Title is required'),
-  description:     z.string().optional(),
-  expectedOutcome: z.string().optional(),
-  assigneeUserId:  z.string().optional(),
-  departmentId:    z.string().optional(),
-  teamId:          z.string().optional(),
-  dependencyId:    z.string().optional(),
-  priority:        z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).default('MEDIUM'),
-  dueDate:         z.string().optional(),
-  dueTime:         z.string().optional(),
-  phaseId:         z.string().optional(),
-}).superRefine((data, ctx) => {
-  // End date/time are only meaningful once the task has an owner — an unassigned
-  // task gets its end date later, when someone actually assigns it.
-  if (data.assigneeUserId) {
-    if (!data.dueDate) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'End date is required', path: ['dueDate'] });
-    if (!data.dueTime) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'End time is required', path: ['dueTime'] });
+type DateFields = { startDate?: string; startTime?: string; dueDate?: string; dueTime?: string };
+
+// Shared across both roles: working-hours bounds + start-before-end ordering.
+function applyDateRules(data: DateFields, ctx: z.RefinementCtx) {
+  if (data.startTime && !isWithinWorkingHours(data.startTime)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: START_WORK_HOURS_MESSAGE, path: ['startTime'] });
   }
   if (data.dueTime && !isWithinWorkingHours(data.dueTime)) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: WORK_HOURS_MESSAGE, path: ['dueTime'] });
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: END_WORK_HOURS_MESSAGE, path: ['dueTime'] });
   }
-});
-
-const memberSchema = z.object({
-  title:           z.string().min(2, 'Title is required'),
-  description:     z.string().optional(),
-  expectedOutcome: z.string().optional(),
-  assigneeUserId:  z.string().optional(),
-  departmentId:    z.string().optional(),
-  teamId:          z.string().optional(),
-  dependencyId:    z.string().optional(),
-  priority:        z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).default('MEDIUM'),
-  dueDate:         z.string().min(1, 'End date is required'),
-  dueTime:         z.string().min(1, 'End time is required'),
-  phaseId:         z.string().optional(),
-}).superRefine((data, ctx) => {
-  if (data.dueTime && !isWithinWorkingHours(data.dueTime)) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: WORK_HOURS_MESSAGE, path: ['dueTime'] });
+  if (data.startDate && data.dueDate) {
+    const startTs = new Date(`${data.startDate}T${data.startTime || '00:00'}`).getTime();
+    const endTs   = new Date(`${data.dueDate}T${data.dueTime || '23:59:59'}`).getTime();
+    if (startTs > endTs) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Start date/time must be before the end date/time', path: ['startDate'] });
+    }
   }
-});
+}
 
-type FormData = z.infer<typeof elevatedSchema>;
+// Start date/time is required for new tasks, but editing an existing task never
+// force-fills it retroactively — plenty of tasks predate this field.
+function buildElevatedSchema(isEditMode: boolean) {
+  return z.object({
+    title:           z.string().min(2, 'Title is required'),
+    description:     z.string().optional(),
+    expectedOutcome: z.string().optional(),
+    assigneeUserId:  z.string().optional(),
+    departmentId:    z.string().optional(),
+    teamId:          z.string().optional(),
+    dependencyId:    z.string().optional(),
+    priority:        z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).default('MEDIUM'),
+    startDate:       isEditMode ? z.string().optional() : z.string().min(1, 'Start date is required'),
+    startTime:       isEditMode ? z.string().optional() : z.string().min(1, 'Start time is required'),
+    dueDate:         z.string().optional(),
+    dueTime:         z.string().optional(),
+    phaseId:         z.string().optional(),
+  }).superRefine((data, ctx) => {
+    // End date/time are only meaningful once the task has an owner — an unassigned
+    // task gets its end date later, when someone actually assigns it.
+    if (data.assigneeUserId) {
+      if (!data.dueDate) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'End date is required', path: ['dueDate'] });
+      if (!data.dueTime) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'End time is required', path: ['dueTime'] });
+    }
+    applyDateRules(data, ctx);
+  });
+}
+
+function buildMemberSchema(isEditMode: boolean) {
+  return z.object({
+    title:           z.string().min(2, 'Title is required'),
+    description:     z.string().optional(),
+    expectedOutcome: z.string().optional(),
+    assigneeUserId:  z.string().optional(),
+    departmentId:    z.string().optional(),
+    teamId:          z.string().optional(),
+    dependencyId:    z.string().optional(),
+    priority:        z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).default('MEDIUM'),
+    startDate:       isEditMode ? z.string().optional() : z.string().min(1, 'Start date is required'),
+    startTime:       isEditMode ? z.string().optional() : z.string().min(1, 'Start time is required'),
+    dueDate:         z.string().min(1, 'End date is required'),
+    dueTime:         z.string().min(1, 'End time is required'),
+    phaseId:         z.string().optional(),
+  }).superRefine((data, ctx) => {
+    applyDateRules(data, ctx);
+  });
+}
+
+type FormData = z.infer<ReturnType<typeof buildElevatedSchema>>;
 
 type UserItem      = { id: string; name: string; role: string; departmentId?: string };
 type Department    = { id: string; name: string };
@@ -79,6 +105,7 @@ export type TaskToEdit = {
   description?: string;
   expectedOutcome?: string;
   priority: string;
+  startDate?: string;
   dueDate?: string;
   assignee?: { id: string; name: string } | null;
   department?: { id: string; name: string };
@@ -109,7 +136,7 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
   const isTeamMember    = user?.role === 'TEAM_MEMBER';
   const canAssignToAny  = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
   const isEditMode      = !!taskToEdit;
-  const activeSchema    = isTeamMember ? memberSchema : elevatedSchema;
+  const activeSchema    = isTeamMember ? buildMemberSchema(isEditMode) : buildElevatedSchema(isEditMode);
 
   const [userSearch, setUserSearch] = useState('');
   const [userDropOpen, setUserDropOpen] = useState(false);
@@ -176,6 +203,13 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
         departmentId:    taskToEdit.department?.id ?? '',
         teamId:          taskToEdit.teamId ?? '',
         phaseId:         taskToEdit.phaseId ?? '',
+        startDate:       taskToEdit.startDate ? new Date(taskToEdit.startDate).toISOString().split('T')[0] : '',
+        startTime: (() => {
+          if (!taskToEdit.startDate) return '';
+          const d = new Date(taskToEdit.startDate);
+          const h = d.getHours(), m = d.getMinutes();
+          return (h !== 0 || m !== 0) ? `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}` : '';
+        })(),
         dueDate:         taskToEdit.dueDate ? new Date(taskToEdit.dueDate).toISOString().split('T')[0] : '',
         dueTime: (() => {
           if (!taskToEdit.dueDate) return '';
@@ -258,6 +292,7 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
       }
     }
 
+    const startDateIso = data.startDate ? new Date(`${data.startDate}T${data.startTime || '00:00'}`).toISOString() : undefined;
     const dueDateIso = data.dueDate ? new Date(`${data.dueDate}T${data.dueTime || '23:59:59'}`).toISOString() : undefined;
 
     const payload: Record<string, unknown> = isTeamMember && isEditMode
@@ -271,6 +306,7 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
           teamId:          data.teamId           || undefined,
           dependencyId:    data.dependencyId     || undefined,
           priority:        data.priority,
+          startDate:       startDateIso,
           dueDate:         dueDateIso,
           phaseId:         data.phaseId          || undefined,
         };
@@ -612,6 +648,41 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
                       {cfg.label}
                     </button>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {/* Start date + time */}
+            {!(isTeamMember && isEditMode) && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                    <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Start Date{!isEditMode && ' *'}</Label>
+                  </div>
+                  <WeekdayDatePicker
+                    value={watch('startDate') ?? ''}
+                    onChange={(v) => setValue('startDate', v, { shouldValidate: true })}
+                    excludeSat={isEngInDialog}
+                    placeholder="Pick start date"
+                    inputClassName="w-full"
+                  />
+                  {errors.startDate && <p className="text-xs text-destructive">{errors.startDate.message}</p>}
+                </div>
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                    <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Start Time{!isEditMode && ' *'}</Label>
+                  </div>
+                  <Input
+                    type="time"
+                    min={WORK_START_TIME}
+                    max={WORK_END_TIME}
+                    {...register('startTime')}
+                    className="rounded-xl border-border/60 h-9 text-sm"
+                  />
+                  <p className="text-[10px] text-muted-foreground/70">Working hours: 9:30 AM – 7:30 PM</p>
+                  {errors.startTime && <p className="text-xs text-destructive">{errors.startTime.message}</p>}
                 </div>
               </div>
             )}

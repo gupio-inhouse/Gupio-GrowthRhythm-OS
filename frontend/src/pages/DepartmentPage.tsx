@@ -3597,12 +3597,24 @@ const addProjectTaskSchema = z.object({
   expectedOutcome: z.string().optional(),
   assigneeUserId:  z.string().min(1, 'Assignee required'),
   priority:        z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']),
+  startDate:       z.string().min(1, 'Start date is required'),
+  startTime:       z.string().min(1, 'Start time is required'),
   dueDate:         z.string().optional(),
   dueTime:         z.string().optional(),
   phaseId:         z.string().optional(),
 }).superRefine((data, ctx) => {
+  if (data.startTime && (data.startTime < PROJECT_TASK_WORK_START_TIME || data.startTime > PROJECT_TASK_WORK_END_TIME)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Start time must be within working hours (9:30 AM – 7:30 PM)', path: ['startTime'] });
+  }
   if (data.dueTime && (data.dueTime < PROJECT_TASK_WORK_START_TIME || data.dueTime > PROJECT_TASK_WORK_END_TIME)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'End time must be within working hours (9:30 AM – 7:30 PM)', path: ['dueTime'] });
+  }
+  if (data.startDate && data.dueDate) {
+    const startTs = new Date(`${data.startDate}T${data.startTime || '00:00'}`).getTime();
+    const endTs   = new Date(`${data.dueDate}T${data.dueTime || '23:59:59'}`).getTime();
+    if (startTs > endTs) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Start date/time must be before the end date/time', path: ['startDate'] });
+    }
   }
 });
 type AddProjectTaskForm = z.infer<typeof addProjectTaskSchema>;
@@ -3699,6 +3711,7 @@ function AddProjectTaskDialog({ teamId, members, canAssign, selfId, deptName, on
       title:           data.title,
       description:     data.description || undefined,
       priority:        data.priority,
+      startDate:       new Date(`${data.startDate}T${data.startTime || '00:00'}`).toISOString(),
       dueDate:         data.dueDate ? new Date(`${data.dueDate}T${data.dueTime || '23:59:59'}`).toISOString() : undefined,
       assignToUserId:  canAssign ? data.assigneeUserId : selfId,
       phaseId:         data.phaseId || undefined,
@@ -3859,6 +3872,27 @@ function AddProjectTaskDialog({ teamId, members, canAssign, selfId, deptName, on
               </Select>
             </div>
           )}
+
+          {/* Start date + time */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label>Start Date</Label>
+              <WeekdayDatePicker
+                value={watch('startDate') ?? ''}
+                onChange={(v) => setValue('startDate', v)}
+                excludeSat={isEngTask}
+                placeholder="Pick start date"
+                inputClassName="w-full"
+              />
+              {errors.startDate && <p className="text-xs text-destructive">{errors.startDate.message}</p>}
+            </div>
+            <div className="space-y-1.5">
+              <Label>Start Time</Label>
+              <Input type="time" min={PROJECT_TASK_WORK_START_TIME} max={PROJECT_TASK_WORK_END_TIME} {...register('startTime')} />
+              <p className="text-[10px] text-muted-foreground/70">Working hours: 9:30 AM – 7:30 PM</p>
+              {errors.startTime && <p className="text-xs text-destructive">{errors.startTime.message}</p>}
+            </div>
+          </div>
 
           {/* End date + time */}
           <div className="grid grid-cols-2 gap-4">
