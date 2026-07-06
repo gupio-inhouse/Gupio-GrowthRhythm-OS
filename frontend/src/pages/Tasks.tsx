@@ -290,6 +290,10 @@ export default function Tasks() {
 
   const isEngineeringContext = isEngineeringDept(departments.find((d) => d.id === departmentFilter)?.name);
   const engineeringProjects = teams.filter((t) => isEngineeringDept(t.department?.name));
+  // Show the Project filter when Engineering is explicitly selected, or when no
+  // department filter is applied and the viewer's own department is Engineering —
+  // so it shows by default for Engineering folks without an extra click.
+  const showProjectFilter = isEngineeringContext || (!departmentFilter && isEngineeringDept(user?.departmentName));
 
   const resetPage = () => setPage(1);
 
@@ -473,7 +477,7 @@ export default function Tasks() {
                   </SelectContent>
                 </Select>
 
-                {isEngineeringContext && (
+                {showProjectFilter && (
                   <Select
                     value={projectFilter || '__all__'}
                     onValueChange={(v) => { setProjectFilter(v === '__all__' ? '' : v); resetPage(); }}
