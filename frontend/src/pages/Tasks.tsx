@@ -149,6 +149,7 @@ export default function Tasks() {
   const [statusFilter, setStatusFilter] = useState(() => searchParams.get('status') ?? '');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [memberFilter, setMemberFilter] = useState('');
+  const [projectFilter, setProjectFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
   const [page, setPage] = useState(1);
   const [view, setView] = useState<'list' | 'kanban'>('list');
@@ -177,6 +178,12 @@ export default function Tasks() {
   const { data: allUsers = [] } = useQuery<{ id: string; name: string; departmentId?: string }[]>({
     queryKey: ['users-list'],
     queryFn: () => api.get('/users').then((r) => r.data),
+    enabled: canFilterByDept,
+  });
+
+  const { data: teams = [] } = useQuery<{ id: string; name: string; department?: { id: string; name: string } }[]>({
+    queryKey: ['teams'],
+    queryFn: () => api.get('/teams').then((r) => r.data),
     enabled: canFilterByDept,
   });
 
@@ -282,6 +289,7 @@ export default function Tasks() {
   })();
 
   const isEngineeringContext = isEngineeringDept(departments.find((d) => d.id === departmentFilter)?.name);
+  const engineeringProjects = teams.filter((t) => isEngineeringDept(t.department?.name));
 
   const resetPage = () => setPage(1);
 
@@ -301,6 +309,7 @@ export default function Tasks() {
       }
       if (departmentFilter && t.department?.id !== departmentFilter) return false;
       if (memberFilter && t.assignee?.id !== memberFilter) return false;
+      if (projectFilter && t.team?.id !== projectFilter) return false;
       if (dateFilter) {
         if (!t.dueDate) return false;
         const start = new Date(dateFilter); start.setHours(0, 0, 0, 0);
@@ -324,7 +333,7 @@ export default function Tasks() {
       return 0;
     });
 
-  // Pre-status filtered: apply search + dept + member + date but NOT status, so KPI tiles reflect active filters
+  // Pre-status filtered: apply search + dept + member + project + date but NOT status, so KPI tiles reflect active filters
   const preStatusFiltered = tasks.filter((t) => {
     if (search) {
       const q = search.toLowerCase();
@@ -332,6 +341,7 @@ export default function Tasks() {
     }
     if (departmentFilter && t.department?.id !== departmentFilter) return false;
     if (memberFilter && t.assignee?.id !== memberFilter) return false;
+    if (projectFilter && t.team?.id !== projectFilter) return false;
     if (dateFilter) {
       if (!t.dueDate) return false;
       const start = new Date(dateFilter); start.setHours(0, 0, 0, 0);
@@ -358,7 +368,7 @@ export default function Tasks() {
     { label: 'Done',        key: 'DONE',         icon: CheckCircle2,  from: 'from-emerald-500', to: 'to-green-600',   shadow: 'shadow-green-200' },
   ];
 
-  const activeFilters = [search, statusFilter, departmentFilter, memberFilter, dateFilter].filter(Boolean).length;
+  const activeFilters = [search, statusFilter, departmentFilter, memberFilter, projectFilter, dateFilter].filter(Boolean).length;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50/40">
@@ -438,7 +448,7 @@ export default function Tasks() {
               <>
                 <Select
                   value={departmentFilter || '__all__'}
-                  onValueChange={(v) => { setDepartmentFilter(v === '__all__' ? '' : v); setMemberFilter(''); resetPage(); }}
+                  onValueChange={(v) => { setDepartmentFilter(v === '__all__' ? '' : v); setMemberFilter(''); setProjectFilter(''); resetPage(); }}
                 >
                   <SelectTrigger className="w-full sm:w-44 h-9 text-sm rounded-xl border-border/60">
                     <SelectValue placeholder="All Departments" />
@@ -462,6 +472,22 @@ export default function Tasks() {
                     {membersInDept.map((u) => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
+
+                {isEngineeringContext && (
+                  <Select
+                    value={projectFilter || '__all__'}
+                    onValueChange={(v) => { setProjectFilter(v === '__all__' ? '' : v); resetPage(); }}
+                    disabled={!engineeringProjects.length}
+                  >
+                    <SelectTrigger className="w-full sm:w-44 h-9 text-sm rounded-xl border-border/60">
+                      <SelectValue placeholder="All Projects" />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-xl">
+                      <SelectItem value="__all__">All Projects</SelectItem>
+                      {engineeringProjects.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                )}
               </>
             )}
 
@@ -475,7 +501,7 @@ export default function Tasks() {
 
             {activeFilters > 0 && (
               <button
-                onClick={() => { setSearch(''); setStatusFilter(''); setDepartmentFilter(''); setMemberFilter(''); setDateFilter(''); resetPage(); }}
+                onClick={() => { setSearch(''); setStatusFilter(''); setDepartmentFilter(''); setMemberFilter(''); setProjectFilter(''); setDateFilter(''); resetPage(); }}
                 className="inline-flex items-center gap-1.5 h-9 rounded-xl border border-border/60 px-3 text-xs font-semibold text-muted-foreground hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-all shrink-0"
               >
                 <XIcon className="h-3.5 w-3.5" /> Clear
