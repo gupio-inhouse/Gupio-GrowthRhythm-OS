@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Pencil, Trash2, FileText, ChevronDown, ChevronUp, Check, X } from 'lucide-react';
+import { Plus, Pencil, Trash2, FileText, ChevronDown, ChevronUp, Check, X, Sparkles, Loader2 } from 'lucide-react';
 import { SopEditor } from './SopEditor';
 import api from '@/api/client';
 import { useAuthStore } from '@/store/authStore';
@@ -64,6 +64,22 @@ export function SopsTab({ departmentId }: Props) {
     onError: () => toast.error('Failed to delete SOP'),
   });
 
+  const beautifyMutation = useMutation({
+    mutationFn: (content: string) =>
+      api.post(`/sops/${departmentId}/beautify`, { content }).then((r) => r.data as { content: string }),
+  });
+
+  const beautify = (content: string, apply: (html: string) => void) => {
+    if (!content.replace(/<[^>]+>/g, '').trim()) { toast.error('Add some content first'); return; }
+    beautifyMutation.mutate(content, {
+      onSuccess: (data) => { apply(data.content); toast.success('Formatting improved — wording unchanged'); },
+      onError: (err) => {
+        const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+        toast.error(msg || 'Failed to beautify content');
+      },
+    });
+  };
+
   const startEdit = (sop: Sop) => {
     setEditingId(sop.id);
     setEditTitle(sop.title);
@@ -111,6 +127,17 @@ export function SopsTab({ departmentId }: Props) {
           />
           <SopEditor content={newContent} onChange={setNewContent} />
           <div className="flex gap-2 justify-end">
+            <button
+              onClick={() => beautify(newContent, setNewContent)}
+              disabled={beautifyMutation.isPending}
+              title="Improve formatting and colors with AI — wording is never changed"
+              className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-indigo-200 bg-white text-xs font-medium text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-60 mr-auto"
+            >
+              {beautifyMutation.isPending
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                : <Sparkles className="h-3.5 w-3.5" />}
+              Beautify with AI
+            </button>
             <button
               onClick={() => { setCreating(false); setNewTitle(''); setNewContent(''); }}
               className="h-8 px-3 rounded-lg border border-border/60 text-xs font-medium text-muted-foreground hover:bg-muted/40"
@@ -226,7 +253,20 @@ export function SopsTab({ departmentId }: Props) {
             {expandedId === sop.id && (
               <div className="px-4 pb-4 border-t border-border/40 pt-3">
                 {editingId === sop.id ? (
-                  <SopEditor content={editContent} onChange={setEditContent} editable />
+                  <div className="space-y-2">
+                    <SopEditor content={editContent} onChange={setEditContent} editable />
+                    <button
+                      onClick={() => beautify(editContent, setEditContent)}
+                      disabled={beautifyMutation.isPending}
+                      title="Improve formatting and colors with AI — wording is never changed"
+                      className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-indigo-200 bg-white text-xs font-medium text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-60"
+                    >
+                      {beautifyMutation.isPending
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        : <Sparkles className="h-3.5 w-3.5" />}
+                      Beautify with AI
+                    </button>
+                  </div>
                 ) : (
                   <SopEditor content={sop.content || '<p>No content yet.</p>'} editable={false} />
                 )}

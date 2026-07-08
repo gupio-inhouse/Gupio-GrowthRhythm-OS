@@ -23,6 +23,33 @@ function geminiClient() {
 
 // ── Core: Groq → Gemini fallback ─────────────────────────────────────────────
 
+function isRetryableAIError(err: unknown): boolean {
+  const status = (err as { status?: number })?.status;
+  const message = (err as { message?: string })?.message || '';
+  return status === 503 || status === 429 || /UNAVAILABLE|high demand|rate.?limit/i.test(message);
+}
+
+async function callGeminiRaw(prompt: string, systemPrompt?: string): Promise<string> {
+  const gemini = geminiClient();
+  if (!gemini) throw new Error('No AI provider configured. Set GROQ_API_KEY or GEMINI_API_KEY.');
+  const fullPrompt = systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt;
+  const response = await gemini.models.generateContent({ model: GEMINI_MODEL, contents: fullPrompt });
+  return response.text ?? '';
+}
+
+// One retry on a transient failure (e.g. "high demand" 503s) — these are momentary
+// capacity blips that usually succeed a couple seconds later.
+async function callGeminiWithRetry(prompt: string, systemPrompt?: string): Promise<string> {
+  try {
+    return await callGeminiRaw(prompt, systemPrompt);
+  } catch (err) {
+    if (!isRetryableAIError(err)) throw err;
+    console.warn('[AI] Gemini failed with a transient error, retrying once:', (err as Error).message);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    return await callGeminiRaw(prompt, systemPrompt);
+  }
+}
+
 async function callAIRaw(prompt: string, systemPrompt?: string): Promise<string> {
   const groq = groqClient();
   if (groq) {
@@ -42,12 +69,15 @@ async function callAIRaw(prompt: string, systemPrompt?: string): Promise<string>
     }
   }
 
-  // Fallback: Gemini
-  const gemini = geminiClient();
-  if (!gemini) throw new Error('No AI provider configured. Set GROQ_API_KEY or GEMINI_API_KEY.');
-  const fullPrompt = systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt;
-  const response = await gemini.models.generateContent({ model: GEMINI_MODEL, contents: fullPrompt });
-  return response.text ?? '';
+  return callGeminiWithRetry(prompt, systemPrompt);
+}
+
+// SOP beautify sends whole documents, which routinely exceed Groq's free-tier 6000
+// tokens/minute budget (shared across the whole app) and get rejected outright — so this
+// feature skips Groq entirely and goes straight to Gemini. Every other AI feature in this
+// file still goes through callAIRaw/callAI above and keeps trying Groq first.
+async function callAIForLargeDocument(prompt: string, systemPrompt?: string): Promise<string> {
+  return callGeminiWithRetry(prompt, systemPrompt);
 }
 
 // M9.6 — cache AI responses in Redis
@@ -128,7 +158,40 @@ export const PROMPTS = {
       return `A task "${title}" has changed status to "${status}". Context/Blocker: ${context || 'none'}.\n\n${focus} Return JSON: {"suggestions": ["step 1", "step 2", "step 3"]}`;
     }
   },
+  SOP_BEAUTIFY: {
+    version: 'v1',
+    system: `You are a precise HTML formatting assistant for business SOP documents. Your ONLY job is to make the given HTML visually attractive by adding formatting — you must NEVER change the content.
+
+Strict rules, no exceptions:
+1. Do not add, remove, reorder, rephrase, translate, correct, or otherwise alter a single word, number, or punctuation mark. Every word of visible text in the output must match the input exactly, in the same order.
+2. You MAY: wrap existing words/phrases in <strong>, <em>, or <span style="color:#RRGGBB"> for emphasis; use <mark style="background-color:#RRGGBB"> to highlight key terms; turn an existing line into <h2>/<h3> if it already reads like a section title; wrap existing sequential lines into <ul>/<ol><li> if they are already list-like; color status words that already appear in the text (e.g. an existing word like "Done" in green, "Blocked"/"Pending" in red/orange); add or adjust inline styles on existing <table>, <tr>, <td>, <th> elements for readability.
+3. Do not invent new sentences, headings, labels, or commentary. Do not wrap the response in markdown code fences or add any explanation.
+4. Return ONLY the resulting HTML and nothing else.`,
+    user: (html: string) => `Beautify the formatting of this SOP content. Follow the system rules exactly — do not change any wording.\n\n${html}`,
+  },
 } as const;
+
+function stripCodeFence(text: string): string {
+  const trimmed = text.trim();
+  const fenceMatch = trimmed.match(/^```(?:html)?\s*([\s\S]*?)\s*```$/i);
+  return fenceMatch ? fenceMatch[1].trim() : trimmed;
+}
+
+// Word-level guard for AI-formatted HTML: strips tags/entities and normalizes whitespace
+// so we can verify the AI only added markup and never touched the actual wording.
+function extractPlainText(html: string): string {
+  return html
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0?39;/gi, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 // ── Feature functions ─────────────────────────────────────────────────────────
 
@@ -258,6 +321,29 @@ export async function generateStatusChangeSuggestions(
   } catch (error) {
     console.error('Error generating status suggestions, using fallback:', error);
     return fallbacks;
+  }
+}
+
+export type BeautifyResult =
+  | { ok: true; content: string }
+  | { ok: false; reason: 'insufficient_credits' | 'ai_altered_text' | 'ai_unavailable' };
+
+export async function beautifySopContent(orgId: string, html: string): Promise<BeautifyResult> {
+  const hasCredits = await deductAiCredits(orgId, 1);
+  if (!hasCredits) return { ok: false, reason: 'insufficient_credits' };
+
+  try {
+    const p = PROMPTS.SOP_BEAUTIFY;
+    const raw = await callAIForLargeDocument(p.user(html), p.system);
+    const cleaned = stripCodeFence(raw);
+
+    if (extractPlainText(cleaned) !== extractPlainText(html)) {
+      return { ok: false, reason: 'ai_altered_text' };
+    }
+    return { ok: true, content: cleaned };
+  } catch (err) {
+    console.error('[AI] SOP beautify failed:', (err as Error).message);
+    return { ok: false, reason: 'ai_unavailable' };
   }
 }
 

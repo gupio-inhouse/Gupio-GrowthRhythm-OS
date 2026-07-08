@@ -1,6 +1,16 @@
 import { createApp } from './app';
 import prisma from './lib/prisma';
 
+// Express 4 does not forward a rejected promise from an `async` route handler to the error
+// middleware — an uncaught rejection anywhere (e.g. a flaky third-party AI call) would
+// otherwise crash the whole process and take the API down for every user. Log and keep serving.
+process.on('unhandledRejection', (reason) => {
+  console.error('[process] Unhandled promise rejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[process] Uncaught exception:', err);
+});
+
 const PORT = Number(process.env.PORT || 4000);
 const HOST = process.env.HOST;
 const app = createApp();
