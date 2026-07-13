@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Send, User, UserCog, Pencil, Trash2,
-  ImagePlus, FileText, ExternalLink, Bug as BugIcon,
+  ImagePlus, FileText, ExternalLink, Bug as BugIcon, Lightbulb,
   CheckCircle2, Clock, RotateCcw, ChevronRight, Monitor, FolderKanban,
 } from 'lucide-react';
 import { Sheet, SheetHeader, SheetTitle, SheetContent } from '@/components/ui/sheet';
@@ -28,7 +28,7 @@ type BugStatusHistory = {
   changedBy: { id: string; name: string; avatarUrl?: string };
 };
 type BugDetail = {
-  id: string; title: string; description?: string;
+  id: string; type: string; title: string; description?: string;
   stepsToReproduce?: string; expectedBehavior?: string; actualBehavior?: string; environment?: string;
   status: string; severity: string; createdAt: string;
   reporter: { id: string; name: string; avatarUrl?: string };
@@ -95,8 +95,10 @@ export function BugDetailDrawer({ bugId, onClose }: Props) {
   const screenshotInputRef = useRef<HTMLInputElement | null>(null);
   const documentInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Matches backend/src/routes/bugs.ts ALLOWED_ROLES + canMutateBug: no COMPANY_ADMIN,
-  // and a TEAM_MEMBER can only edit a bug they're the current assignee of (not just reporter).
+  // Matches backend/src/routes/bugs.ts ALLOWED_ROLES + canMutateBug: no COMPANY_ADMIN.
+  // A TEAM_MEMBER can edit a bug they're the current assignee of, OR their own report
+  // while it's still unassigned (so they can route it to the right engineer) — but not
+  // a bug they reported that's since been assigned to someone else.
   const canManage = ['OWNER', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
 
   const { data: bug, isLoading } = useQuery<BugDetail>({
@@ -106,7 +108,8 @@ export function BugDetailDrawer({ bugId, onClose }: Props) {
   });
 
   const isAssignee = !!bug && !!user?.id && bug.assignee?.id === user.id;
-  const canEdit = canManage || isAssignee;
+  const isUnassignedOwnReport = !!bug && !!user?.id && !bug.assignee && bug.reporter.id === user.id;
+  const canEdit = canManage || isAssignee || isUnassignedOwnReport;
   const canDelete = canManage;
 
   const STATUS_TOAST: Record<string, string> = {
@@ -170,7 +173,7 @@ export function BugDetailDrawer({ bugId, onClose }: Props) {
   };
 
   const bugToEdit: BugToEdit | null = bug ? {
-    id: bug.id, title: bug.title, description: bug.description,
+    id: bug.id, type: bug.type, title: bug.title, description: bug.description,
     stepsToReproduce: bug.stepsToReproduce, expectedBehavior: bug.expectedBehavior,
     actualBehavior: bug.actualBehavior, environment: bug.environment,
     severity: bug.severity, team: bug.team, assignee: bug.assignee,
@@ -179,6 +182,7 @@ export function BugDetailDrawer({ bugId, onClose }: Props) {
   const screenshots = (bug?.attachments ?? []).filter((a) => a.type === 'SCREENSHOT');
   const documents = (bug?.attachments ?? []).filter((a) => a.type !== 'SCREENSHOT');
   const statusTokens = bug ? (S[bug.status] ?? S.OPEN) : S.OPEN;
+  const isEnhancement = bug?.type === 'ENHANCEMENT';
 
   return (
     <>
@@ -205,6 +209,13 @@ export function BugDetailDrawer({ bugId, onClose }: Props) {
                 <div className="flex-1 min-w-0">
                   <SheetTitle className="text-base sm:text-lg font-bold leading-snug">{bug.title}</SheetTitle>
                   <div className="flex items-center gap-2 mt-2 flex-wrap">
+                    <span className={cn(
+                      'flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border',
+                      isEnhancement ? 'bg-violet-50 text-violet-700 border-violet-200' : 'bg-red-50 text-red-700 border-red-200',
+                    )}>
+                      {isEnhancement ? <Lightbulb className="h-2.5 w-2.5" /> : <BugIcon className="h-2.5 w-2.5" />}
+                      {isEnhancement ? 'Improvement' : 'Bug'}
+                    </span>
                     <span className={cn('flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border', statusTokens.badge)}>
                       <span className={cn('h-1.5 w-1.5 rounded-full', statusTokens.dot)} />
                       {STATUS_LABELS[bug.status] ?? bug.status}

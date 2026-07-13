@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import {
   Plus, Bug as BugIcon, Clock, Search, LayoutGrid, List,
-  CheckCircle2, Filter, ArrowUpRight, RotateCcw, XCircle, KeyRound,
+  CheckCircle2, Filter, ArrowUpRight, RotateCcw, XCircle, KeyRound, Lightbulb,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -19,13 +19,19 @@ import api from '@/api/client';
 import { useAuthStore } from '@/store/authStore';
 
 type Bug = {
-  id: string; title: string; status: string; severity: string; createdAt: string;
+  id: string; type: string; title: string; status: string; severity: string; createdAt: string;
   reporter: { id: string; name: string; avatarUrl?: string };
   assignee?: { id: string; name: string; avatarUrl?: string } | null;
   team: { id: string; name: string };
   department?: { id: string; name: string };
   _count?: { comments: number; attachments: number };
 };
+
+const TYPE_STYLE: Record<string, string> = {
+  BUG: 'bg-red-50 text-red-700 border-red-200',
+  ENHANCEMENT: 'bg-violet-50 text-violet-700 border-violet-200',
+};
+const TYPE_LABEL: Record<string, string> = { BUG: 'Bug', ENHANCEMENT: 'Improvement' };
 
 const STATUSES = ['OPEN', 'IN_PROGRESS', 'IN_REVIEW', 'REOPENED', 'FIXED', 'CLOSED', 'WONT_FIX', 'DUPLICATE'];
 const STATUS_LABELS: Record<string, string> = {
@@ -62,12 +68,14 @@ export default function Bugs() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState<'' | 'BUG' | 'ENHANCEMENT'>('');
   const [severityFilter, setSeverityFilter] = useState('');
   const [projectFilter, setProjectFilter] = useState('');
   const [mineFilter, setMineFilter] = useState<'' | 'reported' | 'assigned'>('');
   const [page, setPage] = useState(1);
   const [view, setView] = useState<'list' | 'kanban'>('kanban');
   const [newBugOpen, setNewBugOpen] = useState(false);
+  const [createType, setCreateType] = useState<'BUG' | 'ENHANCEMENT'>('BUG');
   const [accessOpen, setAccessOpen] = useState(false);
   const [selectedBugId, setSelectedBugId] = useState<string | null>(() => searchParams.get('bugId'));
 
@@ -107,6 +115,7 @@ export default function Bugs() {
       const q = search.toLowerCase();
       if (!b.title.toLowerCase().includes(q) && !b.reporter.name.toLowerCase().includes(q) && !(b.assignee?.name.toLowerCase().includes(q))) return false;
     }
+    if (typeFilter && b.type !== typeFilter) return false;
     if (projectFilter && b.team.id !== projectFilter) return false;
     if (severityFilter && b.severity !== severityFilter) return false;
     if (mineFilter === 'reported' && b.reporter.id !== user?.id) return false;
@@ -120,6 +129,7 @@ export default function Bugs() {
       const q = search.toLowerCase();
       if (!b.title.toLowerCase().includes(q) && !b.reporter.name.toLowerCase().includes(q) && !(b.assignee?.name.toLowerCase().includes(q))) return false;
     }
+    if (typeFilter && b.type !== typeFilter) return false;
     if (projectFilter && b.team.id !== projectFilter) return false;
     if (severityFilter && b.severity !== severityFilter) return false;
     if (mineFilter === 'reported' && b.reporter.id !== user?.id) return false;
@@ -145,7 +155,7 @@ export default function Bugs() {
     { label: 'Closed',      key: 'CLOSED',      icon: XCircle,       from: 'from-gray-400',    to: 'to-gray-500',   shadow: 'shadow-gray-200' },
   ];
 
-  const activeFilters = [search, statusFilter, severityFilter, projectFilter, mineFilter].filter(Boolean).length;
+  const activeFilters = [search, statusFilter, typeFilter, severityFilter, projectFilter, mineFilter].filter(Boolean).length;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-red-50/40">
@@ -159,7 +169,7 @@ export default function Bugs() {
             <div>
               <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Bug Tracker</h1>
               <p className="text-xs text-muted-foreground mt-0.5">
-                {filtered.length} of {bugs.length} bug{bugs.length !== 1 ? 's' : ''}
+                {filtered.length} of {bugs.length} item{bugs.length !== 1 ? 's' : ''} (bugs &amp; improvements)
                 {activeFilters > 0 && <span className="ml-1 text-primary font-semibold">· {activeFilters} filter{activeFilters > 1 ? 's' : ''} active</span>}
               </p>
             </div>
@@ -194,7 +204,15 @@ export default function Bugs() {
             )}
 
             <button
-              onClick={() => setNewBugOpen(true)}
+              onClick={() => { setCreateType('ENHANCEMENT'); setNewBugOpen(true); }}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-violet-500 to-purple-600 px-3 sm:px-4 py-2 text-xs font-bold text-white hover:from-violet-600 hover:to-purple-700 shadow-sm shadow-violet-200 transition-all"
+            >
+              <Lightbulb className="h-4 w-4" />
+              <span className="hidden sm:inline">Suggest Improvement</span>
+            </button>
+
+            <button
+              onClick={() => { setCreateType('BUG'); setNewBugOpen(true); }}
               className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-red-500 to-rose-600 px-3 sm:px-4 py-2 text-xs font-bold text-white hover:from-red-600 hover:to-rose-700 shadow-sm shadow-red-200 transition-all"
             >
               <Plus className="h-4 w-4" />
@@ -229,6 +247,21 @@ export default function Bugs() {
               </SelectContent>
             </Select>
 
+            <div className="flex rounded-xl border border-border/60 bg-white overflow-hidden shrink-0">
+              {([['', 'All Types'], ['BUG', 'Bugs'], ['ENHANCEMENT', 'Improvements']] as const).map(([v, label]) => (
+                <button
+                  key={v}
+                  onClick={() => { setTypeFilter(v); resetPage(); }}
+                  className={cn(
+                    'px-3 h-9 text-xs font-semibold transition-all whitespace-nowrap',
+                    typeFilter === v ? 'bg-red-600 text-white' : 'text-muted-foreground hover:bg-muted/50',
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
             <Select
               value={severityFilter || '__all__'}
               onValueChange={(v) => { setSeverityFilter(v === '__all__' ? '' : v); resetPage(); }}
@@ -259,7 +292,7 @@ export default function Bugs() {
 
             {activeFilters > 0 && (
               <button
-                onClick={() => { setSearch(''); setStatusFilter(''); setSeverityFilter(''); setProjectFilter(''); setMineFilter(''); resetPage(); }}
+                onClick={() => { setSearch(''); setStatusFilter(''); setTypeFilter(''); setSeverityFilter(''); setProjectFilter(''); setMineFilter(''); resetPage(); }}
                 className="inline-flex items-center gap-1.5 h-9 rounded-xl border border-border/60 px-3 text-xs font-semibold text-muted-foreground hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-all shrink-0"
               >
                 Clear
@@ -338,7 +371,7 @@ export default function Bugs() {
         )}
       </div>
 
-      <NewBugDialog open={newBugOpen} onClose={() => setNewBugOpen(false)} onSaved={() => qc.invalidateQueries({ queryKey: ['bugs'] })} />
+      <NewBugDialog open={newBugOpen} onClose={() => setNewBugOpen(false)} onSaved={() => qc.invalidateQueries({ queryKey: ['bugs'] })} defaultType={createType} />
       <BugDetailDrawer bugId={selectedBugId} onClose={closeBug} />
       {user?.role === 'OWNER' && <BugAccessDialog open={accessOpen} onClose={() => setAccessOpen(false)} />}
     </div>
@@ -399,6 +432,10 @@ function BugListRow({ bug, onStatusChange, onClick }: { bug: Bug; onStatusChange
                 {bug.title}
               </p>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
+                <span className={cn('inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border font-semibold', TYPE_STYLE[bug.type])}>
+                  {bug.type === 'ENHANCEMENT' ? <Lightbulb className="h-2.5 w-2.5" /> : <BugIcon className="h-2.5 w-2.5" />}
+                  {TYPE_LABEL[bug.type] ?? bug.type}
+                </span>
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200 font-semibold">
                   {bug.team.name}
                 </span>
@@ -515,6 +552,10 @@ function BugKanbanCard({ bug, onStatusChange, onClick }: { bug: Bug; onStatusCha
         <p className="text-sm font-semibold leading-snug group-hover:text-red-700 transition-colors">{bug.title}</p>
 
         <div className="flex flex-wrap gap-1">
+          <span className={cn('inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border font-semibold', TYPE_STYLE[bug.type])}>
+            {bug.type === 'ENHANCEMENT' ? <Lightbulb className="h-2.5 w-2.5" /> : <BugIcon className="h-2.5 w-2.5" />}
+            {TYPE_LABEL[bug.type] ?? bug.type}
+          </span>
           <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200 font-semibold">{bug.team.name}</span>
         </div>
 
@@ -557,8 +598,8 @@ function EmptyState() {
         <BugIcon className="h-10 w-10 text-red-200" />
       </div>
       <div className="text-center">
-        <p className="text-base font-semibold text-foreground/60">No bugs found</p>
-        <p className="text-sm mt-1">Try adjusting your filters, or report a new bug</p>
+        <p className="text-base font-semibold text-foreground/60">Nothing found</p>
+        <p className="text-sm mt-1">Try adjusting your filters, or report a bug / suggest an improvement</p>
       </div>
     </div>
   );

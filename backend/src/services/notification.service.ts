@@ -23,10 +23,12 @@ const TEMPLATES: Record<NotificationEvent, (d: Record<string, unknown>) => { tit
   STANDUP_REMINDER: (d) => ({ title: 'Standup in 15 minutes', body: `${d.departmentName} daily standup starts at ${d.time}` }),
   WEEKLY_DIGEST: (d) => ({ title: 'Your weekly summary', body: `Week ended: ${d.done} tasks done · ${d.blocked} blocked · ${d.standups} standups` }),
   BLOCKER_ESCALATED: (d) => ({ title: 'Blocker escalated', body: `"${d.taskTitle}" blocked for 3+ days. Needs immediate attention.` }),
-  BUG_ASSIGNED: (d) => ({ title: 'Bug assigned to you', body: `${d.assignedByName || 'Someone'} assigned you bug "${d.bugTitle}"${d.projectName ? ` in ${d.projectName}` : ''}` }),
-  BUG_STATUS_CHANGED: (d) => ({ title: 'Bug status updated', body: `"${d.bugTitle}" is now ${d.toStatus}${d.changedByName ? ` (by ${d.changedByName})` : ''}` }),
-  BUG_REOPENED: (d) => ({ title: 'Bug reopened', body: `${d.reopenedByName || 'Someone'} reopened "${d.bugTitle}"` }),
-  BUG_COMMENT_ADDED: (d) => ({ title: 'New comment on bug', body: `${d.commenterName || 'Someone'} commented on "${d.bugTitle}"` }),
+  // itemLabel distinguishes a BUG-type item from an ENHANCEMENT-type suggestion —
+  // both use the same Bug model/events, only the wording differs (see bugs.ts).
+  BUG_ASSIGNED: (d) => ({ title: `${d.itemLabel === 'improvement' ? 'Improvement' : 'Bug'} assigned to you`, body: `${d.assignedByName || 'Someone'} assigned you ${d.itemLabel || 'bug'} "${d.bugTitle}"${d.projectName ? ` in ${d.projectName}` : ''}` }),
+  BUG_STATUS_CHANGED: (d) => ({ title: `${d.itemLabel === 'improvement' ? 'Improvement' : 'Bug'} status updated`, body: `"${d.bugTitle}" is now ${d.toStatus}${d.changedByName ? ` (by ${d.changedByName})` : ''}` }),
+  BUG_REOPENED: (d) => ({ title: `${d.itemLabel === 'improvement' ? 'Improvement' : 'Bug'} reopened`, body: `${d.reopenedByName || 'Someone'} reopened "${d.bugTitle}"` }),
+  BUG_COMMENT_ADDED: (d) => ({ title: `New comment on ${d.itemLabel || 'bug'}`, body: `${d.commenterName || 'Someone'} commented on "${d.bugTitle}"` }),
 };
 
 const EVENT_PREF_KEY: Record<NotificationEvent, string> = {

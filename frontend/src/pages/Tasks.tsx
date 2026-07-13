@@ -5,7 +5,7 @@ import {
   Plus, CheckSquare, AlertTriangle, Clock, Search, LayoutGrid, List,
   Upload, ImagePlus, FileText, GitPullRequest, CalendarDays, Check,
   X as XIcon, ChevronLeft, ChevronRight, CheckCircle2, Filter,
-  ArrowUpRight, Zap, Download, Bug as BugIcon,
+  ArrowUpRight, Zap, Download, Bug as BugIcon, Lightbulb,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -35,12 +35,12 @@ type Task = {
   team?: { id: string; name: string };
   blockerType?: string;
   _count?: { comments: number; attachments: number };
-  // Present only for bugs merged into this view (see bugTasks below) —
+  // Present only for bugs/improvements merged into this view (see bugTasks below) —
   // `id` for these is a synthetic "bug-<bugId>" string, never sent to /tasks.
-  isBug?: boolean; bugId?: string; bugStatus?: string; reportedByName?: string;
+  isBug?: boolean; bugId?: string; bugType?: string; bugStatus?: string; reportedByName?: string;
 };
 type BugSummary = {
-  id: string; title: string; status: string; severity: string; createdAt: string;
+  id: string; type: string; title: string; status: string; severity: string; createdAt: string;
   reporter: { id: string; name: string };
   assignee?: { id: string; name: string; avatarUrl?: string } | null;
   team?: { id: string; name: string };
@@ -240,6 +240,7 @@ export default function Tasks() {
       _count: b._count,
       isBug: true,
       bugId: b.id,
+      bugType: b.type,
       bugStatus: b.status,
       reportedByName: b.reporter.name,
     }));
@@ -884,8 +885,9 @@ function TaskListRow({
               </p>
 
               {task.isBug && (
-                <p className="text-[11px] font-bold text-red-600 mt-0.5 flex items-center gap-1">
-                  <BugIcon className="h-3 w-3" /> Bug reported by {task.reportedByName}
+                <p className={cn('text-[11px] font-bold mt-0.5 flex items-center gap-1', task.bugType === 'ENHANCEMENT' ? 'text-violet-600' : 'text-red-600')}>
+                  {task.bugType === 'ENHANCEMENT' ? <Lightbulb className="h-3 w-3" /> : <BugIcon className="h-3 w-3" />}
+                  {task.bugType === 'ENHANCEMENT' ? 'Improvement suggested by' : 'Bug reported by'} {task.reportedByName}
                 </p>
               )}
 
@@ -1135,8 +1137,9 @@ function KanbanCard({
         </p>
 
         {task.isBug && (
-          <p className="text-[10px] font-bold text-red-600 flex items-center gap-1">
-            <BugIcon className="h-2.5 w-2.5" /> Bug reported by {task.reportedByName}
+          <p className={cn('text-[10px] font-bold flex items-center gap-1', task.bugType === 'ENHANCEMENT' ? 'text-violet-600' : 'text-red-600')}>
+            {task.bugType === 'ENHANCEMENT' ? <Lightbulb className="h-2.5 w-2.5" /> : <BugIcon className="h-2.5 w-2.5" />}
+            {task.bugType === 'ENHANCEMENT' ? 'Improvement suggested by' : 'Bug reported by'} {task.reportedByName}
           </p>
         )}
 

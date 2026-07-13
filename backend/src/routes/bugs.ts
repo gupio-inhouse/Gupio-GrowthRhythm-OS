@@ -25,6 +25,10 @@ function isEngineeringDeptName(name?: string | null) {
   return !!name && name.toLowerCase().includes('engineering');
 }
 
+function itemLabel(type: string) {
+  return type === 'ENHANCEMENT' ? 'improvement' : 'bug';
+}
+
 async function getActorScope(userId: string, orgId: string) {
   const actor = await prisma.user.findUnique({
     where: { id: userId },
@@ -65,9 +69,12 @@ function canViewBug(actor: NonNullable<Awaited<ReturnType<typeof getActorScope>>
     return actor.grant.departmentIds.includes(bug.departmentId);
   }
 
-  // Team members only see bugs assigned to them — not ones they merely reported.
+  // Team members see bugs assigned to them, plus their own reports while still
+  // unassigned — so a tester can come back and route an unassigned bug to the
+  // right engineer. Once someone else is assigned, that visibility goes away again.
   if (actor.role === 'TEAM_MEMBER') {
-    return bug.assigneeUserId === actor.id;
+    return bug.assigneeUserId === actor.id ||
+      (bug.assigneeUserId === null && bug.reporterUserId === actor.id);
   }
 
   if (actor.role === 'MANAGER') {
@@ -99,9 +106,10 @@ function canMutateBug(actor: NonNullable<Awaited<ReturnType<typeof getActorScope
     return actor.grant.departmentIds.includes(bug.departmentId);
   }
 
-  // Team members only mutate bugs assigned to them — not ones they merely reported.
+  // Same rule as canViewBug — a reporter can assign their own still-unassigned bug.
   if (actor.role === 'TEAM_MEMBER') {
-    return bug.assigneeUserId === actor.id;
+    return bug.assigneeUserId === actor.id ||
+      (bug.assigneeUserId === null && bug.reporterUserId === actor.id);
   }
 
   if (actor.role === 'MANAGER' || actor.role === 'DEPARTMENT_HEAD') {
@@ -113,6 +121,7 @@ function canMutateBug(actor: NonNullable<Awaited<ReturnType<typeof getActorScope
 const CLOSED_STATUSES = ['FIXED', 'CLOSED', 'WONT_FIX', 'DUPLICATE'];
 
 const createSchema = z.object({
+  type: z.enum(['BUG', 'ENHANCEMENT']).default('BUG'),
   title: z.string().min(2),
   description: z.string().optional(),
   stepsToReproduce: z.string().optional(),
@@ -155,7 +164,7 @@ async function getBugForMutation(req: AuthRequest, bugId: string) {
 
   const bug = await prisma.bug.findUnique({
     where: { id: bugId, orgId: req.user!.orgId },
-    select: { id: true, reporterUserId: true, assigneeUserId: true, departmentId: true },
+    select: { id: true, reporterUserId: true, assigneeUserId: true, departmentId: true, type: true },
   });
   if (!bug) {
     return { error: { status: 404, body: { error: 'Bug not found' } } };
@@ -211,7 +220,7 @@ router.patch('/access/:userId', requireRole('OWNER'), auditLog('bug_tracker_acce
 
 // GET /bugs
 router.get('/', async (req: AuthRequest, res: Response) => {
-  const { teamId, status, severity, assigneeUserId, reporterUserId, view } = req.query;
+  const { teamId, type, status, severity, assigneeUserId, reporterUserId, view } = req.query;
 
   const actor = await getActorScope(req.user!.userId, req.user!.orgId);
   if (!actor) {
@@ -221,6 +230,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
   const where: Record<string, unknown> = { orgId: req.user!.orgId };
   if (teamId) where.teamId = teamId;
+  if (type) where.type = type;
   if (status) where.status = status;
   if (severity) where.severity = severity;
   if (assigneeUserId) where.assigneeUserId = assigneeUserId;
@@ -238,7 +248,12 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     if (actor.departmentId && !deptIds.includes(actor.departmentId)) deptIds.push(actor.departmentId);
     where.departmentId = { in: deptIds };
   } else if (actor.role === 'TEAM_MEMBER') {
-    where.assigneeUserId = actor.id;
+    // Assigned-to-them, plus their own reports while still unassigned (so they can
+    // come back and route it to the right engineer).
+    where.OR = [
+      { assigneeUserId: actor.id },
+      { assigneeUserId: null, reporterUserId: actor.id },
+    ];
   } else if (actor.role === 'MANAGER') {
     if (view === 'dept') {
       if (actor.departmentId) {
@@ -346,6 +361,7 @@ router.post('/', auditLog('bug', 'CREATE'), async (req: AuthRequest, res: Respon
 
   const bug = await prisma.bug.create({
     data: {
+      type: parsed.data.type,
       title: parsed.data.title,
       description: parsed.data.description,
       stepsToReproduce: parsed.data.stepsToReproduce,
@@ -372,6 +388,7 @@ router.post('/', auditLog('bug', 'CREATE'), async (req: AuthRequest, res: Respon
       bugTitle: bug.title,
       projectName: bug.team.name,
       assignedByName: bug.reporter.name,
+      itemLabel: itemLabel(bug.type),
     }).catch(console.error);
   }
 
@@ -457,6 +474,7 @@ router.patch('/:id', auditLog('bug', 'UPDATE'), async (req: AuthRequest, res: Re
       bugTitle: bug.title,
       projectName: bug.team.name,
       assignedByName: actor.id === existing.reporterUserId ? bug.reporter.name : 'A teammate',
+      itemLabel: itemLabel(bug.type),
     }).catch(console.error);
   }
 
@@ -469,11 +487,13 @@ router.patch('/:id', auditLog('bug', 'UPDATE'), async (req: AuthRequest, res: Re
       fanOutNotification(req.user!.orgId, Array.from(notifyIds), 'BUG_REOPENED', {
         bugTitle: bug.title,
         reopenedByName: actor.id === existing.reporterUserId ? bug.reporter.name : 'A teammate',
+        itemLabel: itemLabel(bug.type),
       }).catch(console.error);
     } else if (notifyIds.size > 0) {
       fanOutNotification(req.user!.orgId, Array.from(notifyIds), 'BUG_STATUS_CHANGED', {
         bugTitle: bug.title,
         toStatus: requestedStatus,
+        itemLabel: itemLabel(bug.type),
       }).catch(console.error);
     }
 
@@ -547,6 +567,7 @@ router.post('/:id/comments', async (req: AuthRequest, res: Response) => {
     fanOutNotification(req.user!.orgId, Array.from(notifyIds), 'BUG_COMMENT_ADDED', {
       bugTitle,
       commenterName: comment.user.name,
+      itemLabel: itemLabel(result.bug.type),
     }).catch(console.error);
   }
 

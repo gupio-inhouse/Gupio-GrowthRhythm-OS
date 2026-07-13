@@ -9,11 +9,12 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn, isEngineeringDept } from '@/lib/utils';
-import { Bug as BugIcon, FolderKanban, User, Monitor } from 'lucide-react';
+import { Bug as BugIcon, FolderKanban, User, Monitor, Lightbulb } from 'lucide-react';
 import api from '@/api/client';
 import { toast } from '@/hooks/use-toast';
 
 const bugSchema = z.object({
+  type: z.enum(['BUG', 'ENHANCEMENT']).default('BUG'),
   title: z.string().min(2, 'Title is required'),
   description: z.string().optional(),
   stepsToReproduce: z.string().optional(),
@@ -35,6 +36,7 @@ type TeamItem = {
 
 export type BugToEdit = {
   id: string;
+  type: string;
   title: string;
   description?: string;
   stepsToReproduce?: string;
@@ -51,6 +53,7 @@ interface Props {
   onClose: () => void;
   onSaved: () => void;
   bugToEdit?: BugToEdit | null;
+  defaultType?: 'BUG' | 'ENHANCEMENT';
 }
 
 const SEVERITY_CONFIG = {
@@ -60,7 +63,7 @@ const SEVERITY_CONFIG = {
   CRITICAL: { label: 'Critical', color: 'bg-red-100 text-red-700 border-red-200'       },
 } as const;
 
-export function NewBugDialog({ open, onClose, onSaved, bugToEdit }: Props) {
+export function NewBugDialog({ open, onClose, onSaved, bugToEdit, defaultType = 'BUG' }: Props) {
   const isEditMode = !!bugToEdit;
 
   const { data: teams = [] } = useQuery<TeamItem[]>({
@@ -72,9 +75,11 @@ export function NewBugDialog({ open, onClose, onSaved, bugToEdit }: Props) {
 
   const { register, handleSubmit, setValue, watch, reset, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: zodResolver(bugSchema),
-    defaultValues: { severity: 'MEDIUM' },
+    defaultValues: { type: 'BUG', severity: 'MEDIUM' },
   });
 
+  const watchedType = (watch('type') || 'BUG') as 'BUG' | 'ENHANCEMENT';
+  const isEnhancement = watchedType === 'ENHANCEMENT';
   const watchedSeverity = (watch('severity') || 'MEDIUM') as keyof typeof SEVERITY_CONFIG;
   const watchedTeamId = watch('teamId') || '';
   const watchedAssigneeId = watch('assigneeUserId') || '';
@@ -86,6 +91,7 @@ export function NewBugDialog({ open, onClose, onSaved, bugToEdit }: Props) {
     if (!open) return;
     if (bugToEdit) {
       reset({
+        type: bugToEdit.type as FormData['type'],
         title: bugToEdit.title,
         description: bugToEdit.description ?? '',
         stepsToReproduce: bugToEdit.stepsToReproduce ?? '',
@@ -97,14 +103,15 @@ export function NewBugDialog({ open, onClose, onSaved, bugToEdit }: Props) {
         assigneeUserId: bugToEdit.assignee?.id ?? '',
       });
     } else {
-      reset({ severity: 'MEDIUM', teamId: engineeringTeams.length === 1 ? engineeringTeams[0].id : '' });
+      reset({ type: defaultType, severity: 'MEDIUM', teamId: engineeringTeams.length === 1 ? engineeringTeams[0].id : '' });
     }
-  }, [open, bugToEdit]);
+  }, [open, bugToEdit, defaultType]);
 
   const handleClose = () => { reset(); onClose(); };
 
   const onSubmit = async (data: FormData) => {
     const payload: Record<string, unknown> = {
+      type: data.type,
       title: data.title,
       description: data.description || undefined,
       stepsToReproduce: data.stepsToReproduce || undefined,
@@ -136,17 +143,17 @@ export function NewBugDialog({ open, onClose, onSaved, bugToEdit }: Props) {
     <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
       <DialogContent className="w-[calc(100vw-2rem)] max-w-xl p-0 gap-0 overflow-hidden rounded-2xl">
 
-        <div className="bg-gradient-to-r from-red-500 to-rose-600 px-6 py-5">
+        <div className={cn('px-6 py-5 bg-gradient-to-r', isEnhancement ? 'from-violet-500 to-purple-600' : 'from-red-500 to-rose-600')}>
           <div className="flex items-center gap-3">
             <div className="h-9 w-9 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
-              <BugIcon className="h-5 w-5 text-white" />
+              {isEnhancement ? <Lightbulb className="h-5 w-5 text-white" /> : <BugIcon className="h-5 w-5 text-white" />}
             </div>
             <div>
               <DialogTitle className="text-white font-bold text-base leading-tight">
-                {isEditMode ? 'Edit Bug' : 'Report a Bug'}
+                {isEditMode ? `Edit ${isEnhancement ? 'Improvement' : 'Bug'}` : (isEnhancement ? 'Suggest an Improvement' : 'Report a Bug')}
               </DialogTitle>
               <p className="text-white/70 text-xs mt-0.5">
-                {isEditMode ? 'Update bug details' : 'Engineering projects only'}
+                {isEditMode ? 'Update details' : 'Engineering projects only'}
               </p>
             </div>
           </div>
@@ -155,12 +162,40 @@ export function NewBugDialog({ open, onClose, onSaved, bugToEdit }: Props) {
         <form onSubmit={handleSubmit(onSubmit)} className="divide-y divide-border/60">
           <div className="p-5 space-y-4 max-h-[65vh] overflow-y-auto">
 
+            {!isEditMode && (
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Type</Label>
+                <div className="flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setValue('type', 'BUG')}
+                    className={cn(
+                      'flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold border transition-all',
+                      !isEnhancement ? 'bg-red-100 text-red-700 border-red-200' : 'border-border/60 bg-white text-muted-foreground hover:border-border',
+                    )}
+                  >
+                    <BugIcon className="h-3.5 w-3.5" /> Bug
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setValue('type', 'ENHANCEMENT')}
+                    className={cn(
+                      'flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold border transition-all',
+                      isEnhancement ? 'bg-violet-100 text-violet-700 border-violet-200' : 'border-border/60 bg-white text-muted-foreground hover:border-border',
+                    )}
+                  >
+                    <Lightbulb className="h-3.5 w-3.5" /> Improvement
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Title *</Label>
               <Input
-                placeholder="Short summary of the bug"
+                placeholder={isEnhancement ? 'Short summary of the improvement' : 'Short summary of the bug'}
                 {...register('title')}
-                className="rounded-xl border-border/60 focus-visible:ring-red-500/20"
+                className={cn('rounded-xl border-border/60', isEnhancement ? 'focus-visible:ring-violet-500/20' : 'focus-visible:ring-red-500/20')}
               />
               {errors.title && <p className="text-xs text-destructive">{errors.title.message}</p>}
             </div>
@@ -168,58 +203,62 @@ export function NewBugDialog({ open, onClose, onSaved, bugToEdit }: Props) {
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Description</Label>
               <Textarea
-                placeholder="What's wrong?"
-                rows={2}
+                placeholder={isEnhancement ? 'What should be improved, and why?' : "What's wrong?"}
+                rows={isEnhancement ? 4 : 2}
                 {...register('description')}
-                className="rounded-xl border-border/60 resize-none focus-visible:ring-red-500/20"
+                className={cn('rounded-xl border-border/60 resize-none', isEnhancement ? 'focus-visible:ring-violet-500/20' : 'focus-visible:ring-red-500/20')}
               />
             </div>
 
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Steps to Reproduce</Label>
-              <Textarea
-                placeholder={'1. Go to...\n2. Click...\n3. See error'}
-                rows={3}
-                {...register('stepsToReproduce')}
-                className="rounded-xl border-border/60 resize-none focus-visible:ring-red-500/20"
-              />
-            </div>
+            {!isEnhancement && (
+              <>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Steps to Reproduce</Label>
+                  <Textarea
+                    placeholder={'1. Go to...\n2. Click...\n3. See error'}
+                    rows={3}
+                    {...register('stepsToReproduce')}
+                    className="rounded-xl border-border/60 resize-none focus-visible:ring-red-500/20"
+                  />
+                </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Expected Behavior</Label>
-                <Textarea
-                  placeholder="What should happen"
-                  rows={2}
-                  {...register('expectedBehavior')}
-                  className="rounded-xl border-border/60 resize-none focus-visible:ring-red-500/20"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Actual Behavior</Label>
-                <Textarea
-                  placeholder="What actually happens"
-                  rows={2}
-                  {...register('actualBehavior')}
-                  className="rounded-xl border-border/60 resize-none focus-visible:ring-red-500/20"
-                />
-              </div>
-            </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Expected Behavior</Label>
+                    <Textarea
+                      placeholder="What should happen"
+                      rows={2}
+                      {...register('expectedBehavior')}
+                      className="rounded-xl border-border/60 resize-none focus-visible:ring-red-500/20"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Actual Behavior</Label>
+                    <Textarea
+                      placeholder="What actually happens"
+                      rows={2}
+                      {...register('actualBehavior')}
+                      className="rounded-xl border-border/60 resize-none focus-visible:ring-red-500/20"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <Monitor className="h-3.5 w-3.5 text-muted-foreground" />
+                    <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Environment</Label>
+                  </div>
+                  <Input
+                    placeholder="e.g. Chrome 126 on macOS, staging build"
+                    {...register('environment')}
+                    className="rounded-xl border-border/60 focus-visible:ring-red-500/20"
+                  />
+                </div>
+              </>
+            )}
 
             <div className="space-y-1.5">
-              <div className="flex items-center gap-1.5">
-                <Monitor className="h-3.5 w-3.5 text-muted-foreground" />
-                <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Environment</Label>
-              </div>
-              <Input
-                placeholder="e.g. Chrome 126 on macOS, staging build"
-                {...register('environment')}
-                className="rounded-xl border-border/60 focus-visible:ring-red-500/20"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Severity</Label>
+              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{isEnhancement ? 'Priority' : 'Severity'}</Label>
               <div className="flex gap-1.5">
                 {(Object.entries(SEVERITY_CONFIG) as [keyof typeof SEVERITY_CONFIG, typeof SEVERITY_CONFIG[keyof typeof SEVERITY_CONFIG]][]).map(([key, cfg]) => (
                   <button
@@ -295,11 +334,14 @@ export function NewBugDialog({ open, onClose, onSaved, bugToEdit }: Props) {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="h-9 px-5 rounded-xl bg-gradient-to-r from-red-500 to-rose-600 text-white text-sm font-bold hover:from-red-600 hover:to-rose-700 transition-all shadow-sm disabled:opacity-60"
+              className={cn(
+                'h-9 px-5 rounded-xl text-white text-sm font-bold transition-all shadow-sm disabled:opacity-60 bg-gradient-to-r',
+                isEnhancement ? 'from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700' : 'from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700',
+              )}
             >
               {isSubmitting
-                ? (isEditMode ? 'Saving…' : 'Reporting…')
-                : (isEditMode ? 'Save Changes' : 'Report Bug')}
+                ? (isEditMode ? 'Saving…' : (isEnhancement ? 'Submitting…' : 'Reporting…'))
+                : (isEditMode ? 'Save Changes' : (isEnhancement ? 'Submit Suggestion' : 'Report Bug'))}
             </button>
           </div>
         </form>
