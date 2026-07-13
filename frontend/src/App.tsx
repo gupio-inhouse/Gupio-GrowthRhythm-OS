@@ -5,6 +5,7 @@ import Login from '@/pages/Login';
 import Register from '@/pages/Register';
 import Dashboard from '@/pages/Dashboard';
 import Tasks from '@/pages/Tasks';
+import Bugs from '@/pages/Bugs';
 import Standup from '@/pages/Standup';
 import Departments from '@/pages/Departments';
 import Team from '@/pages/Team';
@@ -65,6 +66,7 @@ export default function App() {
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="dashboard/:slug" element={<DepartmentPage />} />
             <Route path="tasks" element={<Tasks />} />
+            <Route path="bugs" element={<Bugs />} />
             <Route path="standup" element={<Standup />} />
             <Route path="departments" element={<Departments />} />
             <Route path="departments/:slug" element={<DepartmentPage />} />

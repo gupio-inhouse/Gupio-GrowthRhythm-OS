@@ -8,7 +8,11 @@ export type NotificationEvent =
   | 'TASK_OVERDUE'
   | 'STANDUP_REMINDER'
   | 'WEEKLY_DIGEST'
-  | 'BLOCKER_ESCALATED';
+  | 'BLOCKER_ESCALATED'
+  | 'BUG_ASSIGNED'
+  | 'BUG_STATUS_CHANGED'
+  | 'BUG_REOPENED'
+  | 'BUG_COMMENT_ADDED';
 
 const TEMPLATES: Record<NotificationEvent, (d: Record<string, unknown>) => { title: string; body: string }> = {
   TASK_ASSIGNED: (d) => ({ title: 'New task assigned', body: `You've been assigned: "${d.taskTitle}"${d.dueDate ? ` · due ${d.dueDate}` : ''}` }),
@@ -19,6 +23,10 @@ const TEMPLATES: Record<NotificationEvent, (d: Record<string, unknown>) => { tit
   STANDUP_REMINDER: (d) => ({ title: 'Standup in 15 minutes', body: `${d.departmentName} daily standup starts at ${d.time}` }),
   WEEKLY_DIGEST: (d) => ({ title: 'Your weekly summary', body: `Week ended: ${d.done} tasks done · ${d.blocked} blocked · ${d.standups} standups` }),
   BLOCKER_ESCALATED: (d) => ({ title: 'Blocker escalated', body: `"${d.taskTitle}" blocked for 3+ days. Needs immediate attention.` }),
+  BUG_ASSIGNED: (d) => ({ title: 'Bug assigned to you', body: `${d.assignedByName || 'Someone'} assigned you bug "${d.bugTitle}"${d.projectName ? ` in ${d.projectName}` : ''}` }),
+  BUG_STATUS_CHANGED: (d) => ({ title: 'Bug status updated', body: `"${d.bugTitle}" is now ${d.toStatus}${d.changedByName ? ` (by ${d.changedByName})` : ''}` }),
+  BUG_REOPENED: (d) => ({ title: 'Bug reopened', body: `${d.reopenedByName || 'Someone'} reopened "${d.bugTitle}"` }),
+  BUG_COMMENT_ADDED: (d) => ({ title: 'New comment on bug', body: `${d.commenterName || 'Someone'} commented on "${d.bugTitle}"` }),
 };
 
 const EVENT_PREF_KEY: Record<NotificationEvent, string> = {
@@ -30,6 +38,10 @@ const EVENT_PREF_KEY: Record<NotificationEvent, string> = {
   STANDUP_REMINDER: 'standupReminder',
   WEEKLY_DIGEST: 'weeklyDigest',
   BLOCKER_ESCALATED: 'taskBlocked',
+  BUG_ASSIGNED: 'taskAssigned',
+  BUG_STATUS_CHANGED: 'taskAssigned',
+  BUG_REOPENED: 'taskBlocked',
+  BUG_COMMENT_ADDED: 'taskAssigned',
 };
 
 async function getUserOrgId(userId: string): Promise<string | null> {

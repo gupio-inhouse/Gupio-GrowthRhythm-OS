@@ -213,6 +213,18 @@
 
 ---
 
+## M16 · Bug Tracker (Engineering, project-scoped) `Phase 2`
+
+| # | Build Item | Status | Notes |
+|---|-----------|--------|-------|
+| M16.1 | Bug data model | ✅ Done | `Bug`/`BugComment`/`BugAttachment`/`BugStatusHistory` models + `BugStatus`/`BugSeverity` enums. Bugs hang off the existing `Team` model (the app's "Project" concept) — Engineering department only |
+| M16.2 | Bug CRUD + status workflow | ✅ Done | `backend/src/routes/bugs.ts` — report/edit/delete, full status-change audit trail in `BugStatusHistory`, role + dept scoping mirrors `tasks.ts` |
+| M16.3 | Bug notifications | ✅ Done | `BUG_ASSIGNED`/`BUG_STATUS_CHANGED`/`BUG_REOPENED`/`BUG_COMMENT_ADDED` events in `notification.service.ts` |
+| M16.4 | Bug Tracker UI | ✅ Done | `frontend/src/pages/Bugs.tsx` (list + Kanban, filters by Project/status/severity/"reported by me"/"assigned to me"), `NewBugDialog.tsx`, `BugDetailDrawer.tsx` (status timeline + comments + screenshot/document evidence) |
+| M16.5 | Nav + access gating | ✅ Done | "Bugs" nav item shown only to Engineering-department users (+ OWNER/COMPANY_ADMIN); bug creation restricted server-side to Engineering projects only |
+
+---
+
 ## What's fully working right now
 
 The codebase is production-quality end-to-end. These flows work today:
