@@ -180,23 +180,24 @@ model Organization {
 }
 
 model User {
-  id                String     @id @default(cuid())
-  orgId             String     @map("org_id")
-  email             String
-  phone             String?
-  name              String
-  role              UserRole   @default(TEAM_MEMBER)
-  departmentId      String?    @map("department_id")
-  managerId         String?    @map("manager_id")
-  status            UserStatus @default(INVITED)
-  avatarUrl         String?    @map("avatar_url")
-  passwordHash      String?    @map("password_hash")
-  mfaEnabled        Boolean    @default(false) @map("mfa_enabled")
-  mfaSecret         String?    @map("mfa_secret")
-  notificationPrefs Json?      @map("notification_prefs")
-  lastLoginAt       DateTime?  @map("last_login_at")
-  createdAt         DateTime   @default(now()) @map("created_at")
-  updatedAt         DateTime   @updatedAt @map("updated_at")
+  id                   String     @id @default(cuid())
+  orgId                String     @map("org_id")
+  email                String
+  phone                String?
+  name                 String
+  role                 UserRole   @default(TEAM_MEMBER)
+  departmentId         String?    @map("department_id")
+  managerId            String?    @map("manager_id")
+  status               UserStatus @default(INVITED)
+  avatarUrl            String?    @map("avatar_url")
+  passwordHash         String?    @map("password_hash")
+  mfaEnabled           Boolean    @default(false) @map("mfa_enabled")
+  mfaSecret            String?    @map("mfa_secret")
+  notificationPrefs    Json?      @map("notification_prefs")
+  bugTrackerFullAccess Boolean    @default(false) @map("bug_tracker_full_access")
+  lastLoginAt          DateTime?  @map("last_login_at")
+  createdAt            DateTime   @default(now()) @map("created_at")
+  updatedAt            DateTime   @updatedAt @map("updated_at")
 
   org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   department    Department?  @relation(fields: [departmentId], references: [id])

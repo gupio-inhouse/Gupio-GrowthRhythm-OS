@@ -1,14 +1,25 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import prisma from '../lib/prisma';
-import { authenticate, AuthRequest } from '../middleware/auth';
+import { authenticate, AuthRequest, requireRole } from '../middleware/auth';
 import { auditLog } from '../middleware/audit';
 import { fanOutNotification, createNotification } from '../services/notification.service';
 import { deleteFromS3 } from '../lib/s3';
 import { getUserDeptAccess } from '../lib/deptAccess';
 
+// Bug Tracker access is intentionally narrower than Tasks — no COMPANY_ADMIN,
+// no SUPER_ADMIN/COACH_ADVISOR. Only these roles can use the feature at all.
+const ALLOWED_ROLES = ['OWNER', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'];
+
 const router = Router();
 router.use(authenticate);
+router.use((req: AuthRequest, res: Response, next) => {
+  if (!ALLOWED_ROLES.includes(req.user!.role)) {
+    res.status(403).json({ error: 'Forbidden' });
+    return;
+  }
+  next();
+});
 
 function isEngineeringDeptName(name?: string | null) {
   return !!name && name.toLowerCase().includes('engineering');
@@ -17,7 +28,7 @@ function isEngineeringDeptName(name?: string | null) {
 async function getActorScope(userId: string, orgId: string) {
   const actor = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, role: true, departmentId: true },
+    select: { id: true, role: true, departmentId: true, bugTrackerFullAccess: true },
   });
   if (!actor) return null;
 
@@ -39,14 +50,24 @@ function canViewBug(actor: NonNullable<Awaited<ReturnType<typeof getActorScope>>
   assigneeUserId: string | null;
   departmentId: string;
 }) {
-  if (['OWNER', 'COMPANY_ADMIN'].includes(actor.role)) return true;
-  if (actor.role === 'TEAM_MEMBER') {
-    return bug.reporterUserId === actor.id || bug.assigneeUserId === actor.id;
-  }
+  if (actor.role === 'OWNER') return true;
 
+  // Dedicated, feature-scoped grant — toggled per-user via GET/PATCH /bugs/access/*
+  // (OWNER only). This is how a specific TEAM_MEMBER (e.g. a tester) gets
+  // department-head-equivalent bug visibility WITHOUT the broader UserDepartmentGrant
+  // (cross-department access to Tasks/etc.) — deliberately kept separate from that.
+  if (actor.bugTrackerFullAccess) return true;
+
+  // UserDepartmentGrant still applies for MANAGER/DEPARTMENT_HEAD's existing cross-dept
+  // access use case — unrelated to the per-user Bug Tracker flag above.
   if (actor.grant?.accessType === 'FULL') return true;
   if (actor.grant?.accessType === 'SPECIFIC') {
     return actor.grant.departmentIds.includes(bug.departmentId);
+  }
+
+  // Team members only see bugs assigned to them — not ones they merely reported.
+  if (actor.role === 'TEAM_MEMBER') {
+    return bug.assigneeUserId === actor.id;
   }
 
   if (actor.role === 'MANAGER') {
@@ -67,14 +88,20 @@ function canMutateBug(actor: NonNullable<Awaited<ReturnType<typeof getActorScope
   assigneeUserId: string | null;
   departmentId: string;
 }) {
-  if (['OWNER', 'COMPANY_ADMIN'].includes(actor.role)) return true;
-  if (actor.role === 'TEAM_MEMBER') {
-    return bug.reporterUserId === actor.id || bug.assigneeUserId === actor.id;
-  }
+  if (actor.role === 'OWNER') return true;
+
+  // See canViewBug's comment — the dedicated flag elevates a TEAM_MEMBER to
+  // dept-head-equivalent mutate access too (status changes, reassignment, comments, attachments).
+  if (actor.bugTrackerFullAccess) return true;
 
   if (actor.grant?.accessType === 'FULL') return true;
   if (actor.grant?.accessType === 'SPECIFIC') {
     return actor.grant.departmentIds.includes(bug.departmentId);
+  }
+
+  // Team members only mutate bugs assigned to them — not ones they merely reported.
+  if (actor.role === 'TEAM_MEMBER') {
+    return bug.assigneeUserId === actor.id;
   }
 
   if (actor.role === 'MANAGER' || actor.role === 'DEPARTMENT_HEAD') {
@@ -141,6 +168,47 @@ async function getBugForMutation(req: AuthRequest, bugId: string) {
   return { actor, bug };
 }
 
+// GET /bugs/access/members — OWNER only: list Engineering-department users + their
+// Bug Tracker full-access flag, for the "Manage Bug Access" panel.
+router.get('/access/members', requireRole('OWNER'), async (req: AuthRequest, res: Response) => {
+  const members = await prisma.user.findMany({
+    where: {
+      orgId: req.user!.orgId,
+      status: 'ACTIVE',
+      department: { name: { contains: 'engineering', mode: 'insensitive' } },
+    },
+    select: { id: true, name: true, email: true, role: true, avatarUrl: true, bugTrackerFullAccess: true },
+    orderBy: { name: 'asc' },
+  });
+  res.json(members);
+});
+
+// PATCH /bugs/access/:userId — OWNER only: grant/revoke full Bug Tracker access for one user.
+router.patch('/access/:userId', requireRole('OWNER'), auditLog('bug_tracker_access', 'UPDATE'), async (req: AuthRequest, res: Response) => {
+  const { fullAccess } = req.body as { fullAccess?: boolean };
+  if (typeof fullAccess !== 'boolean') {
+    res.status(400).json({ error: 'fullAccess (boolean) is required' });
+    return;
+  }
+
+  const target = await prisma.user.findFirst({
+    where: { id: req.params.userId as string, orgId: req.user!.orgId },
+    select: { id: true },
+  });
+  if (!target) {
+    res.status(404).json({ error: 'User not found' });
+    return;
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: target.id },
+    data: { bugTrackerFullAccess: fullAccess },
+    select: { id: true, name: true, bugTrackerFullAccess: true },
+  });
+
+  res.json(updated);
+});
+
 // GET /bugs
 router.get('/', async (req: AuthRequest, res: Response) => {
   const { teamId, status, severity, assigneeUserId, reporterUserId, view } = req.query;
@@ -158,15 +226,22 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   if (assigneeUserId) where.assigneeUserId = assigneeUserId;
   if (reporterUserId) where.reporterUserId = reporterUserId;
 
-  if (actor.role === 'TEAM_MEMBER') {
-    where.OR = [{ reporterUserId: actor.id }, { assigneeUserId: actor.id }];
+  // Dedicated per-user flag (OWNER-managed via /bugs/access/*) overrides default role
+  // scoping — this is how a specific TEAM_MEMBER (e.g. a tester) gets department-head-
+  // equivalent bug visibility without the broader UserDepartmentGrant.
+  if (actor.bugTrackerFullAccess) {
+    // no extra filter — sees all bugs org-wide, same as OWNER
+  } else if (actor.grant?.accessType === 'FULL') {
+    // no extra filter — sees all bugs org-wide, same as OWNER
+  } else if (actor.grant?.accessType === 'SPECIFIC') {
+    const deptIds = [...actor.grant.departmentIds];
+    if (actor.departmentId && !deptIds.includes(actor.departmentId)) deptIds.push(actor.departmentId);
+    where.departmentId = { in: deptIds };
+  } else if (actor.role === 'TEAM_MEMBER') {
+    where.assigneeUserId = actor.id;
   } else if (actor.role === 'MANAGER') {
     if (view === 'dept') {
-      if (actor.grant?.accessType === 'FULL') {
-        // no extra filter
-      } else if (actor.grant?.accessType === 'SPECIFIC') {
-        where.departmentId = { in: actor.grant.departmentIds };
-      } else if (actor.departmentId) {
+      if (actor.departmentId) {
         where.departmentId = actor.departmentId;
       } else {
         where.id = { in: [] };
@@ -180,30 +255,13 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       ];
     }
   } else if (actor.role === 'DEPARTMENT_HEAD') {
-    if (actor.grant?.accessType === 'FULL') {
-      // no extra filter
-    } else if (actor.grant?.accessType === 'SPECIFIC') {
-      const deptIds = [...actor.grant.departmentIds];
-      if (actor.departmentId && !deptIds.includes(actor.departmentId)) deptIds.push(actor.departmentId);
-      where.departmentId = { in: deptIds };
-    } else if (actor.departmentId) {
+    if (actor.departmentId) {
       where.departmentId = actor.departmentId;
     } else {
       where.id = { in: [] };
     }
-  } else if (actor.role === 'COMPANY_ADMIN') {
-    const rawGrant = await prisma.userDepartmentGrant.findUnique({
-      where: { userId: req.user!.userId },
-      select: { accessType: true, departmentIds: true, orgId: true },
-    });
-    const explicitGrant = rawGrant?.orgId === req.user!.orgId ? rawGrant : null;
-    if (explicitGrant?.accessType === 'SPECIFIC' && explicitGrant.departmentIds.length > 0) {
-      const deptIds = [...explicitGrant.departmentIds];
-      if (actor.departmentId && !deptIds.includes(actor.departmentId)) deptIds.push(actor.departmentId);
-      where.departmentId = { in: deptIds };
-    }
-    // FULL grant or no grant: COMPANY_ADMIN sees all
   }
+  // OWNER: no extra filter — sees all bugs org-wide.
 
   const bugs = await prisma.bug.findMany({
     where,

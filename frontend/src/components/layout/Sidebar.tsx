@@ -14,7 +14,7 @@ const navItems = [
   { label: 'Owner Cockpit', href: '/dashboard', icon: LayoutDashboard, roles: ['OWNER', 'COMPANY_ADMIN'] },
   { label: 'Dashboard',     href: '/dashboard', icon: LayoutDashboard, roles: ['DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'] },
   { label: 'Tasks', href: '/tasks', icon: CheckSquare, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'] },
-  { label: 'Bugs', href: '/bugs', icon: Bug, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'], engineeringOnly: true },
+  { label: 'Bugs', href: '/bugs', icon: Bug, roles: ['OWNER', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'], engineeringOnly: true },
   { label: 'Meeting', href: '/standup', icon: Zap, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'] },
   { label: 'Learning', href: '/learning', icon: GraduationCap, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'] },
   { label: 'Departments', href: '/departments', icon: Building2, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'] },

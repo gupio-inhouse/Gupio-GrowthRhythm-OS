@@ -95,7 +95,9 @@ export function BugDetailDrawer({ bugId, onClose }: Props) {
   const screenshotInputRef = useRef<HTMLInputElement | null>(null);
   const documentInputRef = useRef<HTMLInputElement | null>(null);
 
-  const canManage = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
+  // Matches backend/src/routes/bugs.ts ALLOWED_ROLES + canMutateBug: no COMPANY_ADMIN,
+  // and a TEAM_MEMBER can only edit a bug they're the current assignee of (not just reporter).
+  const canManage = ['OWNER', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
 
   const { data: bug, isLoading } = useQuery<BugDetail>({
     queryKey: ['bug', bugId],
@@ -103,9 +105,8 @@ export function BugDetailDrawer({ bugId, onClose }: Props) {
     enabled: !!bugId,
   });
 
-  const isReporter = !!bug && !!user?.id && bug.reporter.id === user.id;
   const isAssignee = !!bug && !!user?.id && bug.assignee?.id === user.id;
-  const canEdit = canManage || isReporter || isAssignee;
+  const canEdit = canManage || isAssignee;
   const canDelete = canManage;
 
   const STATUS_TOAST: Record<string, string> = {

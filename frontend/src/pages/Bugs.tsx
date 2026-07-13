@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import {
   Plus, Bug as BugIcon, Clock, Search, LayoutGrid, List,
-  CheckCircle2, Filter, ArrowUpRight, RotateCcw, XCircle,
+  CheckCircle2, Filter, ArrowUpRight, RotateCcw, XCircle, KeyRound,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -14,6 +14,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn, formatRelative, getInitials } from '@/lib/utils';
 import { NewBugDialog } from '@/components/bugs/NewBugDialog';
 import { BugDetailDrawer } from '@/components/bugs/BugDetailDrawer';
+import { BugAccessDialog } from '@/components/bugs/BugAccessDialog';
 import api from '@/api/client';
 import { useAuthStore } from '@/store/authStore';
 
@@ -67,6 +68,7 @@ export default function Bugs() {
   const [page, setPage] = useState(1);
   const [view, setView] = useState<'list' | 'kanban'>('kanban');
   const [newBugOpen, setNewBugOpen] = useState(false);
+  const [accessOpen, setAccessOpen] = useState(false);
   const [selectedBugId, setSelectedBugId] = useState<string | null>(() => searchParams.get('bugId'));
 
   const { data: bugs = [], isLoading } = useQuery<Bug[]>({
@@ -180,6 +182,16 @@ export default function Bugs() {
                 </button>
               ))}
             </div>
+
+            {user?.role === 'OWNER' && (
+              <button
+                onClick={() => setAccessOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-border/60 bg-white px-3 py-2 text-xs font-semibold hover:border-red-300 hover:shadow-sm transition-all text-foreground/80"
+              >
+                <KeyRound className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Manage Access</span>
+              </button>
+            )}
 
             <button
               onClick={() => setNewBugOpen(true)}
@@ -328,6 +340,7 @@ export default function Bugs() {
 
       <NewBugDialog open={newBugOpen} onClose={() => setNewBugOpen(false)} onSaved={() => qc.invalidateQueries({ queryKey: ['bugs'] })} />
       <BugDetailDrawer bugId={selectedBugId} onClose={closeBug} />
+      {user?.role === 'OWNER' && <BugAccessDialog open={accessOpen} onClose={() => setAccessOpen(false)} />}
     </div>
   );
 }

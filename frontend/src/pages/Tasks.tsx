@@ -5,7 +5,7 @@ import {
   Plus, CheckSquare, AlertTriangle, Clock, Search, LayoutGrid, List,
   Upload, ImagePlus, FileText, GitPullRequest, CalendarDays, Check,
   X as XIcon, ChevronLeft, ChevronRight, CheckCircle2, Filter,
-  ArrowUpRight, Zap, Download,
+  ArrowUpRight, Zap, Download, Bug as BugIcon,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -20,6 +20,7 @@ import { Label } from '@/components/ui/label';
 import { BlockerDialog } from '@/components/tasks/BlockerDialog';
 import { NewTaskDialog } from '@/components/tasks/NewTaskDialog';
 import { TaskDetailDrawer } from '@/components/tasks/TaskDetailDrawer';
+import { BugDetailDrawer } from '@/components/bugs/BugDetailDrawer';
 import api from '@/api/client';
 import { useAuthStore } from '@/store/authStore';
 import { toast } from '@/hooks/use-toast';
@@ -34,8 +35,57 @@ type Task = {
   team?: { id: string; name: string };
   blockerType?: string;
   _count?: { comments: number; attachments: number };
+  // Present only for bugs merged into this view (see bugTasks below) —
+  // `id` for these is a synthetic "bug-<bugId>" string, never sent to /tasks.
+  isBug?: boolean; bugId?: string; bugStatus?: string; reportedByName?: string;
+};
+type BugSummary = {
+  id: string; title: string; status: string; severity: string; createdAt: string;
+  reporter: { id: string; name: string };
+  assignee?: { id: string; name: string; avatarUrl?: string } | null;
+  team?: { id: string; name: string };
+  department?: { id: string; name: string };
+  _count?: { comments: number; attachments: number };
 };
 type DeliveryAction = 'SCREENSHOT' | 'DOCUMENT' | 'PULL_REQUEST';
+
+// A bug assigned to someone shows up in that person's Tasks view too (merged,
+// not a real Task row) — this is the mapping used only for grouping/filtering
+// bugs into the existing TODO/IN_PROGRESS/IN_REVIEW/DONE/CANCELLED columns.
+// The bug's own status (task.bugStatus) is still what's shown/edited on the card.
+const BUG_STATUSES = ['OPEN', 'IN_PROGRESS', 'IN_REVIEW', 'REOPENED', 'FIXED', 'CLOSED', 'WONT_FIX', 'DUPLICATE'];
+const BUG_STATUS_LABELS: Record<string, string> = {
+  OPEN: 'Open', IN_PROGRESS: 'In Progress', IN_REVIEW: 'In Review', REOPENED: 'Reopened',
+  FIXED: 'Fixed', CLOSED: 'Closed', WONT_FIX: "Won't Fix", DUPLICATE: 'Duplicate',
+};
+const BUG_S: Record<string, { dot: string; badge: string; bar: string; accent: string }> = {
+  OPEN:        { dot: 'bg-slate-400',   badge: 'bg-slate-50 text-slate-600 border-slate-200',    bar: '#94a3b8', accent: '#94a3b8' },
+  IN_PROGRESS: { dot: 'bg-blue-500',    badge: 'bg-blue-50 text-blue-700 border-blue-200',       bar: '#3b82f6', accent: '#3b82f6' },
+  IN_REVIEW:   { dot: 'bg-amber-500',   badge: 'bg-amber-50 text-amber-700 border-amber-200',    bar: '#f59e0b', accent: '#f59e0b' },
+  REOPENED:    { dot: 'bg-orange-500',  badge: 'bg-orange-50 text-orange-700 border-orange-200', bar: '#f97316', accent: '#f97316' },
+  FIXED:       { dot: 'bg-emerald-500', badge: 'bg-emerald-50 text-emerald-700 border-emerald-200', bar: '#10b981', accent: '#10b981' },
+  CLOSED:      { dot: 'bg-gray-400',    badge: 'bg-gray-50 text-gray-600 border-gray-200',       bar: '#9ca3af', accent: '#9ca3af' },
+  WONT_FIX:    { dot: 'bg-gray-300',    badge: 'bg-gray-50 text-gray-500 border-gray-200',       bar: '#d1d5db', accent: '#d1d5db' },
+  DUPLICATE:   { dot: 'bg-gray-300',    badge: 'bg-gray-50 text-gray-500 border-gray-200',       bar: '#d1d5db', accent: '#d1d5db' },
+};
+const BUG_NEXT_STATUS: Record<string, string> = {
+  OPEN: 'IN_PROGRESS', IN_PROGRESS: 'FIXED', IN_REVIEW: 'FIXED', REOPENED: 'IN_PROGRESS', FIXED: 'CLOSED',
+};
+function bugColumn(bugStatus?: string): string {
+  switch (bugStatus) {
+    case 'IN_PROGRESS':
+    case 'REOPENED': return 'IN_PROGRESS';
+    case 'IN_REVIEW': return 'IN_REVIEW';
+    case 'FIXED':
+    case 'CLOSED': return 'DONE';
+    case 'WONT_FIX':
+    case 'DUPLICATE': return 'CANCELLED';
+    default: return 'TODO';
+  }
+}
+function taskColumn(t: Task): string {
+  return t.isBug ? bugColumn(t.bugStatus) : t.status;
+}
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const STATUSES = ['TODO', 'IN_PROGRESS', 'BLOCKED', 'IN_REVIEW', 'DONE', 'CANCELLED'];
@@ -156,6 +206,7 @@ export default function Tasks() {
   const deliveryAction = (searchParams.get('delivery') as DeliveryAction | null) ?? null;
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() => searchParams.get('taskId'));
+  const [selectedBugId, setSelectedBugId] = useState<string | null>(() => searchParams.get('bugId'));
   const [csvImportOpen, setCsvImportOpen] = useState(false);
   const [blockerCtx, setBlockerCtx] = useState<{ taskId: string; taskTitle: string } | null>(null);
 
@@ -164,10 +215,36 @@ export default function Tasks() {
   const canSearchByUser  = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
   const canFilterByDept  = ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
 
-  const { data: tasks = [], isLoading } = useQuery<Task[]>({
+  const { data: taskItems = [], isLoading: tasksLoading } = useQuery<Task[]>({
     queryKey: ['tasks'],
     queryFn: () => api.get('/tasks').then((r) => r.data),
   });
+
+  // Bugs assigned to a project member show up here too (merged, not a real Task
+  // row) — this is the direct fix for "assigned bugs aren't visible in my tasks."
+  const { data: bugItems = [], isLoading: bugsLoading } = useQuery<BugSummary[]>({
+    queryKey: ['bugs'],
+    queryFn: () => api.get('/bugs').then((r) => r.data),
+  });
+  const bugTasks: Task[] = bugItems
+    .filter((b) => !!b.assignee)
+    .map((b) => ({
+      id: `bug-${b.id}`,
+      title: b.title,
+      status: b.status,
+      priority: b.severity,
+      createdAt: b.createdAt,
+      assignee: b.assignee ?? undefined,
+      department: b.department,
+      team: b.team,
+      _count: b._count,
+      isBug: true,
+      bugId: b.id,
+      bugStatus: b.status,
+      reportedByName: b.reporter.name,
+    }));
+  const tasks = [...taskItems, ...bugTasks];
+  const isLoading = tasksLoading || bugsLoading;
 
   const { data: departments = [] } = useQuery<{ id: string; name: string; head?: { id: string; name: string } | null }[]>({
     queryKey: ['departments'],
@@ -219,7 +296,34 @@ export default function Tasks() {
     },
   });
 
+  const updateBugMutation = useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: Record<string, unknown> }) =>
+      api.patch(`/bugs/${id}`, patch),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['bugs'] });
+      toast.success('Bug status updated');
+    },
+    onError: (e: unknown) => {
+      const msg = (() => {
+        if (typeof e === 'object' && e !== null && 'response' in e) {
+          const r = (e as Record<string, unknown>).response;
+          if (typeof r === 'object' && r !== null && 'data' in r) {
+            const d = (r as Record<string, unknown>).data;
+            if (typeof d === 'object' && d !== null && 'error' in d && typeof (d as Record<string, unknown>).error === 'string')
+              return (d as Record<string, string>).error;
+          }
+        }
+        return e instanceof Error ? e.message : 'Something went wrong.';
+      })();
+      toast.error(msg);
+    },
+  });
+
   const handleStatusChange = (task: Task, newStatus: string) => {
+    if (task.isBug && task.bugId) {
+      updateBugMutation.mutate({ id: task.bugId, patch: { status: newStatus } });
+      return;
+    }
     if (newStatus === 'BLOCKED') {
       setBlockerCtx({ taskId: task.id, taskTitle: task.title });
       return;
@@ -261,7 +365,29 @@ export default function Tasks() {
     setBlockerCtx(null);
   };
 
+  const openBug = (bugId: string) => {
+    const next = new URLSearchParams(searchParams);
+    next.set('bugId', bugId);
+    next.delete('taskId');
+    next.delete('delivery');
+    setSearchParams(next);
+    setSelectedBugId(bugId);
+  };
+
+  const closeBug = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete('bugId');
+    setSearchParams(next);
+    setSelectedBugId(null);
+  };
+
+  // Bug rows/cards pass a "bug:<bugId>" reference here instead of a real task id
+  // (see ListView/KanbanView's onClick) so this single handler can route either drawer.
   const openTask = (taskId: string, delivery?: DeliveryAction) => {
+    if (taskId.startsWith('bug:')) {
+      openBug(taskId.slice(4));
+      return;
+    }
     const next = new URLSearchParams(searchParams);
     next.set('taskId', taskId);
     if (delivery) next.set('delivery', delivery);
@@ -323,12 +449,12 @@ export default function Tasks() {
       }
       if (statusFilter === 'overdue')   return isTaskOverdue(t);
       if (statusFilter === 'due_today') return isCreatedToday(t);
-      if (statusFilter && t.status !== statusFilter) return false;
+      if (statusFilter && taskColumn(t) !== statusFilter) return false;
       return true;
     })
     .sort((a, b) => {
-      const aInactive = ['DONE', 'CANCELLED'].includes(a.status);
-      const bInactive = ['DONE', 'CANCELLED'].includes(b.status);
+      const aInactive = ['DONE', 'CANCELLED'].includes(taskColumn(a));
+      const bInactive = ['DONE', 'CANCELLED'].includes(taskColumn(b));
       if (aInactive !== bInactive) return aInactive ? 1 : -1;
       const urgency = (t: Task) => isTaskOverdue(t) ? 0 : isTaskDueToday(t) ? 1 : t.dueDate ? 2 : 3;
       const uA = urgency(a), uB = urgency(b);
@@ -357,11 +483,11 @@ export default function Tasks() {
   });
 
   const counts = {
-    TODO:        preStatusFiltered.filter((t) => t.status === 'TODO').length,
-    IN_PROGRESS: preStatusFiltered.filter((t) => t.status === 'IN_PROGRESS').length,
-    BLOCKED:     preStatusFiltered.filter((t) => t.status === 'BLOCKED').length,
-    IN_REVIEW:   preStatusFiltered.filter((t) => t.status === 'IN_REVIEW').length,
-    DONE:        preStatusFiltered.filter((t) => t.status === 'DONE').length,
+    TODO:        preStatusFiltered.filter((t) => taskColumn(t) === 'TODO').length,
+    IN_PROGRESS: preStatusFiltered.filter((t) => taskColumn(t) === 'IN_PROGRESS').length,
+    BLOCKED:     preStatusFiltered.filter((t) => taskColumn(t) === 'BLOCKED').length,
+    IN_REVIEW:   preStatusFiltered.filter((t) => taskColumn(t) === 'IN_REVIEW').length,
+    DONE:        preStatusFiltered.filter((t) => taskColumn(t) === 'DONE').length,
   };
 
   const KPI_TILES = [
@@ -614,6 +740,7 @@ export default function Tasks() {
       )}
 
       <TaskDetailDrawer taskId={selectedTaskId} initialDeliveryAction={deliveryAction} onClose={closeTask} />
+      <BugDetailDrawer bugId={selectedBugId} onClose={closeBug} />
 
       <BlockerDialog
         open={!!blockerCtx}
@@ -667,7 +794,7 @@ function ListView({
             key={task.id}
             task={task}
             onStatusChange={onStatusChange}
-            onClick={() => onTaskClick(task.id)}
+            onClick={() => onTaskClick(task.isBug ? `bug:${task.bugId}` : task.id)}
             onDeliveryClick={(d) => onDeliveryClick(task.id, d)}
             canExtend={canExtend}
             onExtendDeadline={onExtendDeadline}
@@ -692,7 +819,12 @@ function TaskListRow({
   const minDateStr = minDate.toISOString().split('T')[0];
   const now = new Date();
   const isOverdue = !!(task.dueDate && !['DONE', 'CANCELLED'].includes(task.status) && new Date(task.dueDate) < now);
-  const statusTokens = S[task.status] ?? S.TODO;
+  const displayStatus = task.isBug ? (task.bugStatus ?? 'OPEN') : task.status;
+  const statusTokens = task.isBug ? (BUG_S[displayStatus] ?? BUG_S.OPEN) : (S[displayStatus] ?? S.TODO);
+  const statusOptionList = task.isBug ? BUG_STATUSES : STATUSES;
+  const statusLabelMap = task.isBug ? BUG_STATUS_LABELS : STATUS_LABELS;
+  const statusStyleMap = task.isBug ? BUG_S : S;
+  const isFinished = ['DONE', 'CANCELLED'].includes(taskColumn(task));
 
   function submitExtend(e: React.FormEvent) {
     e.preventDefault(); e.stopPropagation();
@@ -722,19 +854,19 @@ function TaskListRow({
 
             {/* Status selector */}
             <div onClick={(e) => e.stopPropagation()} className="shrink-0">
-              <Select value={task.status} onValueChange={(v) => onStatusChange(task, v)}>
+              <Select value={displayStatus} onValueChange={(v) => onStatusChange(task, v)}>
                 <SelectTrigger className="h-7 border-0 p-0 shadow-none focus:ring-0 w-auto">
                   <div className={cn('flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border', statusTokens.badge)}>
                     <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', statusTokens.dot)} />
-                    <span className="hidden sm:inline">{STATUS_LABELS[task.status] ?? task.status}</span>
+                    <span className="hidden sm:inline">{statusLabelMap[displayStatus] ?? displayStatus}</span>
                   </div>
                 </SelectTrigger>
                 <SelectContent className="rounded-xl">
-                  {STATUSES.map((s) => (
+                  {statusOptionList.map((s) => (
                     <SelectItem key={s} value={s} className="text-xs rounded-lg">
                       <div className="flex items-center gap-2">
-                        <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', S[s]?.dot ?? 'bg-gray-300')} />
-                        {STATUS_LABELS[s]}
+                        <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', statusStyleMap[s]?.dot ?? 'bg-gray-300')} />
+                        {statusLabelMap[s]}
                       </div>
                     </SelectItem>
                   ))}
@@ -746,11 +878,16 @@ function TaskListRow({
             <div className="flex-1 min-w-0 cursor-pointer" onClick={onClick}>
               <p className={cn(
                 'font-semibold text-sm sm:text-[15px] leading-snug group-hover:text-indigo-700 transition-colors',
-                task.status === 'DONE' && 'line-through text-muted-foreground',
-                task.status === 'CANCELLED' && 'line-through text-muted-foreground',
+                isFinished && 'line-through text-muted-foreground',
               )}>
                 {task.title}
               </p>
+
+              {task.isBug && (
+                <p className="text-[11px] font-bold text-red-600 mt-0.5 flex items-center gap-1">
+                  <BugIcon className="h-3 w-3" /> Bug reported by {task.reportedByName}
+                </p>
+              )}
 
               <div className="flex items-center gap-2 mt-1 flex-wrap">
                 {task.department && (
@@ -773,19 +910,21 @@ function TaskListRow({
               </div>
 
               {/* Delivery buttons */}
-              <div className="flex items-center gap-1 mt-2 flex-wrap">
-                {DELIVERY.map(({ key, label, icon: Icon }) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); onDeliveryClick(key); }}
-                    className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted/30 px-2.5 py-1 text-[10px] font-medium text-muted-foreground transition-all hover:border-indigo-300 hover:text-indigo-700 hover:bg-indigo-50"
-                  >
-                    <Icon className="h-3 w-3" />
-                    {label}
-                  </button>
-                ))}
-              </div>
+              {!task.isBug && (
+                <div className="flex items-center gap-1 mt-2 flex-wrap">
+                  {DELIVERY.map(({ key, label, icon: Icon }) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onDeliveryClick(key); }}
+                      className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted/30 px-2.5 py-1 text-[10px] font-medium text-muted-foreground transition-all hover:border-indigo-300 hover:text-indigo-700 hover:bg-indigo-50"
+                    >
+                      <Icon className="h-3 w-3" />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Priority */}
@@ -797,7 +936,7 @@ function TaskListRow({
             <div className="hidden sm:flex items-center gap-1.5 shrink-0">
               <DurationBadge startDate={task.startDate} createdAt={task.createdAt} dueDate={task.dueDate} isEng={isEngineeringDept(task.department?.name)} />
               {task.dueDate && <DueBadge dueDate={task.dueDate} status={task.status} isEng={isEngineeringDept(task.department?.name)} completionSubmittedAt={task.completionSubmittedAt} completedAt={task.completedAt} />}
-              {canExtend && !['DONE', 'CANCELLED'].includes(task.status) && (
+              {canExtend && !task.isBug && !['DONE', 'CANCELLED'].includes(task.status) && (
                 extendOpen ? (
                   <form className="flex items-center gap-1" onClick={(e) => e.stopPropagation()} onSubmit={submitExtend}>
                     <WeekdayDatePicker
@@ -889,8 +1028,8 @@ function KanbanView({
     <>
       <div className="flex gap-3 overflow-x-auto pb-4">
         {KANBAN_COLS.map((col) => {
-          const colTasks = paged.filter((t) => t.status === col);
-          const totalInCol = tasks.filter((t) => t.status === col).length;
+          const colTasks = paged.filter((t) => taskColumn(t) === col);
+          const totalInCol = tasks.filter((t) => taskColumn(t) === col).length;
           const cs = COL_STYLE[col];
 
           return (
@@ -915,7 +1054,7 @@ function KanbanView({
                     key={task.id}
                     task={task}
                     onStatusChange={onStatusChange}
-                    onClick={() => onTaskClick(task.id)}
+                    onClick={() => onTaskClick(task.isBug ? `bug:${task.bugId}` : task.id)}
                     onDeliveryClick={(d) => onDeliveryClick(task.id, d)}
                     canExtend={canExtend}
                     onExtendDeadline={onExtendDeadline}
@@ -952,10 +1091,15 @@ function KanbanCard({
   const minDateStr = minDate.toISOString().split('T')[0];
   const now = new Date();
   const isOverdue = !!(task.dueDate && !['DONE', 'CANCELLED'].includes(task.status) && new Date(task.dueDate) < now);
+  const displayStatus = task.isBug ? (task.bugStatus ?? 'OPEN') : task.status;
+  const statusStyleMap = task.isBug ? BUG_S : S;
+  const isFinished = ['DONE', 'CANCELLED'].includes(taskColumn(task));
 
-  const nextStatus: Record<string, string> = {
+  const taskNextStatus: Record<string, string> = {
     TODO: 'IN_PROGRESS', IN_PROGRESS: 'DONE', BLOCKED: 'IN_PROGRESS', IN_REVIEW: 'DONE', DONE: 'TODO',
   };
+  const nextStatusValue = task.isBug ? BUG_NEXT_STATUS[displayStatus] : taskNextStatus[task.status];
+  const nextStatusLabel = task.isBug ? BUG_STATUS_LABELS[nextStatusValue] : STATUS_LABELS[nextStatusValue];
 
   const DELIVERY: Array<{ key: DeliveryAction; label: string; icon: typeof ImagePlus }> = [
     { key: 'SCREENSHOT', label: 'SS', icon: ImagePlus },
@@ -979,17 +1123,22 @@ function KanbanCard({
       onClick={onClick}
     >
       {/* Top accent */}
-      <div className="h-0.5 w-full" style={{ background: isOverdue ? '#ef4444' : (S[task.status]?.accent ?? '#94a3b8') }} />
+      <div className="h-0.5 w-full" style={{ background: isOverdue ? '#ef4444' : (statusStyleMap[displayStatus]?.accent ?? '#94a3b8') }} />
 
       <div className="p-3 space-y-2.5">
         {/* Title */}
         <p className={cn(
           'text-sm font-semibold leading-snug group-hover:text-indigo-700 transition-colors',
-          task.status === 'DONE' && 'line-through text-muted-foreground',
-          task.status === 'CANCELLED' && 'line-through text-muted-foreground',
+          isFinished && 'line-through text-muted-foreground',
         )}>
           {task.title}
         </p>
+
+        {task.isBug && (
+          <p className="text-[10px] font-bold text-red-600 flex items-center gap-1">
+            <BugIcon className="h-2.5 w-2.5" /> Bug reported by {task.reportedByName}
+          </p>
+        )}
 
         {/* Tags */}
         <div className="flex flex-wrap gap-1">
@@ -1017,7 +1166,7 @@ function KanbanCard({
             )}
             <DurationBadge startDate={task.startDate} createdAt={task.createdAt} dueDate={task.dueDate} isEng={isEngineeringDept(task.department?.name)} />
             {task.dueDate && <DueBadge dueDate={task.dueDate} status={task.status} isEng={isEngineeringDept(task.department?.name)} completionSubmittedAt={task.completionSubmittedAt} completedAt={task.completedAt} />}
-            {canExtend && !['DONE', 'CANCELLED'].includes(task.status) && (
+            {canExtend && !task.isBug && !['DONE', 'CANCELLED'].includes(task.status) && (
               extendOpen ? (
                 <form className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()} onSubmit={submitExtend}>
                   <WeekdayDatePicker
@@ -1049,26 +1198,28 @@ function KanbanCard({
         </div>
 
         {/* Delivery buttons */}
-        <div className="flex items-center gap-1 flex-wrap">
-          {DELIVERY.map(({ key, label, icon: Icon }) => (
-            <button
-              key={key}
-              type="button"
-              onClick={(e) => { e.stopPropagation(); onDeliveryClick(key); }}
-              className="inline-flex items-center gap-1 rounded-full border border-border/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:border-indigo-300 hover:text-indigo-700 hover:bg-indigo-50 transition-all"
-            >
-              <Icon className="h-2.5 w-2.5" /> {label}
-            </button>
-          ))}
-        </div>
+        {!task.isBug && (
+          <div className="flex items-center gap-1 flex-wrap">
+            {DELIVERY.map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onDeliveryClick(key); }}
+                className="inline-flex items-center gap-1 rounded-full border border-border/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:border-indigo-300 hover:text-indigo-700 hover:bg-indigo-50 transition-all"
+              >
+                <Icon className="h-2.5 w-2.5" /> {label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Quick-move button */}
-        {nextStatus[task.status] && (
+        {nextStatusValue && (
           <button
-            onClick={(e) => { e.stopPropagation(); onStatusChange(task, nextStatus[task.status]); }}
+            onClick={(e) => { e.stopPropagation(); onStatusChange(task, nextStatusValue); }}
             className="w-full text-[10px] font-semibold text-muted-foreground hover:text-indigo-700 border border-dashed border-border/60 hover:border-indigo-300 hover:bg-indigo-50 rounded-lg px-2 py-1.5 transition-all"
           >
-            → Move to {STATUS_LABELS[nextStatus[task.status]]}
+            → Move to {nextStatusLabel}
           </button>
         )}
       </div>
