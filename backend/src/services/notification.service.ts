@@ -12,7 +12,8 @@ export type NotificationEvent =
   | 'BUG_ASSIGNED'
   | 'BUG_STATUS_CHANGED'
   | 'BUG_REOPENED'
-  | 'BUG_COMMENT_ADDED';
+  | 'BUG_COMMENT_ADDED'
+  | 'BUG_SUBMITTED_FOR_REVIEW';
 
 const TEMPLATES: Record<NotificationEvent, (d: Record<string, unknown>) => { title: string; body: string }> = {
   TASK_ASSIGNED: (d) => ({ title: 'New task assigned', body: `You've been assigned: "${d.taskTitle}"${d.dueDate ? ` · due ${d.dueDate}` : ''}` }),
@@ -29,6 +30,7 @@ const TEMPLATES: Record<NotificationEvent, (d: Record<string, unknown>) => { tit
   BUG_STATUS_CHANGED: (d) => ({ title: `${d.itemLabel === 'improvement' ? 'Improvement' : 'Bug'} status updated`, body: `"${d.bugTitle}" is now ${d.toStatus}${d.changedByName ? ` (by ${d.changedByName})` : ''}` }),
   BUG_REOPENED: (d) => ({ title: `${d.itemLabel === 'improvement' ? 'Improvement' : 'Bug'} reopened`, body: `${d.reopenedByName || 'Someone'} reopened "${d.bugTitle}"` }),
   BUG_COMMENT_ADDED: (d) => ({ title: `New comment on ${d.itemLabel || 'bug'}`, body: `${d.commenterName || 'Someone'} commented on "${d.bugTitle}"` }),
+  BUG_SUBMITTED_FOR_REVIEW: (d) => ({ title: `${d.itemLabel === 'improvement' ? 'Improvement' : 'Bug'} ready for review`, body: `${d.assigneeName || 'Someone'} marked "${d.bugTitle}" as ${d.attemptedResolution || 'fixed'} and needs your approval.` }),
 };
 
 const EVENT_PREF_KEY: Record<NotificationEvent, string> = {
@@ -44,6 +46,7 @@ const EVENT_PREF_KEY: Record<NotificationEvent, string> = {
   BUG_STATUS_CHANGED: 'taskAssigned',
   BUG_REOPENED: 'taskBlocked',
   BUG_COMMENT_ADDED: 'taskAssigned',
+  BUG_SUBMITTED_FOR_REVIEW: 'taskAssigned',
 };
 
 async function getUserOrgId(userId: string): Promise<string | null> {

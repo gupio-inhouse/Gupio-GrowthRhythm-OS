@@ -29,6 +29,16 @@ function itemLabel(type: string) {
   return type === 'ENHANCEMENT' ? 'improvement' : 'bug';
 }
 
+function resolutionPhrase(status?: string) {
+  switch (status) {
+    case 'FIXED': return 'fixed';
+    case 'CLOSED': return 'closed';
+    case 'WONT_FIX': return "won't fix";
+    case 'DUPLICATE': return 'a duplicate';
+    default: return 'resolved';
+  }
+}
+
 async function getActorScope(userId: string, orgId: string) {
   const actor = await prisma.user.findUnique({
     where: { id: userId },
@@ -412,7 +422,7 @@ router.patch('/:id', auditLog('bug', 'UPDATE'), async (req: AuthRequest, res: Re
 
   const existing = await prisma.bug.findUnique({
     where: { id: existingBug.id },
-    select: { id: true, status: true, teamId: true, departmentId: true, title: true, reporterUserId: true, assigneeUserId: true },
+    select: { id: true, status: true, teamId: true, departmentId: true, title: true, reporterUserId: true, assigneeUserId: true, assignedByUserId: true },
   });
   if (!existing) {
     res.status(404).json({ error: 'Bug not found' });
@@ -448,12 +458,23 @@ router.patch('/:id', auditLog('bug', 'UPDATE'), async (req: AuthRequest, res: Re
   if (newAssignee) data.assignedByUserId = req.user!.userId;
 
   const requestedStatus = parsed.data.status;
-  if (requestedStatus) {
-    if (CLOSED_STATUSES.includes(requestedStatus) && !CLOSED_STATUSES.includes(existing.status)) {
+
+  // A plain TEAM_MEMBER (assignee, no bugTrackerFullAccess) can never resolve a bug
+  // directly — every attempt to mark it as any resolution status (FIXED, CLOSED,
+  // WONT_FIX, DUPLICATE) gets routed to IN_REVIEW instead, for the reviewer (whoever
+  // assigned the bug, i.e. the tester) to approve. Closes the loophole where she
+  // could bypass review by picking CLOSED/WONT_FIX/DUPLICATE instead of FIXED.
+  const isPlainTeamMember = actor.role === 'TEAM_MEMBER' && !actor.bugTrackerFullAccess;
+  const shouldSubmitForReview = isPlainTeamMember && !!requestedStatus && CLOSED_STATUSES.includes(requestedStatus);
+  const finalStatus = shouldSubmitForReview ? 'IN_REVIEW' : requestedStatus;
+
+  if (finalStatus) {
+    data.status = finalStatus;
+    if (CLOSED_STATUSES.includes(finalStatus) && !CLOSED_STATUSES.includes(existing.status)) {
       data.resolvedAt = new Date();
     }
-    if (requestedStatus === 'CLOSED') data.closedAt = new Date();
-    if (!CLOSED_STATUSES.includes(requestedStatus)) {
+    if (finalStatus === 'CLOSED') data.closedAt = new Date();
+    if (!CLOSED_STATUSES.includes(finalStatus)) {
       data.resolvedAt = null;
       data.closedAt = null;
     }
@@ -478,12 +499,22 @@ router.patch('/:id', auditLog('bug', 'UPDATE'), async (req: AuthRequest, res: Re
     }).catch(console.error);
   }
 
-  if (requestedStatus && requestedStatus !== existing.status) {
+  if (shouldSubmitForReview && finalStatus !== existing.status) {
+    const reviewerId = existing.assignedByUserId ?? existing.reporterUserId;
+    if (reviewerId && reviewerId !== req.user!.userId) {
+      createNotification(reviewerId, 'BUG_SUBMITTED_FOR_REVIEW', {
+        bugTitle: bug.title,
+        assigneeName: bug.assignee?.name ?? 'Someone',
+        itemLabel: itemLabel(bug.type),
+        attemptedResolution: resolutionPhrase(requestedStatus),
+      }).catch(console.error);
+    }
+  } else if (finalStatus && finalStatus !== existing.status) {
     const notifyIds = new Set<string>();
     if (bug.reporterUserId && bug.reporterUserId !== req.user!.userId) notifyIds.add(bug.reporterUserId);
     if (bug.assigneeUserId && bug.assigneeUserId !== req.user!.userId) notifyIds.add(bug.assigneeUserId);
 
-    if (requestedStatus === 'REOPENED' && notifyIds.size > 0) {
+    if (finalStatus === 'REOPENED' && notifyIds.size > 0) {
       fanOutNotification(req.user!.orgId, Array.from(notifyIds), 'BUG_REOPENED', {
         bugTitle: bug.title,
         reopenedByName: actor.id === existing.reporterUserId ? bug.reporter.name : 'A teammate',
@@ -492,16 +523,18 @@ router.patch('/:id', auditLog('bug', 'UPDATE'), async (req: AuthRequest, res: Re
     } else if (notifyIds.size > 0) {
       fanOutNotification(req.user!.orgId, Array.from(notifyIds), 'BUG_STATUS_CHANGED', {
         bugTitle: bug.title,
-        toStatus: requestedStatus,
+        toStatus: finalStatus,
         itemLabel: itemLabel(bug.type),
       }).catch(console.error);
     }
+  }
 
+  if (finalStatus && finalStatus !== existing.status) {
     await prisma.bugStatusHistory.create({
       data: {
         bugId: bug.id,
         fromStatus: existing.status,
-        toStatus: requestedStatus,
+        toStatus: finalStatus,
         changedById: req.user!.userId,
         note: parsed.data.note || null,
       },

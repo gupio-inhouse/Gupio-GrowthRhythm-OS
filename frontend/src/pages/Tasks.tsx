@@ -304,9 +304,17 @@ export default function Tasks() {
   const updateBugMutation = useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: Record<string, unknown> }) =>
       api.patch(`/bugs/${id}`, patch),
-    onSuccess: () => {
+    onSuccess: (res, { patch }) => {
       qc.invalidateQueries({ queryKey: ['bugs'] });
-      toast.success('Bug status updated');
+      // A plain TEAM_MEMBER's "Fixed" request gets silently rerouted to "In Review"
+      // server-side (needs reviewer approval) — surface that so it isn't confusing.
+      const actualStatus = res.data?.status as string | undefined;
+      const requestedStatus = patch.status as string | undefined;
+      if (actualStatus && requestedStatus && actualStatus !== requestedStatus) {
+        toast.success('Submitted for review — waiting for approval before it can be resolved.');
+      } else {
+        toast.success('Bug status updated');
+      }
     },
     onError: (e: unknown) => {
       const msg = (() => {

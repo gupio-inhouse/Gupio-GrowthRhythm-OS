@@ -17,6 +17,7 @@ import { BugDetailDrawer } from '@/components/bugs/BugDetailDrawer';
 import { BugAccessDialog } from '@/components/bugs/BugAccessDialog';
 import api from '@/api/client';
 import { useAuthStore } from '@/store/authStore';
+import { toast } from '@/hooks/use-toast';
 
 type Bug = {
   id: string; type: string; title: string; status: string; severity: string; createdAt: string;
@@ -90,7 +91,16 @@ export default function Bugs() {
 
   const updateMutation = useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: Record<string, unknown> }) => api.patch(`/bugs/${id}`, patch),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['bugs'] }),
+    onSuccess: (res, { patch }) => {
+      qc.invalidateQueries({ queryKey: ['bugs'] });
+      // A plain TEAM_MEMBER's "Fixed" request gets silently rerouted to "In Review"
+      // server-side (needs reviewer approval) — surface that so it isn't confusing.
+      const actualStatus = res.data?.status as string | undefined;
+      const requestedStatus = patch.status as string | undefined;
+      if (actualStatus && requestedStatus && actualStatus !== requestedStatus) {
+        toast.success('Submitted for review — waiting for approval before it can be resolved.');
+      }
+    },
   });
 
   const openBug = (id: string) => {

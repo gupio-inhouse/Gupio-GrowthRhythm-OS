@@ -123,11 +123,18 @@ export function BugDetailDrawer({ bugId, onClose }: Props) {
   };
   const updateMutation = useMutation({
     mutationFn: (patch: Record<string, unknown>) => api.patch(`/bugs/${bugId}`, patch),
-    onSuccess: (_data, variables) => {
+    onSuccess: (res, variables) => {
       qc.invalidateQueries({ queryKey: ['bugs'] });
       qc.invalidateQueries({ queryKey: ['bug', bugId] });
-      const newStatus = variables.status as string | undefined;
-      if (newStatus) toast.success(STATUS_TOAST[newStatus] ?? 'Status updated');
+      // Use the status the backend actually applied, not what was requested — a plain
+      // TEAM_MEMBER's "Fixed" request gets silently rerouted to "In Review" server-side.
+      const actualStatus = res.data?.status as string | undefined;
+      const requestedStatus = variables.status as string | undefined;
+      if (actualStatus && requestedStatus && actualStatus !== requestedStatus) {
+        toast.success('Submitted for review — waiting for approval before it can be resolved.');
+      } else if (actualStatus) {
+        toast.success(STATUS_TOAST[actualStatus] ?? 'Status updated');
+      }
     },
     onError: (e) => toast.error(formatBugError(e)),
   });
