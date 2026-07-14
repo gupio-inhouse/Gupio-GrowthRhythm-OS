@@ -54,6 +54,9 @@ type DeliveryAction = 'SCREENSHOT' | 'DOCUMENT' | 'PULL_REQUEST';
 // bugs into the existing TODO/IN_PROGRESS/IN_REVIEW/DONE/CANCELLED columns.
 // The bug's own status (task.bugStatus) is still what's shown/edited on the card.
 const BUG_STATUSES = ['OPEN', 'IN_PROGRESS', 'IN_REVIEW', 'REOPENED', 'FIXED', 'CLOSED', 'WONT_FIX', 'DUPLICATE'];
+// A plain TEAM_MEMBER (no bugTrackerFullAccess) can only move a bug between these three —
+// resolving/reopening it is reviewer-only (backend already enforces this).
+const BUG_TEAM_MEMBER_STATUSES = ['OPEN', 'IN_PROGRESS', 'IN_REVIEW'];
 const BUG_STATUS_LABELS: Record<string, string> = {
   OPEN: 'Open', IN_PROGRESS: 'In Progress', IN_REVIEW: 'In Review', REOPENED: 'Reopened',
   FIXED: 'Fixed', CLOSED: 'Closed', WONT_FIX: "Won't Fix", DUPLICATE: 'Duplicate',
@@ -70,6 +73,11 @@ const BUG_S: Record<string, { dot: string; badge: string; bar: string; accent: s
 };
 const BUG_NEXT_STATUS: Record<string, string> = {
   OPEN: 'IN_PROGRESS', IN_PROGRESS: 'FIXED', IN_REVIEW: 'FIXED', REOPENED: 'IN_PROGRESS', FIXED: 'CLOSED',
+};
+// A plain TEAM_MEMBER can never quick-move into a resolved status — she can only push
+// as far as IN_REVIEW, then it's the reviewer's move.
+const BUG_NEXT_STATUS_TEAM_MEMBER: Record<string, string> = {
+  OPEN: 'IN_PROGRESS', IN_PROGRESS: 'IN_REVIEW', REOPENED: 'IN_PROGRESS',
 };
 function bugColumn(bugStatus?: string): string {
   switch (bugStatus) {
@@ -832,9 +840,13 @@ function TaskListRow({
   const minDateStr = minDate.toISOString().split('T')[0];
   const now = new Date();
   const isOverdue = !!(task.dueDate && !['DONE', 'CANCELLED'].includes(task.status) && new Date(task.dueDate) < now);
+  const { user } = useAuthStore();
   const displayStatus = task.isBug ? (task.bugStatus ?? 'OPEN') : task.status;
   const statusTokens = task.isBug ? (BUG_S[displayStatus] ?? BUG_S.OPEN) : (S[displayStatus] ?? S.TODO);
-  const statusOptionList = task.isBug ? BUG_STATUSES : STATUSES;
+  const isPlainTeamMemberViewer = user?.role === 'TEAM_MEMBER' && !user?.bugTrackerFullAccess;
+  const statusOptionList = task.isBug
+    ? (isPlainTeamMemberViewer ? Array.from(new Set([...BUG_TEAM_MEMBER_STATUSES, displayStatus])) : BUG_STATUSES)
+    : STATUSES;
   const statusLabelMap = task.isBug ? BUG_STATUS_LABELS : STATUS_LABELS;
   const statusStyleMap = task.isBug ? BUG_S : S;
   const isFinished = ['DONE', 'CANCELLED'].includes(taskColumn(task));
@@ -1105,14 +1117,17 @@ function KanbanCard({
   const minDateStr = minDate.toISOString().split('T')[0];
   const now = new Date();
   const isOverdue = !!(task.dueDate && !['DONE', 'CANCELLED'].includes(task.status) && new Date(task.dueDate) < now);
+  const { user } = useAuthStore();
   const displayStatus = task.isBug ? (task.bugStatus ?? 'OPEN') : task.status;
   const statusStyleMap = task.isBug ? BUG_S : S;
   const isFinished = ['DONE', 'CANCELLED'].includes(taskColumn(task));
+  const isPlainTeamMemberViewer = user?.role === 'TEAM_MEMBER' && !user?.bugTrackerFullAccess;
 
   const taskNextStatus: Record<string, string> = {
     TODO: 'IN_PROGRESS', IN_PROGRESS: 'DONE', BLOCKED: 'IN_PROGRESS', IN_REVIEW: 'DONE', DONE: 'TODO',
   };
-  const nextStatusValue = task.isBug ? BUG_NEXT_STATUS[displayStatus] : taskNextStatus[task.status];
+  const bugNextStatusMap = isPlainTeamMemberViewer ? BUG_NEXT_STATUS_TEAM_MEMBER : BUG_NEXT_STATUS;
+  const nextStatusValue = task.isBug ? bugNextStatusMap[displayStatus] : taskNextStatus[task.status];
   const nextStatusLabel = task.isBug ? BUG_STATUS_LABELS[nextStatusValue] : STATUS_LABELS[nextStatusValue];
 
   const DELIVERY: Array<{ key: DeliveryAction; label: string; icon: typeof ImagePlus }> = [

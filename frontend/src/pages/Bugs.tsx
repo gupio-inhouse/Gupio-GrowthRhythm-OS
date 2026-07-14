@@ -35,6 +35,9 @@ const TYPE_STYLE: Record<string, string> = {
 const TYPE_LABEL: Record<string, string> = { BUG: 'Bug', ENHANCEMENT: 'Improvement' };
 
 const STATUSES = ['OPEN', 'IN_PROGRESS', 'IN_REVIEW', 'REOPENED', 'FIXED', 'CLOSED', 'WONT_FIX', 'DUPLICATE'];
+// A plain TEAM_MEMBER (no bugTrackerFullAccess) can only move a bug between these three —
+// resolving/reopening it is reviewer-only (backend already enforces this).
+const TEAM_MEMBER_STATUSES = ['OPEN', 'IN_PROGRESS', 'IN_REVIEW'];
 const STATUS_LABELS: Record<string, string> = {
   OPEN: 'Open', IN_PROGRESS: 'In Progress', IN_REVIEW: 'In Review', REOPENED: 'Reopened',
   FIXED: 'Fixed', CLOSED: 'Closed', WONT_FIX: "Won't Fix", DUPLICATE: 'Duplicate',
@@ -380,7 +383,12 @@ function ListView({
 }
 
 function BugListRow({ bug, onStatusChange, onClick }: { bug: Bug; onStatusChange: (bug: Bug, status: string) => void; onClick: () => void }) {
+  const { user } = useAuthStore();
   const statusTokens = S[bug.status] ?? S.OPEN;
+  const isPlainTeamMemberViewer = user?.role === 'TEAM_MEMBER' && !user?.bugTrackerFullAccess;
+  const availableStatuses = isPlainTeamMemberViewer
+    ? Array.from(new Set([...TEAM_MEMBER_STATUSES, bug.status]))
+    : STATUSES;
   return (
     <div className="group rounded-2xl border bg-white overflow-hidden transition-all duration-200 hover:shadow-lg hover:border-red-200/60 border-border/60">
       <div className="flex">
@@ -396,7 +404,7 @@ function BugListRow({ bug, onStatusChange, onClick }: { bug: Bug; onStatusChange
                   </div>
                 </SelectTrigger>
                 <SelectContent className="rounded-xl">
-                  {STATUSES.map((s) => (
+                  {availableStatuses.map((s) => (
                     <SelectItem key={s} value={s} className="text-xs rounded-lg">
                       <div className="flex items-center gap-2">
                         <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', S[s]?.dot ?? 'bg-gray-300')} />

@@ -44,6 +44,10 @@ interface Props {
 }
 
 const STATUSES = ['OPEN', 'IN_PROGRESS', 'IN_REVIEW', 'REOPENED', 'FIXED', 'CLOSED', 'WONT_FIX', 'DUPLICATE'];
+// A plain TEAM_MEMBER (no bugTrackerFullAccess) can only move a bug between these three —
+// resolving it (Fixed/Closed/Won't Fix/Duplicate) or reopening it is reviewer-only
+// (backend/src/routes/bugs.ts already enforces this; this just keeps the dropdown honest).
+const TEAM_MEMBER_STATUSES = ['OPEN', 'IN_PROGRESS', 'IN_REVIEW'];
 const STATUS_LABELS: Record<string, string> = {
   OPEN: 'Open', IN_PROGRESS: 'In Progress', IN_REVIEW: 'In Review', REOPENED: 'Reopened',
   FIXED: 'Fixed', CLOSED: 'Closed', WONT_FIX: "Won't Fix", DUPLICATE: 'Duplicate',
@@ -192,6 +196,13 @@ export function BugDetailDrawer({ bugId, onClose }: Props) {
   const documents = (bug?.attachments ?? []).filter((a) => a.type !== 'SCREENSHOT');
   const statusTokens = bug ? (S[bug.status] ?? S.OPEN) : S.OPEN;
   const isEnhancement = bug?.type === 'ENHANCEMENT';
+  const isPlainTeamMemberViewer = user?.role === 'TEAM_MEMBER' && !user?.bugTrackerFullAccess;
+  // Always include the bug's current status even if it's outside her editable range
+  // (e.g. a reviewer already marked it Fixed) — so the dropdown still shows the truth,
+  // she just can't pick a new out-of-range status.
+  const availableStatuses = isPlainTeamMemberViewer && bug
+    ? Array.from(new Set([...TEAM_MEMBER_STATUSES, bug.status]))
+    : STATUSES;
 
   return (
     <>
@@ -284,7 +295,7 @@ export function BugDetailDrawer({ bugId, onClose }: Props) {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="rounded-xl">
-                      {STATUSES.map((s) => {
+                      {availableStatuses.map((s) => {
                         const tok = S[s] ?? S.OPEN;
                         return (
                           <SelectItem key={s} value={s} className="rounded-lg">
