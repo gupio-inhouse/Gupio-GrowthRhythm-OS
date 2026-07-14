@@ -220,14 +220,18 @@ export default function Tasks() {
     queryFn: () => api.get('/tasks').then((r) => r.data),
   });
 
-  // Bugs assigned to a project member show up here too (merged, not a real Task
-  // row) — this is the direct fix for "assigned bugs aren't visible in my tasks."
+  // Bugs assigned to ME show up here too (merged, not a real Task row) — this is
+  // the direct fix for "assigned bugs aren't visible in my tasks." Must filter to
+  // MY assignment specifically (not just "has any assignee") — GET /bugs can return
+  // a much broader set than "my bugs" for anyone with wider visibility (bugTrackerFullAccess,
+  // MANAGER, DEPARTMENT_HEAD, OWNER), and those bugs belong only in the Bug Tracker,
+  // not merged into this viewer's personal Tasks list just because they're visible to them.
   const { data: bugItems = [], isLoading: bugsLoading } = useQuery<BugSummary[]>({
     queryKey: ['bugs'],
     queryFn: () => api.get('/bugs').then((r) => r.data),
   });
   const bugTasks: Task[] = bugItems
-    .filter((b) => !!b.assignee)
+    .filter((b) => !!b.assignee && b.assignee.id === user?.id)
     .map((b) => ({
       id: `bug-${b.id}`,
       title: b.title,

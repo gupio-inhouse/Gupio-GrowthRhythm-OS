@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import {
-  Plus, Bug as BugIcon, Clock, Search, LayoutGrid, List,
+  Plus, Bug as BugIcon, Clock, Search,
   CheckCircle2, Filter, ArrowUpRight, RotateCcw, XCircle, KeyRound, Lightbulb,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -73,7 +73,6 @@ export default function Bugs() {
   const [projectFilter, setProjectFilter] = useState('');
   const [mineFilter, setMineFilter] = useState<'' | 'reported' | 'assigned'>('');
   const [page, setPage] = useState(1);
-  const [view, setView] = useState<'list' | 'kanban'>('kanban');
   const [newBugOpen, setNewBugOpen] = useState(false);
   const [createType, setCreateType] = useState<'BUG' | 'ENHANCEMENT'>('BUG');
   const [accessOpen, setAccessOpen] = useState(false);
@@ -176,23 +175,6 @@ export default function Bugs() {
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="flex rounded-xl border border-border/60 bg-white overflow-hidden shadow-sm p-0.5 gap-0.5">
-              {([['list', List], ['kanban', LayoutGrid]] as const).map(([v, Icon]) => (
-                <button
-                  key={v}
-                  onClick={() => setView(v)}
-                  className={cn(
-                    'p-2 rounded-lg transition-all',
-                    view === v
-                      ? 'bg-gradient-to-br from-red-500 to-rose-600 text-white shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
-                  )}
-                >
-                  <Icon className="h-4 w-4" />
-                </button>
-              ))}
-            </div>
-
             {user?.role === 'OWNER' && (
               <button
                 onClick={() => setAccessOpen(true)}
@@ -364,10 +346,8 @@ export default function Bugs() {
               <div key={i} className="h-20 rounded-2xl bg-white border border-border/60 animate-pulse" />
             ))}
           </div>
-        ) : view === 'list' ? (
-          <ListView bugs={filtered} page={page} onPageChange={setPage} onStatusChange={(bug, status) => updateMutation.mutate({ id: bug.id, patch: { status } })} onBugClick={openBug} />
         ) : (
-          <KanbanView bugs={filtered} page={page} onPageChange={setPage} onStatusChange={(bug, status) => updateMutation.mutate({ id: bug.id, patch: { status } })} onBugClick={openBug} />
+          <ListView bugs={filtered} page={page} onPageChange={setPage} onStatusChange={(bug, status) => updateMutation.mutate({ id: bug.id, patch: { status } })} onBugClick={openBug} />
         )}
       </div>
 
@@ -472,120 +452,6 @@ function BugListRow({ bug, onStatusChange, onClick }: { bug: Bug; onStatusChange
             )}
           </div>
         </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Kanban View ───────────────────────────────────────────────────────────────
-const KANBAN_COLS = ['OPEN', 'IN_PROGRESS', 'IN_REVIEW', 'REOPENED', 'FIXED', 'CLOSED'];
-const COL_STYLE: Record<string, { from: string; to: string; bg: string; headerBg: string }> = {
-  OPEN:        { from: 'from-slate-400',  to: 'to-gray-500',   bg: 'bg-slate-50/60',  headerBg: 'bg-slate-50' },
-  IN_PROGRESS: { from: 'from-blue-500',   to: 'to-indigo-600', bg: 'bg-blue-50/40',   headerBg: 'bg-blue-50' },
-  IN_REVIEW:   { from: 'from-amber-500',  to: 'to-orange-600', bg: 'bg-amber-50/40',  headerBg: 'bg-amber-50' },
-  REOPENED:    { from: 'from-orange-500', to: 'to-red-500',    bg: 'bg-orange-50/40', headerBg: 'bg-orange-50' },
-  FIXED:       { from: 'from-emerald-500', to: 'to-green-600', bg: 'bg-emerald-50/40', headerBg: 'bg-emerald-50' },
-  CLOSED:      { from: 'from-gray-400',   to: 'to-gray-500',   bg: 'bg-gray-50/60',   headerBg: 'bg-gray-50' },
-};
-
-function bugCol(bug: Bug) {
-  return ['CLOSED', 'WONT_FIX', 'DUPLICATE'].includes(bug.status) ? 'CLOSED' : bug.status;
-}
-
-function KanbanView({
-  bugs, page, onPageChange, onStatusChange, onBugClick,
-}: {
-  bugs: Bug[]; page: number; onPageChange: (p: number) => void;
-  onStatusChange: (bug: Bug, status: string) => void;
-  onBugClick: (id: string) => void;
-}) {
-  const paged = paginate(bugs, page);
-  return (
-    <>
-      <div className="flex gap-3 overflow-x-auto pb-4">
-        {KANBAN_COLS.map((col) => {
-          const colBugs = paged.filter((b) => bugCol(b) === col);
-          const totalInCol = bugs.filter((b) => bugCol(b) === col).length;
-          const cs = COL_STYLE[col];
-          return (
-            <div key={col} className={cn('flex-shrink-0 w-72 rounded-2xl border border-border/50 overflow-hidden', cs.bg)}>
-              <div className={cn('px-4 py-3 border-b border-border/40', cs.headerBg)}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className={cn('h-1.5 w-1.5 rounded-full', S[col]?.dot ?? 'bg-gray-300')} />
-                    <span className="text-sm font-bold">{STATUS_LABELS[col]}</span>
-                  </div>
-                  <span className={cn('text-[10px] font-bold rounded-full px-2 py-0.5 border', S[col]?.badge ?? '')}>{totalInCol}</span>
-                </div>
-              </div>
-              <div className="p-2 space-y-2 min-h-32">
-                {colBugs.map((bug) => <BugKanbanCard key={bug.id} bug={bug} onStatusChange={onStatusChange} onClick={() => onBugClick(bug.id)} />)}
-                {colBugs.length === 0 && (
-                  <div className="flex flex-col items-center py-8 gap-2 text-muted-foreground">
-                    <div className={cn('h-10 w-10 rounded-2xl flex items-center justify-center bg-gradient-to-br opacity-40', cs.from, cs.to)}>
-                      <BugIcon className="h-5 w-5 text-white" />
-                    </div>
-                    <p className="text-xs font-medium">No bugs</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <Pagination total={bugs.length} page={page} onPageChange={onPageChange} />
-    </>
-  );
-}
-
-function BugKanbanCard({ bug, onStatusChange, onClick }: { bug: Bug; onStatusChange: (bug: Bug, status: string) => void; onClick: () => void }) {
-  const nextStatus: Record<string, string> = {
-    OPEN: 'IN_PROGRESS', IN_PROGRESS: 'FIXED', IN_REVIEW: 'FIXED', REOPENED: 'IN_PROGRESS', FIXED: 'CLOSED',
-  };
-  return (
-    <div
-      className="rounded-xl border bg-white overflow-hidden cursor-pointer transition-all duration-200 hover:shadow-md hover:border-red-200/60 group border-border/60"
-      onClick={onClick}
-    >
-      <div className="h-0.5 w-full" style={{ background: S[bug.status]?.accent ?? '#94a3b8' }} />
-      <div className="p-3 space-y-2.5">
-        <p className="text-sm font-semibold leading-snug group-hover:text-red-700 transition-colors">{bug.title}</p>
-
-        <div className="flex flex-wrap gap-1">
-          <span className={cn('inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border font-semibold', TYPE_STYLE[bug.type])}>
-            {bug.type === 'ENHANCEMENT' ? <Lightbulb className="h-2.5 w-2.5" /> : <BugIcon className="h-2.5 w-2.5" />}
-            {TYPE_LABEL[bug.type] ?? bug.type}
-          </span>
-          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200 font-semibold">{bug.team.name}</span>
-        </div>
-
-        <div className="flex items-center justify-between gap-2">
-          <Badge className={cn('text-[10px] border rounded-full px-1.5', SEVERITY_STYLE[bug.severity])}>{bug.severity}</Badge>
-          <div className="flex items-center gap-1.5">
-            {!!bug._count?.attachments && <span className="text-[10px] text-muted-foreground">📎{bug._count.attachments}</span>}
-            {bug.assignee ? (
-              <Avatar className="h-6 w-6 ring-1 ring-white shadow-sm">
-                <AvatarImage src={bug.assignee.avatarUrl} />
-                <AvatarFallback className="text-[9px] font-bold bg-gradient-to-br from-indigo-100 to-violet-100 text-indigo-700">
-                  {getInitials(bug.assignee.name)}
-                </AvatarFallback>
-              </Avatar>
-            ) : (
-              <span className="text-[9px] text-amber-700 font-semibold">Unassigned</span>
-            )}
-          </div>
-        </div>
-
-        <p className="text-[10px] text-muted-foreground">Reported by {bug.reporter.name} · {formatRelative(bug.createdAt)}</p>
-
-        {nextStatus[bug.status] && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onStatusChange(bug, nextStatus[bug.status]); }}
-            className="w-full text-[10px] font-semibold text-muted-foreground hover:text-red-700 border border-dashed border-border/60 hover:border-red-300 hover:bg-red-50 rounded-lg px-2 py-1.5 transition-all"
-          >
-            Move to {STATUS_LABELS[nextStatus[bug.status]]} →
-          </button>
-        )}
       </div>
     </div>
   );
