@@ -97,9 +97,9 @@ export function BugDetailDrawer({ bugId, onClose }: Props) {
 
   // Matches backend/src/routes/bugs.ts ALLOWED_ROLES + canMutateBug: no COMPANY_ADMIN.
   // A TEAM_MEMBER can edit a bug they're the current assignee of, OR their own report
-  // while it's still unassigned (so they can route it to the right engineer) — but not
-  // a bug they reported that's since been assigned to someone else.
-  const canManage = ['OWNER', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
+  // while it's still unassigned (so they can route it to the right engineer), OR any
+  // bug at all if they've been granted bugTrackerFullAccess (Manage Access toggle).
+  const canManage = ['OWNER', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '') || !!user?.bugTrackerFullAccess;
 
   const { data: bug, isLoading } = useQuery<BugDetail>({
     queryKey: ['bug', bugId],
@@ -110,7 +110,9 @@ export function BugDetailDrawer({ bugId, onClose }: Props) {
   const isAssignee = !!bug && !!user?.id && bug.assignee?.id === user.id;
   const isUnassignedOwnReport = !!bug && !!user?.id && !bug.assignee && bug.reporter.id === user.id;
   const canEdit = canManage || isAssignee || isUnassignedOwnReport;
-  const canDelete = canManage;
+  // Deletion stays blocked for TEAM_MEMBER even with bugTrackerFullAccess — deliberate
+  // guardrail (see backend/src/routes/bugs.ts DELETE route), not covered by canManage.
+  const canDelete = ['OWNER', 'DEPARTMENT_HEAD', 'MANAGER'].includes(user?.role || '');
 
   const STATUS_TOAST: Record<string, string> = {
     IN_PROGRESS: 'Bug moved to In Progress',

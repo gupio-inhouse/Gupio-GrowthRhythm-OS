@@ -71,6 +71,7 @@ interface VerifyResult {
     orgId: string;
     status: string;
     departmentId: string | null;
+    bugTrackerFullAccess: boolean;
     department: { id: string; name: string; slug: string } | null;
     org: { id: string; name: string; plan: string; industry: string };
   };
@@ -91,6 +92,7 @@ export async function verifyMagicLink(token: string): Promise<VerifyResult> {
           orgId: true,
           status: true,
           departmentId: true,
+          bugTrackerFullAccess: true,
           department: { select: { id: true, name: true, slug: true } },
           org: { select: { id: true, name: true, plan: true, industry: true } },
         },

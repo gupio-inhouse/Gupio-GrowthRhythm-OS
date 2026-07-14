@@ -74,6 +74,7 @@ router.post('/verify', async (req: Request, res: Response) => {
         departmentId: user.departmentId,
         departmentName: user.department?.name ?? null,
         departmentSlug: user.department?.slug ?? null,
+        bugTrackerFullAccess: user.bugTrackerFullAccess,
       },
       org: user.org,
     });
@@ -130,6 +131,7 @@ router.post('/verify', async (req: Request, res: Response) => {
       departmentId: user.departmentId,
       departmentName: user.department?.name ?? null,
       departmentSlug: user.department?.slug ?? null,
+      bugTrackerFullAccess: user.bugTrackerFullAccess,
     },
     org: user.org,
   });
@@ -222,6 +224,7 @@ router.post('/accept-invite', async (req: Request, res: Response) => {
       departmentId: user.departmentId,
       departmentName: user.department?.name ?? null,
       departmentSlug: user.department?.slug ?? null,
+      bugTrackerFullAccess: user.bugTrackerFullAccess,
     },
     org: user.org,
   });

@@ -162,6 +162,7 @@ router.post('/login', async (req: Request, res: Response) => {
       departmentId: user.departmentId,
       departmentName: user.department?.name ?? null,
       departmentSlug: user.department?.slug ?? null,
+      bugTrackerFullAccess: user.bugTrackerFullAccess,
     },
     org: user.org,
   });
@@ -174,7 +175,7 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
     select: {
       id: true, name: true, email: true, phone: true, role: true,
       departmentId: true, managerId: true, status: true, avatarUrl: true,
-      lastLoginAt: true, createdAt: true,
+      lastLoginAt: true, createdAt: true, bugTrackerFullAccess: true,
       department: { select: { id: true, name: true, slug: true } },
       org: { select: { id: true, name: true, plan: true, industry: true } },
     },

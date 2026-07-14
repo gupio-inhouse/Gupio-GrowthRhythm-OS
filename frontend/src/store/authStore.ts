@@ -12,6 +12,7 @@ interface User {
   departmentSlug?: string;
   avatarUrl?: string;
   mfaEnabled?: boolean;
+  bugTrackerFullAccess?: boolean;
 }
 
 interface Org {
