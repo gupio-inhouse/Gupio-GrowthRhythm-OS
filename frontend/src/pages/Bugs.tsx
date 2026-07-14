@@ -74,7 +74,6 @@ export default function Bugs() {
   const [mineFilter, setMineFilter] = useState<'' | 'reported' | 'assigned'>('');
   const [page, setPage] = useState(1);
   const [newBugOpen, setNewBugOpen] = useState(false);
-  const [createType, setCreateType] = useState<'BUG' | 'ENHANCEMENT'>('BUG');
   const [accessOpen, setAccessOpen] = useState(false);
   const [selectedBugId, setSelectedBugId] = useState<string | null>(() => searchParams.get('bugId'));
 
@@ -186,15 +185,7 @@ export default function Bugs() {
             )}
 
             <button
-              onClick={() => { setCreateType('ENHANCEMENT'); setNewBugOpen(true); }}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-violet-500 to-purple-600 px-3 sm:px-4 py-2 text-xs font-bold text-white hover:from-violet-600 hover:to-purple-700 shadow-sm shadow-violet-200 transition-all"
-            >
-              <Lightbulb className="h-4 w-4" />
-              <span className="hidden sm:inline">Suggest Improvement</span>
-            </button>
-
-            <button
-              onClick={() => { setCreateType('BUG'); setNewBugOpen(true); }}
+              onClick={() => setNewBugOpen(true)}
               className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-red-500 to-rose-600 px-3 sm:px-4 py-2 text-xs font-bold text-white hover:from-red-600 hover:to-rose-700 shadow-sm shadow-red-200 transition-all"
             >
               <Plus className="h-4 w-4" />
@@ -351,7 +342,7 @@ export default function Bugs() {
         )}
       </div>
 
-      <NewBugDialog open={newBugOpen} onClose={() => setNewBugOpen(false)} onSaved={() => qc.invalidateQueries({ queryKey: ['bugs'] })} defaultType={createType} />
+      <NewBugDialog open={newBugOpen} onClose={() => setNewBugOpen(false)} onSaved={() => qc.invalidateQueries({ queryKey: ['bugs'] })} />
       <BugDetailDrawer bugId={selectedBugId} onClose={closeBug} />
       {user?.role === 'OWNER' && <BugAccessDialog open={accessOpen} onClose={() => setAccessOpen(false)} />}
     </div>
