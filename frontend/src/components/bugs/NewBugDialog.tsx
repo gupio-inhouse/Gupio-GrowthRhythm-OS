@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -9,9 +9,11 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn, isEngineeringDept } from '@/lib/utils';
-import { Bug as BugIcon, FolderKanban, User, Monitor, Lightbulb } from 'lucide-react';
+import { Bug as BugIcon, FolderKanban, User, Monitor, Lightbulb, ImagePlus, FileText, X } from 'lucide-react';
 import api from '@/api/client';
 import { toast } from '@/hooks/use-toast';
+
+type PendingFile = { key: string; file: File; type: 'SCREENSHOT' | 'DOCUMENT' };
 
 const bugSchema = z.object({
   type: z.enum(['BUG', 'ENHANCEMENT']).default('BUG'),
@@ -65,6 +67,10 @@ const SEVERITY_CONFIG = {
 
 export function NewBugDialog({ open, onClose, onSaved, bugToEdit, defaultType = 'BUG' }: Props) {
   const isEditMode = !!bugToEdit;
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const screenshotInputRef = useRef<HTMLInputElement | null>(null);
+  const documentInputRef = useRef<HTMLInputElement | null>(null);
 
   const { data: teams = [] } = useQuery<TeamItem[]>({
     queryKey: ['teams'],
@@ -89,6 +95,7 @@ export function NewBugDialog({ open, onClose, onSaved, bugToEdit, defaultType = 
 
   useEffect(() => {
     if (!open) return;
+    setPendingFiles([]);
     if (bugToEdit) {
       reset({
         type: bugToEdit.type as FormData['type'],
@@ -107,7 +114,27 @@ export function NewBugDialog({ open, onClose, onSaved, bugToEdit, defaultType = 
     }
   }, [open, bugToEdit, defaultType]);
 
-  const handleClose = () => { reset(); onClose(); };
+  const handleClose = () => { reset(); setPendingFiles([]); onClose(); };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, type: 'SCREENSHOT' | 'DOCUMENT') => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setPendingFiles((prev) => [...prev, { key: `${Date.now()}-${file.name}`, file, type }]);
+  };
+  const removePendingFile = (key: string) => setPendingFiles((prev) => prev.filter((f) => f.key !== key));
+
+  const uploadEvidence = async (bugId: string) => {
+    for (const pending of pendingFiles) {
+      try {
+        const form = new FormData(); form.append('file', pending.file);
+        const up = await api.post('/upload/content', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+        await api.post(`/bugs/${bugId}/attachments`, { name: up.data.originalName, url: up.data.url, type: pending.type, size: up.data.size });
+      } catch {
+        toast.error(`Failed to upload "${pending.file.name}"`, 'You can add it later from the bug detail view.');
+      }
+    }
+  };
 
   const onSubmit = async (data: FormData) => {
     const payload: Record<string, unknown> = {
@@ -126,12 +153,23 @@ export function NewBugDialog({ open, onClose, onSaved, bugToEdit, defaultType = 
     try {
       if (isEditMode && bugToEdit) {
         await api.patch(`/bugs/${bugToEdit.id}`, payload);
+        if (pendingFiles.length > 0) {
+          setUploading(true);
+          await uploadEvidence(bugToEdit.id);
+          setUploading(false);
+        }
         toast.success('Bug updated');
       } else {
-        await api.post('/bugs', payload);
-        toast.success('Bug reported');
+        const res = await api.post('/bugs', payload);
+        if (pendingFiles.length > 0) {
+          setUploading(true);
+          await uploadEvidence(res.data.id);
+          setUploading(false);
+        }
+        toast.success(isEnhancement ? 'Improvement submitted' : 'Bug reported');
       }
       reset();
+      setPendingFiles([]);
       onSaved();
       onClose();
     } catch (err: unknown) {
@@ -321,6 +359,51 @@ export function NewBugDialog({ open, onClose, onSaved, bugToEdit, defaultType = 
                 </Select>
               </div>
             )}
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Evidence <span className="text-muted-foreground/60 font-normal normal-case">(optional)</span>
+              </Label>
+              <input ref={screenshotInputRef} type="file" accept="image/*" className="hidden"
+                onChange={(e) => handleFileSelect(e, 'SCREENSHOT')} />
+              <input ref={documentInputRef} type="file" accept=".pdf,.doc,.docx" className="hidden"
+                onChange={(e) => handleFileSelect(e, 'DOCUMENT')} />
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => screenshotInputRef.current?.click()}
+                  className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl border border-border/60 bg-white text-xs font-semibold text-muted-foreground hover:border-red-300 hover:text-red-700 hover:bg-red-50 transition-all"
+                >
+                  <ImagePlus className="h-3.5 w-3.5" /> Add Screenshot
+                </button>
+                <button
+                  type="button"
+                  onClick={() => documentInputRef.current?.click()}
+                  className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl border border-border/60 bg-white text-xs font-semibold text-muted-foreground hover:border-red-300 hover:text-red-700 hover:bg-red-50 transition-all"
+                >
+                  <FileText className="h-3.5 w-3.5" /> Add Document
+                </button>
+              </div>
+              {pendingFiles.length > 0 && (
+                <div className="space-y-1.5 pt-1">
+                  {pendingFiles.map((pf) => (
+                    <div key={pf.key} className="flex items-center justify-between gap-2 rounded-xl border border-border/60 bg-muted/20 px-3 py-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        {pf.type === 'SCREENSHOT' ? <ImagePlus className="h-3.5 w-3.5 text-sky-600 shrink-0" /> : <FileText className="h-3.5 w-3.5 text-violet-600 shrink-0" />}
+                        <span className="text-xs font-medium truncate">{pf.file.name}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removePendingFile(pf.key)}
+                        className="h-6 w-6 rounded-lg flex items-center justify-center text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-all shrink-0"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center justify-end gap-2 px-5 py-4 bg-muted/20">
@@ -333,15 +416,17 @@ export function NewBugDialog({ open, onClose, onSaved, bugToEdit, defaultType = 
             </button>
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || uploading}
               className={cn(
                 'h-9 px-5 rounded-xl text-white text-sm font-bold transition-all shadow-sm disabled:opacity-60 bg-gradient-to-r',
                 isEnhancement ? 'from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700' : 'from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700',
               )}
             >
-              {isSubmitting
-                ? (isEditMode ? 'Saving…' : (isEnhancement ? 'Submitting…' : 'Reporting…'))
-                : (isEditMode ? 'Save Changes' : (isEnhancement ? 'Submit Suggestion' : 'Report Bug'))}
+              {uploading
+                ? 'Uploading evidence…'
+                : isSubmitting
+                  ? (isEditMode ? 'Saving…' : (isEnhancement ? 'Submitting…' : 'Reporting…'))
+                  : (isEditMode ? 'Save Changes' : (isEnhancement ? 'Submit Suggestion' : 'Report Bug'))}
             </button>
           </div>
         </form>
