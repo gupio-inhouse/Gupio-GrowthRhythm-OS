@@ -65,6 +65,13 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
       ['OWNER', 'COMPANY_ADMIN'].includes(user?.role || '') ||
       isEngineeringDept(user?.departmentName)
     )
+    // Bugs: a plain TEAM_MEMBER only sees this once granted bugTrackerFullAccess
+    // (via the Manage Access toggle) — not just for being in Engineering.
+    .filter((item) =>
+      item.href !== '/bugs' ||
+      user?.role !== 'TEAM_MEMBER' ||
+      !!user?.bugTrackerFullAccess
+    )
     .map((item) =>
       item.href === '/learning' && isAdminRole
         ? { ...item, href: '/learning/admin' }
