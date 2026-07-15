@@ -12,8 +12,27 @@ import api from '@/api/client';
 import { toast } from '@/hooks/use-toast';
 
 type Department = { id: string; name: string };
-type StrategicGoal = { id: string; title: string; targetDate: string };
+type StrategicGoal = {
+  id: string; title: string; startDate?: string | null; targetDate: string;
+  subGoals?: { cycle: string; targetDate: string }[];
+};
 type PendingFile = { key: string; file: File };
+
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+function addDaysISO(dateStr: string, days: number) {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+// The Nth Tactical (15-day) checkpoint under a Strategic goal lands N*15 days after
+// the Strategic goal's own start date — so the 3 checkpoints fall at +15/+30/+45.
+function suggestNextTacticalDate(parent: StrategicGoal): string {
+  const anchor = parent.startDate ? parent.startDate.slice(0, 10) : todayISO();
+  const existingTacticalCount = (parent.subGoals || []).filter((g) => g.cycle === 'TACTICAL').length;
+  return addDaysISO(anchor, 15 * (existingTacticalCount + 1));
+}
 
 interface Props {
   open: boolean;
@@ -35,22 +54,36 @@ export function GoalDialog({ open, onClose, departmentId: fixedDeptId, reviewId,
   const [parentGoalId, setParentGoalId] = useState(fixedParentGoalId || '');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [targetDate, setTargetDate] = useState(defaultTargetDate || '');
+  const [startDate, setStartDate] = useState(todayISO());
+  const [targetDate, setTargetDate] = useState(defaultTargetDate || addDaysISO(todayISO(), 45));
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (open) {
+      const initialCycle = fixedCycle || 'STRATEGIC';
       setDepartmentId(fixedDeptId || '');
-      setCycle(fixedCycle || 'STRATEGIC');
+      setCycle(initialCycle);
       setParentGoalId(fixedParentGoalId || '');
       setTitle('');
       setDescription('');
-      setTargetDate(defaultTargetDate || '');
+      setStartDate(todayISO());
+      setTargetDate(defaultTargetDate || (initialCycle === 'STRATEGIC' ? addDaysISO(todayISO(), 45) : ''));
       setPendingFiles([]);
     }
   }, [open, fixedDeptId, fixedCycle, fixedParentGoalId, defaultTargetDate]);
+
+  // Strategic: End Date auto-tracks Start Date + 45 days until the user picks a cycle/dept.
+  const handleStartDateChange = (v: string) => {
+    setStartDate(v);
+    if (cycle === 'STRATEGIC') setTargetDate(addDaysISO(v, 45));
+  };
+  const handleCycleChange = (v: 'STRATEGIC' | 'TACTICAL') => {
+    setCycle(v);
+    setParentGoalId('');
+    setTargetDate(v === 'STRATEGIC' ? addDaysISO(startDate, 45) : '');
+  };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
@@ -85,11 +118,21 @@ export function GoalDialog({ open, onClose, departmentId: fixedDeptId, reviewId,
     enabled: open && !fixedParentGoalId && cycle === 'TACTICAL' && !!departmentId,
   });
 
+  // Picking a parent Strategic goal (standalone flow) auto-fills this checkpoint's
+  // date — the Nth Tactical goal under it lands at +15/+30/+45 days from its start.
+  const handleParentGoalChange = (v: string) => {
+    setParentGoalId(v);
+    const parent = strategicGoals.find((g) => g.id === v);
+    if (parent) setTargetDate(suggestNextTacticalDate(parent));
+  };
+
   const createMutation = useMutation({
     mutationFn: async () => {
       const res = await api.post('/goals', {
         departmentId, reviewId, cycle, parentGoalId: cycle === 'TACTICAL' ? parentGoalId : undefined,
-        title, description: description || undefined, targetDate,
+        title, description: description || undefined,
+        startDate: cycle === 'STRATEGIC' ? startDate : undefined,
+        targetDate,
       });
       if (pendingFiles.length > 0) {
         setUploading(true);
@@ -111,7 +154,9 @@ export function GoalDialog({ open, onClose, departmentId: fixedDeptId, reviewId,
     },
   });
 
-  const canSubmit = !!departmentId && !!title.trim() && !!targetDate && (cycle === 'STRATEGIC' || !!parentGoalId);
+  const canSubmit = !!departmentId && !!title.trim() && !!targetDate
+    && (cycle === 'TACTICAL' || !!startDate)
+    && (cycle === 'STRATEGIC' || !!parentGoalId);
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -151,7 +196,7 @@ export function GoalDialog({ open, onClose, departmentId: fixedDeptId, reviewId,
                   <button
                     key={v}
                     type="button"
-                    onClick={() => { setCycle(v); setParentGoalId(''); }}
+                    onClick={() => handleCycleChange(v)}
                     className={cn(
                       'flex-1 px-3 py-2 text-xs font-semibold transition-all',
                       cycle === v ? 'bg-indigo-600 text-white' : 'text-muted-foreground hover:bg-muted/50'
@@ -167,7 +212,7 @@ export function GoalDialog({ open, onClose, departmentId: fixedDeptId, reviewId,
           {cycle === 'TACTICAL' && !fixedParentGoalId && (
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold">Parent Strategic (45-day) goal</Label>
-              <Select value={parentGoalId} onValueChange={setParentGoalId} disabled={!departmentId}>
+              <Select value={parentGoalId} onValueChange={handleParentGoalChange} disabled={!departmentId}>
                 <SelectTrigger className="rounded-xl">
                   <SelectValue placeholder={departmentId ? 'Choose a Strategic goal' : 'Choose a department first'} />
                 </SelectTrigger>
@@ -190,10 +235,28 @@ export function GoalDialog({ open, onClose, departmentId: fixedDeptId, reviewId,
             <Label className="text-xs font-semibold">Description (optional)</Label>
             <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className="rounded-xl resize-none" />
           </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold">Target date</Label>
-            <Input type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} className="rounded-xl" />
-          </div>
+
+          {cycle === 'STRATEGIC' ? (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold">Start date</Label>
+                <Input type="date" value={startDate} onChange={(e) => handleStartDateChange(e.target.value)} className="rounded-xl" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold">
+                  End date <span className="text-muted-foreground/60 font-normal normal-case">(auto, 45 days)</span>
+                </Label>
+                <Input type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} className="rounded-xl" />
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">
+                Checkpoint date <span className="text-muted-foreground/60 font-normal normal-case">(auto-suggested, 15-day interval)</span>
+              </Label>
+              <Input type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} className="rounded-xl" />
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <Label className="text-xs font-semibold">

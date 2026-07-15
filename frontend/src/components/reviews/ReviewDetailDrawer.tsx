@@ -16,11 +16,24 @@ import { toast } from '@/hooks/use-toast';
 
 type GoalAttachment = { id: string; name: string; url: string; size?: number | null; createdAt: string };
 type Goal = {
-  id: string; cycle: string; title: string; description?: string | null; targetDate: string;
+  id: string; cycle: string; title: string; description?: string | null; startDate?: string | null; targetDate: string;
   status: string; progressPercent?: number | null; parentGoalId?: string | null;
   subGoals?: Goal[];
   attachments?: GoalAttachment[];
 };
+
+function addDaysISO(dateStr: string, days: number) {
+  const d = new Date(`${dateStr.slice(0, 10)}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+// The Nth Tactical (15-day) checkpoint under a Strategic goal lands N*15 days after
+// the Strategic goal's own start date — so the 3 checkpoints fall at +15/+30/+45.
+function suggestNextTacticalDate(strategicGoal: Goal): string {
+  const anchor = strategicGoal.startDate ? strategicGoal.startDate.slice(0, 10) : new Date().toISOString().slice(0, 10);
+  const existingTacticalCount = (strategicGoal.subGoals || []).filter((g) => g.cycle === 'TACTICAL').length;
+  return addDaysISO(anchor, 15 * (existingTacticalCount + 1));
+}
 type Participant = {
   id: string; attended: boolean | null;
   user: { id: string; name: string; avatarUrl?: string; role: string };
@@ -54,7 +67,7 @@ export function ReviewDetailDrawer({ reviewId, onClose }: Props) {
 
   const [agenda, setAgenda] = useState('');
   const [decisions, setDecisions] = useState('');
-  const [goalDialogFor, setGoalDialogFor] = useState<{ cycle: 'STRATEGIC' | 'TACTICAL'; parentGoalId?: string } | null>(null);
+  const [goalDialogFor, setGoalDialogFor] = useState<{ cycle: 'STRATEGIC' | 'TACTICAL'; parentGoalId?: string; defaultTargetDate?: string } | null>(null);
 
   const { data: review, isLoading } = useQuery<ReviewDetail>({
     queryKey: ['review', reviewId],
@@ -210,7 +223,11 @@ export function ReviewDetailDrawer({ reviewId, onClose }: Props) {
                         <div className="flex items-start justify-between gap-2">
                           <div>
                             <p className="text-sm font-semibold">{g.title}</p>
-                            <p className="text-[11px] text-muted-foreground mt-0.5">Due {new Date(g.targetDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                            <p className="text-[11px] text-muted-foreground mt-0.5">
+                              {g.startDate
+                                ? `${new Date(g.startDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} – ${new Date(g.targetDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`
+                                : `Due ${new Date(g.targetDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`}
+                            </p>
                           </div>
                           <span className={cn('text-[10px] px-2 py-0.5 rounded-full border font-semibold shrink-0',
                             g.status === 'ACHIEVED' ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
@@ -242,7 +259,7 @@ export function ReviewDetailDrawer({ reviewId, onClose }: Props) {
 
                         {canMutate && (
                           <button
-                            onClick={() => setGoalDialogFor({ cycle: 'TACTICAL', parentGoalId: g.id })}
+                            onClick={() => setGoalDialogFor({ cycle: 'TACTICAL', parentGoalId: g.id, defaultTargetDate: suggestNextTacticalDate(g) })}
                             className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-800"
                           >
                             <Plus className="h-3 w-3" /> Add 15-day checkpoint
@@ -266,6 +283,7 @@ export function ReviewDetailDrawer({ reviewId, onClose }: Props) {
           reviewId={review.id}
           cycle={goalDialogFor.cycle}
           parentGoalId={goalDialogFor.parentGoalId}
+          defaultTargetDate={goalDialogFor.defaultTargetDate}
           lockCycle
         />
       )}

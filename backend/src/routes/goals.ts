@@ -119,6 +119,7 @@ const createSchema = z.object({
   cycle: z.enum(['STRATEGIC', 'TACTICAL']),
   title: z.string().min(2),
   description: z.string().optional(),
+  startDate: z.coerce.date().optional(),
   targetDate: z.coerce.date(),
   reviewId: z.string().optional(),
   parentGoalId: z.string().optional(),
@@ -170,6 +171,7 @@ router.post('/', auditLog('goal', 'CREATE'), async (req: AuthRequest, res: Respo
       cycle,
       title: parsed.data.title,
       description: parsed.data.description,
+      startDate: parsed.data.startDate,
       targetDate: parsed.data.targetDate,
       reviewId: parsed.data.reviewId,
       parentGoalId: parsed.data.parentGoalId,
@@ -197,6 +199,7 @@ router.post('/', auditLog('goal', 'CREATE'), async (req: AuthRequest, res: Respo
 const updateSchema = z.object({
   title: z.string().min(2).optional(),
   description: z.string().optional(),
+  startDate: z.coerce.date().optional(),
   targetDate: z.coerce.date().optional(),
   status: z.enum(['ACTIVE', 'ACHIEVED', 'MISSED', 'CARRIED_OVER']).optional(),
   progressPercent: z.number().int().min(0).max(100).optional(),

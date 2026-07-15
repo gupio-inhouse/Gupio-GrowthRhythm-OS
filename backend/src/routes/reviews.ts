@@ -48,6 +48,7 @@ const goalSelect = {
   cycle: true,
   title: true,
   description: true,
+  startDate: true,
   targetDate: true,
   status: true,
   progressPercent: true,

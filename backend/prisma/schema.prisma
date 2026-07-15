@@ -544,6 +544,7 @@ model Goal {
   cycle           GoalCycle
   title           String
   description     String?
+  startDate       DateTime?  @map("start_date")
   targetDate      DateTime   @map("target_date")
   status          GoalStatus @default(ACTIVE)
   progressPercent Int?       @map("progress_percent")
