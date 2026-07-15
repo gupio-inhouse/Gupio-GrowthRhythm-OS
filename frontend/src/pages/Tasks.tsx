@@ -105,7 +105,7 @@ const TASK_NEXT_STATUS_TEAM_MEMBER: Record<string, string> = {
 };
 const STATUS_LABELS: Record<string, string> = {
   TODO: 'To Do', IN_PROGRESS: 'In Progress', BLOCKED: 'Blocked',
-  IN_REVIEW: 'Pending Review', DONE: 'Done', CANCELLED: 'Cancelled',
+  IN_REVIEW: 'In Review', DONE: 'Done', CANCELLED: 'Cancelled',
 };
 
 // Status → design tokens

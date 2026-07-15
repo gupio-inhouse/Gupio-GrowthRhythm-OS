@@ -57,7 +57,7 @@ const STATUSES = ['TODO', 'IN_PROGRESS', 'BLOCKED', 'IN_REVIEW', 'DONE', 'CANCEL
 const TEAM_MEMBER_STATUSES = ['TODO', 'IN_PROGRESS', 'BLOCKED', 'IN_REVIEW'];
 const STATUS_LABELS: Record<string, string> = {
   TODO: 'To Do', IN_PROGRESS: 'In Progress', BLOCKED: 'Blocked',
-  IN_REVIEW: 'Pending Review', DONE: 'Done', CANCELLED: 'Cancelled',
+  IN_REVIEW: 'In Review', DONE: 'Done', CANCELLED: 'Cancelled',
 };
 
 const S: Record<string, { dot: string; badge: string; bar: string; icon: typeof CheckCircle2; grad: string }> = {
@@ -378,9 +378,7 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
                   <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50/40 p-4 flex items-start gap-3">
                     <Clock className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
                     <p className="text-sm text-amber-800 font-medium">
-                      {task.assignedBy
-                        ? `Waiting for ${task.assignedBy.name} to review this completed task.`
-                        : 'Waiting for reviewer approval.'}
+                      Waiting for your manager or department head to approve this.
                     </p>
                   </div>
                 )}

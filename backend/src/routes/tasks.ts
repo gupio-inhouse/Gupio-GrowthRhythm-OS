@@ -140,25 +140,28 @@ async function getTaskForMutation(req: AuthRequest, taskId: string) {
   return { actor, task };
 }
 
-async function getCompletionReviewer(taskId: string, orgId: string) {
+// A submitted-for-review task goes to BOTH the assignee's manager and their
+// department head (whichever exist) — either can approve it, not just a single
+// fallback-chain reviewer.
+async function getCompletionReviewers(taskId: string, orgId: string): Promise<string[]> {
   const task = await prisma.task.findUnique({
     where: { id: taskId, orgId },
     select: {
-      assignedByUserId: true,
       assigneeUserId: true,
       assignee: { select: { managerId: true } },
       department: { select: { headUserId: true } },
     },
   });
-  if (!task) return null;
+  if (!task) return [];
 
-  const reviewerId = task.assignedByUserId
-    ?? task.assignee?.managerId
-    ?? task.department?.headUserId
-    ?? null;
-
-  if (!reviewerId || reviewerId === task.assigneeUserId) return null;
-  return reviewerId;
+  const reviewers = new Set<string>();
+  if (task.assignee?.managerId && task.assignee.managerId !== task.assigneeUserId) {
+    reviewers.add(task.assignee.managerId);
+  }
+  if (task.department?.headUserId && task.department.headUserId !== task.assigneeUserId) {
+    reviewers.add(task.department.headUserId);
+  }
+  return Array.from(reviewers);
 }
 
 // GET /tasks
@@ -553,12 +556,12 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
     }
   }
 
-  const reviewerId = (requestedStatus === 'DONE' || requestedStatus === 'IN_REVIEW')
-    ? await getCompletionReviewer(existingTask.id, req.user!.orgId)
-    : null;
+  const reviewerIds = (requestedStatus === 'DONE' || requestedStatus === 'IN_REVIEW')
+    ? await getCompletionReviewers(existingTask.id, req.user!.orgId)
+    : [];
   // Always route a TEAM_MEMBER's DONE-or-IN_REVIEW submission through the review gate,
-  // regardless of whether a reviewer is found. reviewerId is used only for notification —
-  // missing reviewer must not bypass the gate.
+  // regardless of whether any reviewer is found. reviewerIds is used only for notification —
+  // missing reviewers must not bypass the gate.
   const shouldSubmitForReview = actor.role === 'TEAM_MEMBER'
     && (requestedStatus === 'DONE' || requestedStatus === 'IN_REVIEW')
     && existingTask.status !== 'IN_REVIEW';
@@ -635,8 +638,8 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
     }
   }
 
-  if (shouldSubmitForReview && reviewerId) {
-    createNotification(reviewerId, 'TASK_SUBMITTED_FOR_REVIEW', {
+  if (shouldSubmitForReview && reviewerIds.length > 0) {
+    fanOutNotification(req.user!.orgId, reviewerIds, 'TASK_SUBMITTED_FOR_REVIEW', {
       taskTitle: task.title,
       assigneeName: task.assignee?.name ?? 'Someone',
       taskId: task.id,
