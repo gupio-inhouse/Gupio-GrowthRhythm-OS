@@ -230,7 +230,7 @@ router.patch('/access/:userId', requireRole('OWNER'), auditLog('bug_tracker_acce
 
 // GET /bugs
 router.get('/', async (req: AuthRequest, res: Response) => {
-  const { teamId, type, status, severity, assigneeUserId, reporterUserId, view } = req.query;
+  const { teamId, type, status, severity, assigneeUserId, reporterUserId } = req.query;
 
   const actor = await getActorScope(req.user!.userId, req.user!.orgId);
   if (!actor) {
@@ -265,20 +265,20 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       { assigneeUserId: null, reporterUserId: actor.id },
     ];
   } else if (actor.role === 'MANAGER') {
-    if (view === 'dept') {
-      if (actor.departmentId) {
-        where.departmentId = actor.departmentId;
-      } else {
-        where.id = { in: [] };
-      }
-    } else {
-      where.OR = [
-        { reporterUserId: actor.id },
-        { assigneeUserId: actor.id },
-        { reporterUserId: { in: actor.reportIds } },
-        { assigneeUserId: { in: actor.reportIds } },
-      ];
-    }
+    // Same scope as canViewBug: full visibility into their own department's bugs,
+    // plus reporter/assignee coverage for cross-department reports. The Bug Tracker
+    // UI has no "My Bugs vs Department" toggle (unlike Task Manager's `view=dept`),
+    // so a MANAGER always gets full department visibility here — matching what
+    // canViewBug already grants for a single bug, instead of the narrower
+    // "mine + my reports" default that used to require an unused `view=dept` param.
+    const orConditions: Record<string, unknown>[] = [
+      { reporterUserId: actor.id },
+      { assigneeUserId: actor.id },
+      { reporterUserId: { in: actor.reportIds } },
+      { assigneeUserId: { in: actor.reportIds } },
+    ];
+    if (actor.departmentId) orConditions.push({ departmentId: actor.departmentId });
+    where.OR = orConditions;
   } else if (actor.role === 'DEPARTMENT_HEAD') {
     if (actor.departmentId) {
       where.departmentId = actor.departmentId;
@@ -545,7 +545,7 @@ router.patch('/:id', auditLog('bug', 'UPDATE'), async (req: AuthRequest, res: Re
 });
 
 // DELETE /bugs/:id
-router.delete('/:id', async (req: AuthRequest, res: Response) => {
+router.delete('/:id', auditLog('bug', 'DELETE'), async (req: AuthRequest, res: Response) => {
   const actor = await getActorScope(req.user!.userId, req.user!.orgId);
   if (!actor) {
     res.status(401).json({ error: 'Unauthorized' });
