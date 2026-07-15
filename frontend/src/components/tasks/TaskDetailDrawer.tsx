@@ -52,6 +52,9 @@ interface Props {
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const STATUSES = ['TODO', 'IN_PROGRESS', 'BLOCKED', 'IN_REVIEW', 'DONE', 'CANCELLED'];
+// A TEAM_MEMBER can never put her own task directly into DONE or CANCELLED — those are
+// reviewer/manager-only outcomes. She submits her work by moving it to IN_REVIEW herself.
+const TEAM_MEMBER_STATUSES = ['TODO', 'IN_PROGRESS', 'BLOCKED', 'IN_REVIEW'];
 const STATUS_LABELS: Record<string, string> = {
   TODO: 'To Do', IN_PROGRESS: 'In Progress', BLOCKED: 'Blocked',
   IN_REVIEW: 'Pending Review', DONE: 'Done', CANCELLED: 'Cancelled',
@@ -193,7 +196,9 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
 
   const handleStatusChange = (newStatus: string) => {
     if (newStatus === 'BLOCKED') { setPendingStatus(newStatus); setBlockerOpen(true); return; }
-    if (newStatus === 'DONE') {
+    // A TEAM_MEMBER submits her own work via IN_REVIEW directly now (DONE isn't offered
+    // to her at all) — same delivery-proof gate applies to either path.
+    if (newStatus === 'DONE' || newStatus === 'IN_REVIEW') {
       // Re-read directly from task/user so we are never working with a stale closure value
       const myId = user?.id;
       const assigneeId = task?.assignee?.id;
@@ -250,6 +255,10 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
 
   const statusTokens  = task ? (S[task.status] ?? S.TODO) : S.TODO;
   const overdueTask   = task?.dueDate ? isOverdueDate(task.dueDate, task.status) : false;
+  const isTeamMemberViewer = user?.role === 'TEAM_MEMBER';
+  const availableStatuses = isTeamMemberViewer && task
+    ? Array.from(new Set([...TEAM_MEMBER_STATUSES, task.status]))
+    : STATUSES;
 
   return (
     <>
@@ -349,7 +358,7 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="rounded-xl">
-                      {STATUSES.map((s) => {
+                      {availableStatuses.map((s) => {
                         const tok = S[s] ?? S.TODO;
                         return (
                           <SelectItem key={s} value={s} className="rounded-lg">

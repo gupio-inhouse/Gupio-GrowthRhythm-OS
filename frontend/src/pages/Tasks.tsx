@@ -97,6 +97,12 @@ function taskColumn(t: Task): string {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const STATUSES = ['TODO', 'IN_PROGRESS', 'BLOCKED', 'IN_REVIEW', 'DONE', 'CANCELLED'];
+// A TEAM_MEMBER can never put her own task directly into DONE or CANCELLED — those are
+// reviewer/manager-only outcomes. She submits her work by moving it to IN_REVIEW herself.
+const TASK_TEAM_MEMBER_STATUSES = ['TODO', 'IN_PROGRESS', 'BLOCKED', 'IN_REVIEW'];
+const TASK_NEXT_STATUS_TEAM_MEMBER: Record<string, string> = {
+  TODO: 'IN_PROGRESS', IN_PROGRESS: 'IN_REVIEW', BLOCKED: 'IN_PROGRESS',
+};
 const STATUS_LABELS: Record<string, string> = {
   TODO: 'To Do', IN_PROGRESS: 'In Progress', BLOCKED: 'Blocked',
   IN_REVIEW: 'Pending Review', DONE: 'Done', CANCELLED: 'Cancelled',
@@ -349,12 +355,14 @@ export default function Tasks() {
       setBlockerCtx({ taskId: task.id, taskTitle: task.title });
       return;
     }
-    if (newStatus === 'DONE' && task.status !== 'IN_REVIEW') {
+    // A TEAM_MEMBER submits her own work by moving it into IN_REVIEW directly now
+    // (DONE isn't offered to her at all) — same guided delivery-proof flow as before.
+    if ((newStatus === 'DONE' || newStatus === 'IN_REVIEW') && task.status !== 'IN_REVIEW') {
       const myId = user?.id;
       const assigneeId = task.assignee?.id;
       const isOwnTask = !!myId && !!assigneeId && myId === assigneeId;
       if (isOwnTask) {
-        // Always open drawer for own-task DONE submissions.
+        // Always open drawer for own-task submissions.
         // The drawer reads live attachment data — the list cache (_count) can be stale.
         const cachedCount = task._count?.attachments ?? 0;
         if (cachedCount === 0) {
@@ -844,9 +852,10 @@ function TaskListRow({
   const displayStatus = task.isBug ? (task.bugStatus ?? 'OPEN') : task.status;
   const statusTokens = task.isBug ? (BUG_S[displayStatus] ?? BUG_S.OPEN) : (S[displayStatus] ?? S.TODO);
   const isPlainTeamMemberViewer = user?.role === 'TEAM_MEMBER' && !user?.bugTrackerFullAccess;
+  const isTeamMemberViewer = user?.role === 'TEAM_MEMBER';
   const statusOptionList = task.isBug
     ? (isPlainTeamMemberViewer ? Array.from(new Set([...BUG_TEAM_MEMBER_STATUSES, displayStatus])) : BUG_STATUSES)
-    : STATUSES;
+    : (isTeamMemberViewer ? Array.from(new Set([...TASK_TEAM_MEMBER_STATUSES, task.status])) : STATUSES);
   const statusLabelMap = task.isBug ? BUG_STATUS_LABELS : STATUS_LABELS;
   const statusStyleMap = task.isBug ? BUG_S : S;
   const isFinished = ['DONE', 'CANCELLED'].includes(taskColumn(task));
@@ -1122,12 +1131,14 @@ function KanbanCard({
   const statusStyleMap = task.isBug ? BUG_S : S;
   const isFinished = ['DONE', 'CANCELLED'].includes(taskColumn(task));
   const isPlainTeamMemberViewer = user?.role === 'TEAM_MEMBER' && !user?.bugTrackerFullAccess;
+  const isTeamMemberViewer = user?.role === 'TEAM_MEMBER';
 
   const taskNextStatus: Record<string, string> = {
     TODO: 'IN_PROGRESS', IN_PROGRESS: 'DONE', BLOCKED: 'IN_PROGRESS', IN_REVIEW: 'DONE', DONE: 'TODO',
   };
   const bugNextStatusMap = isPlainTeamMemberViewer ? BUG_NEXT_STATUS_TEAM_MEMBER : BUG_NEXT_STATUS;
-  const nextStatusValue = task.isBug ? bugNextStatusMap[displayStatus] : taskNextStatus[task.status];
+  const taskNextStatusMap = isTeamMemberViewer ? TASK_NEXT_STATUS_TEAM_MEMBER : taskNextStatus;
+  const nextStatusValue = task.isBug ? bugNextStatusMap[displayStatus] : taskNextStatusMap[task.status];
   const nextStatusLabel = task.isBug ? BUG_STATUS_LABELS[nextStatusValue] : STATUS_LABELS[nextStatusValue];
 
   const DELIVERY: Array<{ key: DeliveryAction; label: string; icon: typeof ImagePlus }> = [

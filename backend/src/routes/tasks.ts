@@ -500,10 +500,10 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
       res.status(403).json({ error: 'Team members can only update title, description, status, and blocker details on their own tasks' });
       return;
     }
-    if (parsed.data.status === 'IN_REVIEW') {
-      res.status(403).json({ error: 'Team members cannot move tasks directly into review' });
-      return;
-    }
+    // Team members CAN move a task into IN_REVIEW themselves now — this is the only
+    // way they ever reach a "done" state; DONE is not a selectable option for them at
+    // all (enforced below + hidden in the frontend dropdown). Same delivery-proof gate
+    // applies either way (see isSubmittingOwnWork below).
   }
 
   const requestedStatus = parsed.data.status;
@@ -537,10 +537,12 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
     if (newAssigneeDeptId) data.departmentId = newAssigneeDeptId;
   }
 
-  // Enforce delivery proof when submitting own work as Done
+  // Enforce delivery proof when submitting own work for review — whether they request
+  // DONE (legacy path, still auto-rerouted below) or select IN_REVIEW directly (the only
+  // way a TEAM_MEMBER can submit work now — DONE isn't offered to them at all).
   // Skip this check when approving someone else's IN_REVIEW task (that's a review, not a submission)
   const isSubmittingOwnWork =
-    requestedStatus === 'DONE' &&
+    (requestedStatus === 'DONE' || requestedStatus === 'IN_REVIEW') &&
     existingTask.assigneeUserId === actor.id &&
     existingTask.status !== 'IN_REVIEW';
   if (isSubmittingOwnWork) {
@@ -551,13 +553,14 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
     }
   }
 
-  const reviewerId = requestedStatus === 'DONE'
+  const reviewerId = (requestedStatus === 'DONE' || requestedStatus === 'IN_REVIEW')
     ? await getCompletionReviewer(existingTask.id, req.user!.orgId)
     : null;
-  // Always route TEAM_MEMBER DONE submissions to IN_REVIEW, regardless of whether a reviewer is found.
-  // reviewerId is used only for notification — missing reviewer must not bypass the review gate.
+  // Always route a TEAM_MEMBER's DONE-or-IN_REVIEW submission through the review gate,
+  // regardless of whether a reviewer is found. reviewerId is used only for notification —
+  // missing reviewer must not bypass the gate.
   const shouldSubmitForReview = actor.role === 'TEAM_MEMBER'
-    && requestedStatus === 'DONE'
+    && (requestedStatus === 'DONE' || requestedStatus === 'IN_REVIEW')
     && existingTask.status !== 'IN_REVIEW';
 
   if (shouldSubmitForReview) {
