@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { CalendarClock, Users, Target, Video, MapPin, Plus, CheckCircle2, Circle, Paperclip, FileText, X, ExternalLink } from 'lucide-react';
+import { CalendarClock, Users, Target, Video, MapPin, Plus, CheckCircle2, Circle, Paperclip, FileText, X } from 'lucide-react';
 import { Sheet, SheetHeader, SheetTitle, SheetContent } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Progress } from '@/components/ui/progress';
 import { cn, getInitials, formatRelative } from '@/lib/utils';
 import { GoalDialog } from './GoalDialog';
+import { DocumentPreviewDialog } from './DocumentPreviewDialog';
 import api from '@/api/client';
 import { useAuthStore } from '@/store/authStore';
 import { toast } from '@/hooks/use-toast';
@@ -276,6 +277,7 @@ function GoalAttachments({ goal, canMutate, compact }: { goal: Goal; canMutate: 
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [previewing, setPreviewing] = useState<{ name: string; url: string } | null>(null);
   const attachments = goal.attachments || [];
 
   const invalidate = () => {
@@ -313,16 +315,13 @@ function GoalAttachments({ goal, canMutate, compact }: { goal: Goal; canMutate: 
     <div className={cn('space-y-1', compact ? 'pl-0' : '')}>
       {attachments.map((a) => (
         <div key={a.id} className="flex items-center justify-between gap-2 rounded-lg bg-white border border-border/60 px-2 py-1">
-          <a
-            href={resolveAttachmentUrl(a.url)}
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
+            onClick={() => setPreviewing({ name: a.name, url: resolveAttachmentUrl(a.url) })}
             className="flex items-center gap-1.5 min-w-0 text-[11px] font-medium hover:text-indigo-700"
           >
             <FileText className="h-3 w-3 shrink-0 text-violet-600" />
             <span className="truncate">{a.name}</span>
-            <ExternalLink className="h-2.5 w-2.5 shrink-0 text-muted-foreground" />
-          </a>
+          </button>
           <div className="flex items-center gap-1.5 shrink-0">
             <span className="text-[9px] text-muted-foreground">{formatRelative(a.createdAt)}</span>
             {canMutate && (
@@ -350,6 +349,8 @@ function GoalAttachments({ goal, canMutate, compact }: { goal: Goal; canMutate: 
           </button>
         </>
       )}
+
+      <DocumentPreviewDialog attachment={previewing} onClose={() => setPreviewing(null)} />
     </div>
   );
 }
