@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Target, Plus, Paperclip, FileText, X } from 'lucide-react';
+import { Target, Plus, Paperclip, FileText, X, Building2 } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { cn, formatRelative } from '@/lib/utils';
 import { DocumentPreviewDialog } from './DocumentPreviewDialog';
@@ -11,6 +11,7 @@ export type GoalAttachment = { id: string; name: string; url: string; size?: num
 export type Goal = {
   id: string; cycle: string; title: string; description?: string | null; startDate?: string | null; targetDate: string;
   status: string; progressPercent?: number | null; parentGoalId?: string | null;
+  department?: { id: string; name: string } | null;
   subGoals?: Goal[];
   attachments?: GoalAttachment[];
 };
@@ -53,7 +54,14 @@ export function GoalCard({ goal: g, canMutate, onAddCheckpoint }: GoalCardProps)
     <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-3 space-y-2">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="text-sm font-semibold">{g.title}</p>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <p className="text-sm font-semibold">{g.title}</p>
+            {g.department && (
+              <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200 font-semibold shrink-0">
+                <Building2 className="h-2.5 w-2.5" /> {g.department.name}
+              </span>
+            )}
+          </div>
           <p className="text-[11px] text-muted-foreground mt-0.5">
             {g.startDate
               ? `${new Date(g.startDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} – ${new Date(g.targetDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`
