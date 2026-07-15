@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { cn, formatRelative } from '@/lib/utils';
 import { ReviewDetailDrawer } from '@/components/reviews/ReviewDetailDrawer';
 import { GoalDialog } from '@/components/reviews/GoalDialog';
+import { GoalCard, GoalsEmptyState, suggestNextTacticalDate, type Goal } from '@/components/reviews/GoalCard';
 import api from '@/api/client';
 import { useAuthStore } from '@/store/authStore';
 
@@ -21,15 +22,17 @@ type Review = {
 const TABS = [
   { key: 'TACTICAL', label: 'Tactical', sub: 'Every 15 days' },
   { key: 'STRATEGIC', label: 'Strategic', sub: 'Every 45 days' },
+  { key: 'GOALS', label: 'Goals', sub: '45 & 15-day' },
 ] as const;
 
 export default function Reviews() {
   const { user } = useAuthStore();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [tab, setTab] = useState<'TACTICAL' | 'STRATEGIC'>('TACTICAL');
+  const [tab, setTab] = useState<'TACTICAL' | 'STRATEGIC' | 'GOALS'>('TACTICAL');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [selectedReviewId, setSelectedReviewId] = useState<string | null>(() => searchParams.get('reviewId'));
   const [goalDialogOpen, setGoalDialogOpen] = useState(false);
+  const [checkpointFor, setCheckpointFor] = useState<{ parentGoalId: string; defaultTargetDate: string } | null>(null);
 
   const canFilterByDepartment = ['OWNER', 'COMPANY_ADMIN', 'SUPER_ADMIN'].includes(user?.role || '');
   const canSetGoals = GOAL_MUTATE_ROLES.includes(user?.role || '');
@@ -45,6 +48,13 @@ export default function Reviews() {
   const { data: reviews = [], isLoading } = useQuery<Review[]>({
     queryKey: ['reviews', tab, departmentFilter],
     queryFn: () => api.get('/reviews', { params: { type: tab, departmentId: departmentFilter || undefined } }).then((r) => r.data),
+    enabled: tab !== 'GOALS',
+  });
+
+  const { data: strategicGoals = [], isLoading: goalsLoading } = useQuery<Goal[]>({
+    queryKey: ['goals', departmentFilter || ownDeptOnly, 'STRATEGIC', 'top-level'],
+    queryFn: () => api.get('/goals', { params: { departmentId: departmentFilter || ownDeptOnly, cycle: 'STRATEGIC', parentGoalId: 'null' } }).then((r) => r.data),
+    enabled: tab === 'GOALS',
   });
 
   const now = Date.now();
@@ -123,7 +133,26 @@ export default function Reviews() {
           ))}
         </div>
 
-        {isLoading ? (
+        {tab === 'GOALS' ? (
+          goalsLoading ? (
+            <div className="space-y-2.5">
+              {[...Array(3)].map((_, i) => <div key={i} className="h-24 rounded-2xl bg-white border border-border/60 animate-pulse" />)}
+            </div>
+          ) : strategicGoals.length === 0 ? (
+            <GoalsEmptyState />
+          ) : (
+            <div className="space-y-3">
+              {strategicGoals.map((g) => (
+                <GoalCard
+                  key={g.id}
+                  goal={g}
+                  canMutate={canSetGoals}
+                  onAddCheckpoint={(goal) => setCheckpointFor({ parentGoalId: goal.id, defaultTargetDate: suggestNextTacticalDate(goal) })}
+                />
+              ))}
+            </div>
+          )
+        ) : isLoading ? (
           <div className="space-y-2.5">
             {[...Array(4)].map((_, i) => <div key={i} className="h-24 rounded-2xl bg-white border border-border/60 animate-pulse" />)}
           </div>
@@ -142,6 +171,17 @@ export default function Reviews() {
       </div>
 
       <ReviewDetailDrawer reviewId={selectedReviewId} onClose={closeReview} />
+      {canSetGoals && checkpointFor && (
+        <GoalDialog
+          open={!!checkpointFor}
+          onClose={() => setCheckpointFor(null)}
+          departmentId={departmentFilter || ownDeptOnly}
+          cycle="TACTICAL"
+          parentGoalId={checkpointFor.parentGoalId}
+          defaultTargetDate={checkpointFor.defaultTargetDate}
+          lockCycle
+        />
+      )}
       {canSetGoals && (
         <GoalDialog
           open={goalDialogOpen}
