@@ -13,7 +13,10 @@ export type NotificationEvent =
   | 'BUG_STATUS_CHANGED'
   | 'BUG_REOPENED'
   | 'BUG_COMMENT_ADDED'
-  | 'BUG_SUBMITTED_FOR_REVIEW';
+  | 'BUG_SUBMITTED_FOR_REVIEW'
+  | 'REVIEW_SCHEDULED'
+  | 'REVIEW_REMINDER'
+  | 'GOAL_SET';
 
 const TEMPLATES: Record<NotificationEvent, (d: Record<string, unknown>) => { title: string; body: string }> = {
   TASK_ASSIGNED: (d) => ({ title: 'New task assigned', body: `You've been assigned: "${d.taskTitle}"${d.dueDate ? ` · due ${d.dueDate}` : ''}` }),
@@ -31,6 +34,9 @@ const TEMPLATES: Record<NotificationEvent, (d: Record<string, unknown>) => { tit
   BUG_REOPENED: (d) => ({ title: `${d.itemLabel === 'improvement' ? 'Improvement' : 'Bug'} reopened`, body: `${d.reopenedByName || 'Someone'} reopened "${d.bugTitle}"` }),
   BUG_COMMENT_ADDED: (d) => ({ title: `New comment on ${d.itemLabel || 'bug'}`, body: `${d.commenterName || 'Someone'} commented on "${d.bugTitle}"` }),
   BUG_SUBMITTED_FOR_REVIEW: (d) => ({ title: `${d.itemLabel === 'improvement' ? 'Improvement' : 'Bug'} ready for review`, body: `${d.assigneeName || 'Someone'} marked "${d.bugTitle}" as ${d.attemptedResolution || 'fixed'} and needs your approval.` }),
+  REVIEW_SCHEDULED: (d) => ({ title: `${d.reviewType === 'STRATEGIC' ? 'Strategic' : 'Tactical'} review scheduled`, body: `${d.departmentName} ${d.reviewType === 'STRATEGIC' ? 'Strategic (45-day)' : 'Tactical (15-day)'} review is scheduled — check your invitation email for details.` }),
+  REVIEW_REMINDER: (d) => ({ title: `${d.reviewType === 'STRATEGIC' ? 'Strategic' : 'Tactical'} review reminder`, body: `Reminder: ${d.departmentName} ${d.reviewType === 'STRATEGIC' ? 'Strategic' : 'Tactical'} review is coming up soon.` }),
+  GOAL_SET: (d) => ({ title: `New ${d.cycle === 'STRATEGIC' ? '45-day' : '15-day'} goal set`, body: `${d.departmentName}: "${d.goalTitle}"` }),
 };
 
 const EVENT_PREF_KEY: Record<NotificationEvent, string> = {
@@ -47,6 +53,9 @@ const EVENT_PREF_KEY: Record<NotificationEvent, string> = {
   BUG_REOPENED: 'taskBlocked',
   BUG_COMMENT_ADDED: 'taskAssigned',
   BUG_SUBMITTED_FOR_REVIEW: 'taskAssigned',
+  REVIEW_SCHEDULED: 'standupReminder',
+  REVIEW_REMINDER: 'standupReminder',
+  GOAL_SET: 'taskAssigned',
 };
 
 async function getUserOrgId(userId: string): Promise<string | null> {

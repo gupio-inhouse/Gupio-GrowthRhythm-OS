@@ -79,6 +79,23 @@ enum ReviewType {
   DEPARTMENT
 }
 
+enum ReviewMode {
+  ONLINE
+  OFFLINE
+}
+
+enum GoalCycle {
+  STRATEGIC
+  TACTICAL
+}
+
+enum GoalStatus {
+  ACTIVE
+  ACHIEVED
+  MISSED
+  CARRIED_OVER
+}
+
 enum MagicLinkPurpose {
   COMPANY_ONBOARDING
   DEPARTMENT_HEAD_INVITE
@@ -180,6 +197,7 @@ model Organization {
   learningEnrollments  LearningEnrollment[]
   departmentGrants     UserDepartmentGrant[]
   bugs                 Bug[]
+  goals                Goal[]
 
   @@map("organizations")
 }
@@ -239,6 +257,8 @@ model User {
   bugsAssignedByMe     Bug[]                 @relation("BugAssigner")
   bugComments          BugComment[]
   bugStatusHistories   BugStatusHistory[]    @relation("UserBugStatusHistories")
+  reviewParticipations ReviewParticipant[]
+  goalsCreated         Goal[]                @relation("GoalCreator")
 
   @@unique([orgId, email])
   @@map("users")
@@ -272,6 +292,8 @@ model Department {
   learningModules LearningModule[]
   sops            DepartmentSop[]
   bugs            Bug[]
+  reviews         Review[]
+  goals           Goal[]
 
   @@unique([orgId, slug])
   @@map("departments")
@@ -468,22 +490,89 @@ model StandupCard {
 }
 
 model Review {
-  id           String     @id @default(cuid())
-  orgId        String     @map("org_id")
-  type         ReviewType
-  departmentId String?    @map("department_id")
-  scheduledAt  DateTime   @map("scheduled_at")
-  conductedAt  DateTime?  @map("conducted_at")
-  agenda       String?
-  decisions    String?
-  actionItems  Json?      @map("action_items")
-  createdBy    String     @map("created_by")
-  createdAt    DateTime   @default(now()) @map("created_at")
-  updatedAt    DateTime   @updatedAt @map("updated_at")
+  id               String      @id @default(cuid())
+  orgId            String      @map("org_id")
+  type             ReviewType
+  departmentId     String?     @map("department_id")
+  // Online/Offline — Strategic reviews only, record-keeping field, no functional difference.
+  mode             ReviewMode?
+  scheduledAt      DateTime    @map("scheduled_at")
+  conductedAt      DateTime?   @map("conducted_at")
+  agenda           String?
+  decisions        String?
+  actionItems      Json?       @map("action_items")
+  invitationSentAt DateTime?   @map("invitation_sent_at")
+  reminderSentAt   DateTime?   @map("reminder_sent_at")
+  createdBy        String      @map("created_by")
+  createdAt        DateTime    @default(now()) @map("created_at")
+  updatedAt        DateTime    @updatedAt @map("updated_at")
 
-  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  org          Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  department   Department?         @relation(fields: [departmentId], references: [id])
+  participants ReviewParticipant[]
+  goals        Goal[]
 
   @@map("reviews")
+}
+
+// One row per expected attendee of a Tactical/Strategic review — mirrors StandupCard's
+// per-member pattern. Lets us know who was invited vs. who actually attended.
+model ReviewParticipant {
+  id         String    @id @default(cuid())
+  reviewId   String    @map("review_id")
+  userId     String    @map("user_id")
+  invitedAt  DateTime  @default(now()) @map("invited_at")
+  attended   Boolean?
+  attendedAt DateTime? @map("attended_at")
+
+  review Review @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([reviewId, userId])
+  @@map("review_participants")
+}
+
+// A department's goal for a review cycle. STRATEGIC goals (45-day) are sometimes the
+// parent of one or more TACTICAL goals (15-day checkpoints toward that bigger goal) —
+// a department typically accumulates ~3 Tactical checkpoints per Strategic cycle (45÷15).
+model Goal {
+  id              String     @id @default(cuid())
+  orgId           String     @map("org_id")
+  departmentId    String     @map("department_id")
+  reviewId        String?    @map("review_id")
+  parentGoalId    String?    @map("parent_goal_id")
+  cycle           GoalCycle
+  title           String
+  description     String?
+  targetDate      DateTime   @map("target_date")
+  status          GoalStatus @default(ACTIVE)
+  progressPercent Int?       @map("progress_percent")
+  createdByUserId String     @map("created_by_user_id")
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+
+  org         Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  department  Department       @relation(fields: [departmentId], references: [id])
+  review      Review?          @relation(fields: [reviewId], references: [id])
+  parentGoal  Goal?            @relation("GoalHierarchy", fields: [parentGoalId], references: [id])
+  subGoals    Goal[]           @relation("GoalHierarchy")
+  createdBy   User             @relation("GoalCreator", fields: [createdByUserId], references: [id])
+  attachments GoalAttachment[]
+
+  @@map("goals")
+}
+
+model GoalAttachment {
+  id        String   @id @default(cuid())
+  goalId    String   @map("goal_id")
+  name      String
+  url       String
+  size      Int?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  goal Goal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@map("goal_attachments")
 }
 
 model MagicLink {

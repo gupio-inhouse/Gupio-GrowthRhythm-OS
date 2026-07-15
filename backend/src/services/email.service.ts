@@ -698,3 +698,79 @@ export async function sendStandupReminderEmail({
   const text = `Hi ${firstName},\n\nYour ${departmentName} standup starts at ${standupTime} — that's in about 15 minutes.\n\nOpen the app: ${appUrl}/standup${meetUrl ? `\nJoin meeting: ${meetUrl}` : ''}`;
   return sendEmail({ to, subject, html, text });
 }
+
+// ─── Review (Tactical/Strategic) invitation & reminder email ──────────────────
+
+const REVIEW_CYCLE_LABEL: Record<string, string> = {
+  TACTICAL: 'Tactical (15-day)',
+  STRATEGIC: 'Strategic (45-day)',
+  ONE_ON_ONE: '1-on-1',
+  DEPARTMENT: 'Department',
+};
+
+export async function sendReviewInvitationEmail(
+  to: string,
+  {
+    recipientName, departmentName, reviewType, scheduledAt, mode, attendeeNames, isReminder,
+  }: {
+    recipientName: string;
+    departmentName: string;
+    reviewType: string;
+    scheduledAt: Date;
+    mode?: string | null;
+    attendeeNames: string[];
+    isReminder?: boolean;
+  }
+): Promise<boolean> {
+  const appUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();
+  const firstName = recipientName.split(' ')[0];
+  const cycleLabel = REVIEW_CYCLE_LABEL[reviewType] ?? reviewType;
+  const dateLabel = scheduledAt.toLocaleString('en-IN', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+  const subject = isReminder
+    ? `Reminder: ${departmentName} ${cycleLabel} review is coming up`
+    : `You're invited — ${departmentName} ${cycleLabel} review`;
+
+  const otherAttendees = attendeeNames.filter((n) => n !== recipientName);
+  const attendeesHtml = otherAttendees.length
+    ? otherAttendees.map((n) => `<span style="display:inline-block;background-color:#0f172a;border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:6px 12px;margin:0 6px 6px 0;font-size:13px;color:#e2e8f0;">${n}</span>`).join('')
+    : '<span style="font-size:13px;color:#64748b;">Just you for now</span>';
+
+  const html = `
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><title>${subject}</title></head>
+<body style="margin:0;padding:0;background-color:#0f172a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#0f172a;padding:40px 16px;">
+    <tr><td align="center"><table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;">
+      <tr><td align="center" style="padding-bottom:32px;">
+        <table cellpadding="0" cellspacing="0"><tr>
+          <td style="background-color:#2563eb;border-radius:12px;width:44px;height:44px;text-align:center;vertical-align:middle;"><span style="font-size:22px;line-height:44px;">&#9889;</span></td>
+          <td style="padding-left:12px;vertical-align:middle;"><p style="margin:0;font-size:18px;font-weight:700;color:#ffffff;">GrowthRhythm</p><p style="margin:0;font-size:11px;color:#93c5fd;">Business Operating System</p></td>
+        </tr></table>
+      </td></tr>
+      <tr><td style="background-color:#1e293b;border-radius:16px;border:1px solid rgba(255,255,255,0.08);padding:40px 36px;">
+        <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#ffffff;">${isReminder ? '&#9200; Your review is coming up' : "&#127881; You're invited"}</h1>
+        <p style="margin:0 0 24px;font-size:14px;color:#94a3b8;line-height:1.6;">Hi ${firstName}, ${isReminder ? "here's a reminder about your upcoming" : "you're invited to the"} <strong style="color:#e2e8f0;">${departmentName} ${cycleLabel} review</strong>.</p>
+        <div style="background-color:#0f172a;border-radius:12px;border:1px solid rgba(255,255,255,0.08);padding:20px 24px;margin-bottom:24px;">
+          <p style="margin:0 0 6px;font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">When</p>
+          <p style="margin:0 0 16px;font-size:15px;font-weight:600;color:#f1f5f9;">${dateLabel}</p>
+          ${mode ? `<p style="margin:0 0 6px;font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Format</p><p style="margin:0 0 16px;font-size:15px;font-weight:600;color:#f1f5f9;">${mode === 'ONLINE' ? 'Online' : 'Offline'}</p>` : ''}
+          <p style="margin:0 0 8px;font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Joining you</p>
+          <div>${attendeesHtml}</div>
+        </div>
+        <table cellpadding="0" cellspacing="0" style="margin:0 0 16px;"><tr>
+          <td style="background-color:#2563eb;border-radius:10px;">
+            <a href="${appUrl}/reviews" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:10px;">View Review</a>
+          </td>
+        </tr></table>
+        <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:0 0 20px;"/>
+        <p style="margin:0;font-size:12px;color:#475569;">You received this because you're part of the ${departmentName} department.</p>
+      </td></tr>
+      <tr><td align="center" style="padding-top:24px;"><p style="margin:0;font-size:12px;color:#334155;">&copy; 2026 GrowthRhythm OS by Gupio &bull; <a href="https://mygupio.com" style="color:#3b82f6;text-decoration:none;">mygupio.com</a></p></td></tr>
+    </table></td></tr>
+  </table>
+</body></html>`.trim();
+
+  const text = `Hi ${firstName},\n\n${isReminder ? 'Reminder: y' : "Y"}ou're invited to the ${departmentName} ${cycleLabel} review on ${dateLabel}${mode ? ` (${mode === 'ONLINE' ? 'Online' : 'Offline'})` : ''}.\n\nJoining you: ${otherAttendees.length ? otherAttendees.join(', ') : 'just you for now'}\n\nView it at: ${appUrl}/reviews`;
+  return sendEmail({ to, subject, html, text });
+}

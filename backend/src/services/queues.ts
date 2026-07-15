@@ -19,6 +19,8 @@ export const emailQueue = new Queue('email', { connection, defaultJobOptions: {
 
 export const recurringTaskQueue = new Queue('recurring-task', { connection });
 
+export const reviewQueue = new Queue('review', { connection });
+
 export const reportQueue = new Queue('report', { connection, defaultJobOptions: {
   attempts: 2,
   backoff: { type: 'exponential', delay: 120000 },
@@ -98,5 +100,19 @@ export async function scheduleRecurringJobs() {
   await reportQueue.add('monthly-report-check', {}, {
     repeat: { pattern: '30 14 * * *', tz: 'UTC' },
     jobId: 'monthly-performance-report-check',
+  });
+
+  // Review cadence check — Tactical (15-day) / Strategic (45-day) auto-scheduling
+  // per department — every day 6 AM IST (00:30 UTC)
+  await reviewQueue.add('check-cadence', {}, {
+    repeat: { pattern: '30 0 * * *', tz: 'UTC' },
+    jobId: 'daily-review-cadence-check',
+  });
+
+  // Review reminder — every day 9 AM IST (03:30 UTC): reminds attendees of any
+  // Tactical/Strategic review scheduled within the next 24h that hasn't been reminded yet
+  await reviewQueue.add('send-reminders', {}, {
+    repeat: { pattern: '30 3 * * *', tz: 'UTC' },
+    jobId: 'daily-review-reminder',
   });
 }

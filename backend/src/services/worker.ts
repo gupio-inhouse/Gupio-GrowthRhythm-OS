@@ -536,6 +536,72 @@ export const recurringTaskWorker = new Worker('recurring-task', async (job: Job)
   console.log(`[recurring-task-worker] Spawned ${spawned} recurring tasks`);
 }, { connection });
 
+// ── Review worker: Tactical (15-day) / Strategic (45-day) cadence + reminders ──
+const REVIEW_CYCLE_DAYS: Record<'TACTICAL' | 'STRATEGIC', number> = { TACTICAL: 15, STRATEGIC: 45 };
+
+export const reviewWorker = new Worker('review', async (job: Job) => {
+  if (job.name === 'check-cadence') {
+    const departments = await prisma.department.findMany({
+      where: { isActive: true },
+      include: { users: { where: { status: 'ACTIVE' }, select: { id: true } } },
+    });
+
+    const now = new Date();
+    let created = 0;
+
+    for (const dept of departments) {
+      if (dept.users.length === 0) continue;
+
+      for (const type of ['STRATEGIC', 'TACTICAL'] as const) {
+        const last = await prisma.review.findFirst({
+          where: { orgId: dept.orgId, departmentId: dept.id, type },
+          orderBy: { scheduledAt: 'desc' },
+        });
+
+        const cycleDays = REVIEW_CYCLE_DAYS[type];
+        const nextDue = last ? new Date(last.scheduledAt.getTime() + cycleDays * 86400000) : null;
+        const isDue = !last || (nextDue && nextDue <= now);
+        if (!isDue) continue;
+
+        // Give attendees a day's lead time before the meeting so the invitation email is meaningful.
+        const scheduledAt = new Date(now.getTime() + 86400000);
+        const review = await prisma.review.create({
+          data: {
+            orgId: dept.orgId,
+            departmentId: dept.id,
+            type,
+            scheduledAt,
+            createdBy: dept.headUserId ?? dept.users[0].id,
+            participants: { create: dept.users.map((u) => ({ userId: u.id })) },
+          },
+        });
+
+        const { sendReviewInvitations } = await import('../routes/reviews');
+        await sendReviewInvitations(review.id).catch((e) => console.error('[review-worker] invitation send failed:', e));
+        created++;
+      }
+    }
+
+    console.log(`[review-worker] Auto-scheduled ${created} review(s) across ${departments.length} depts`);
+    return;
+  }
+
+  if (job.name === 'send-reminders') {
+    const in24h = new Date(Date.now() + 24 * 3600000);
+    const due = await prisma.review.findMany({
+      where: { scheduledAt: { gte: new Date(), lte: in24h }, reminderSentAt: null },
+      select: { id: true },
+    });
+
+    const { sendReviewReminders } = await import('../routes/reviews');
+    for (const review of due) {
+      await sendReviewReminders(review.id).catch((e) => console.error('[review-worker] reminder send failed:', e));
+    }
+
+    console.log(`[review-worker] Sent reminders for ${due.length} upcoming review(s)`);
+  }
+}, { connection });
+
 // Graceful shutdown
 export function shutdownWorkers() {
   return Promise.all([
@@ -548,5 +614,6 @@ export function shutdownWorkers() {
     emailWorker.close(),
     reportWorker.close(),
     recurringTaskWorker.close(),
+    reviewWorker.close(),
   ]);
 }

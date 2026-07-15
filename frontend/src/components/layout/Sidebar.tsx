@@ -2,7 +2,7 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, CheckSquare, Users, Zap,
   Building2, Settings, LogOut, Shield, MessageSquare, X, ClipboardList,
-  GraduationCap, Bug,
+  GraduationCap, Bug, CalendarClock,
 } from 'lucide-react';
 import { cn, isEngineeringDept } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
@@ -16,6 +16,7 @@ const navItems = [
   { label: 'Tasks', href: '/tasks', icon: CheckSquare, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'] },
   { label: 'Bugs', href: '/bugs', icon: Bug, roles: ['OWNER', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'], engineeringOnly: true },
   { label: 'Meeting', href: '/standup', icon: Zap, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'] },
+  { label: 'Reviews', href: '/reviews', icon: CalendarClock, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'] },
   { label: 'Learning', href: '/learning', icon: GraduationCap, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'] },
   { label: 'Departments', href: '/departments', icon: Building2, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'] },
   { label: 'Team', href: '/team', icon: Users, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'] },

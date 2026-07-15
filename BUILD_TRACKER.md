@@ -1,6 +1,7 @@
 # GrowthRhythm OS — Build Tracker
 
-> Status as of **15 May 2026**. Based on PRD Build Tracker PDF (v4.0).
+> Status as of **15 May 2026**, corrected **15 July 2026** (M3, M14 — see notes below).
+> Based on PRD Build Tracker PDF (v4.0).
 > Legend: ✅ Done · 🟡 Partial (backend or frontend built, not both) · ❌ Pending
 
 ---
@@ -9,9 +10,17 @@
 
 | Phase | Total Items | ✅ Done | 🟡 Partial | ❌ Pending |
 |-------|------------|---------|-----------|-----------|
-| MVP (M1–M13) | 89 | 89 | 0 | 0 |
-| Phase 2 (M14–M15) | 10 | 10 | 0 | 0 |
-| **Total** | **99** | **99** | **0** | **0** |
+| MVP (M1–M13) | 89 | 84 | 0 | 5 |
+| Phase 2 (M14–M15) | 12 | 12 | 0 | 0 |
+| **Total** | **101** | **96** | **0** | **5** |
+
+M3.1–M3.5 (generic company-level Goal/KRA engine) were flipped from ✅ to ❌ on 2026-07-15 — no
+`Kra` model or `/kras`/`/owner/ai/goal-suggestions` routes exist in the codebase; those rows had
+never matched reality. M14 was rewritten the same day to describe the Tactical/Strategic review
++ goal-cadence system actually built this session (was previously 5 items describing an
+AI-agenda-generator version of Reviews that also didn't exist). M16 (Bug Tracker, 5 items, all
+✅ Done) remains outside this summary table, same as before this correction — pre-existing gap,
+not addressed here.
 
 ---
 
@@ -46,11 +55,11 @@
 
 | # | Build Item | Status | Notes |
 |---|-----------|--------|-------|
-| M3.1 | Goal creation (company-level) | ✅ Done | `GET/POST/PATCH /goals`. Frontend Goals page |
-| M3.2 | KRA cascade to departments | ✅ Done | `GET/POST/PATCH /kras`. Frontend KRA section |
-| M3.3 | AI goal assistant | ✅ Done | `POST /owner/ai/goal-suggestions` → Claude API. 3–5 KRA suggestions |
-| M3.4 | KRA → Task linking (mandatory) | ✅ Done | `kraId` now required in `NewTaskDialog` (Zod validation). Error shown if no KRA selected |
-| M3.5 | KRA progress rollup | ✅ Done | When task → DONE, `KRA.current` incremented. Status set to ON_TRACK/COMPLETED |
+| M3.1 | Goal creation (company-level) | ❌ Pending | Corrected 2026-07-15: no generic company-level Goal engine exists in the codebase (no `/kras` route, no standalone Goals page) despite this row previously reading ✅ Done. A *different*, narrower Goal model now exists — the Strategic (45-day)/Tactical (15-day) cadence-goal hierarchy tied to department Reviews — see M14.6 |
+| M3.2 | KRA cascade to departments | ❌ Pending | Corrected 2026-07-15: no `Kra` model or `/kras` route exists in `backend/prisma/schema.prisma` / `backend/src/routes`. This row was inaccurate |
+| M3.3 | AI goal assistant | ❌ Pending | Corrected 2026-07-15: no `/owner/ai/goal-suggestions` route exists |
+| M3.4 | KRA → Task linking (mandatory) | ❌ Pending | Corrected 2026-07-15: `Task` has no `kraId` field; `NewTaskDialog` has no KRA selector |
+| M3.5 | KRA progress rollup | ❌ Pending | Corrected 2026-07-15: no `Kra` model, so no rollup-on-DONE logic exists |
 
 ---
 
@@ -191,13 +200,22 @@
 
 ## M14 · Tactical & Strategic Reviews `Phase 2`
 
+> Rewritten 2026-07-15 — the M14.1–M14.5 rows below previously described an AI-agenda-generator
+> version of this module (`POST /reviews/:id/ai-agenda`, `ReviewDetailDialog`, `ReviewCard`) that
+> did not exist anywhere in the codebase (no `reviews.ts` route file, no `Review` frontend
+> component, no `ReviewParticipant`/`Goal` models). This section now reflects the three-tier
+> meeting cadence system actually built this session: Daily standup (unchanged, see M5) + new
+> Tactical (15-day) and Strategic (45-day) department reviews, each with goal-setting.
+
 | # | Build Item | Status | Notes |
 |---|-----------|--------|-------|
-| M14.1 | Tactical review agenda generator | ✅ Done | `POST /reviews/:id/ai-agenda` — Claude generates 5-bullet agenda. 2 credits deducted. "Generate AI Agenda" button in ReviewDetailDialog |
-| M14.2 | Action items + decisions tracker | ✅ Done | `actionItems Json?` on Review. ReviewDetailDialog: add/check-off action items, decisions textarea. `PATCH /reviews/:id` persists all |
-| M14.3 | Strategic review reports | ✅ Done | `GET /reviews?type=STRATEGIC` filter. ReviewCard shows type badge. Upcoming/Completed tabs |
-| M14.4 | Review templates per industry | ✅ Done | `POST /reviews/:id/ai-agenda` uses `reviewType` in prompt. AI tailors agenda to TACTICAL/STRATEGIC/ONE_ON_ONE/DEPARTMENT type |
-| M14.5 | Decision audit log | ✅ Done | `VIEW` audit log on `GET /reviews/:id`. All PATCH/POST actions logged |
+| M14.1 | Review data model | ✅ Done | `Review` (dept FK, `mode` Online/Offline, agenda/decisions/actionItems), `ReviewParticipant` (per-attendee invited/attended tracking), `ReviewType`/`ReviewMode` enums in `backend/prisma/schema.prisma` |
+| M14.2 | Tactical (15-day) / Strategic (45-day) auto-cadence | ✅ Done | `reviewWorker` in `backend/src/services/worker.ts` (`check-cadence` job, daily 6 AM IST) — per department, auto-creates the next Tactical/Strategic review once the prior one's cadence window has elapsed, inviting all active department members as participants |
+| M14.3 | Personalized invitation + reminder emails | ✅ Done | `sendReviewInvitationEmail()` in `email.service.ts` — dark-themed GrowthRhythm template, greets the recipient by name, lists the other attendees by name ("Joining you"), shows date/format. Sent on review creation (`sendReviewInvitations`) and again ~24h before the meeting if not yet reminded (`send-reminders` job → `sendReviewReminders`, tracked via `Review.reminderSentAt`) |
+| M14.4 | Attendance + agenda/decisions tracking | ✅ Done | `PATCH /reviews/:id/participants/:participantId` (self or manager/dept-head/owner marks attendance). `PATCH /reviews/:id` persists agenda/decisions/actionItems. `ReviewDetailDrawer.tsx` (frontend) |
+| M14.5 | Notifications | ✅ Done | `REVIEW_SCHEDULED`/`REVIEW_REMINDER`/`GOAL_SET` events in `notification.service.ts`, fanned out to all department participants |
+| M14.6 | Goal-setting: 45-day Strategic goal + nested 15-day Tactical checkpoints | ✅ Done | `Goal` model (`GoalCycle`/`GoalStatus` enums, self-relation `parentGoal`/`subGoals`) — a Tactical goal must reference a Strategic `parentGoalId` in the same department (enforced in `backend/src/routes/goals.ts`). `GoalDialog.tsx` lets Owner/Dept Head/Manager set either from inside a review |
+| M14.7 | Reviews UI + nav | ✅ Done | `frontend/src/pages/Reviews.tsx` (Tactical/Strategic tabs, upcoming/past, department filter for Owner/Company Admin), "Reviews" sidebar item visible to all department roles |
 
 ---
 
@@ -220,7 +238,7 @@
 | M16.1 | Bug data model | ✅ Done | `Bug`/`BugComment`/`BugAttachment`/`BugStatusHistory` models + `BugStatus`/`BugSeverity` enums. Bugs hang off the existing `Team` model (the app's "Project" concept) — Engineering department only |
 | M16.2 | Bug CRUD + status workflow | ✅ Done | `backend/src/routes/bugs.ts` — report/edit/delete, full status-change audit trail in `BugStatusHistory`, role + dept scoping mirrors `tasks.ts` |
 | M16.3 | Bug notifications | ✅ Done | `BUG_ASSIGNED`/`BUG_STATUS_CHANGED`/`BUG_REOPENED`/`BUG_COMMENT_ADDED` events in `notification.service.ts` |
-| M16.4 | Bug Tracker UI | ✅ Done | `frontend/src/pages/Bugs.tsx` (list + Kanban, filters by Project/status/severity/"reported by me"/"assigned to me"), `NewBugDialog.tsx`, `BugDetailDrawer.tsx` (status timeline + comments + screenshot/document evidence) |
+| M16.4 | Bug Tracker UI | ✅ Done | `frontend/src/pages/Bugs.tsx` (list view, filters by Project/type/status/severity/"reported by me"/"assigned to me"; Kanban view removed 2026-07-14), `NewBugDialog.tsx`, `BugDetailDrawer.tsx` (status timeline + comments + screenshot/document evidence) |
 | M16.5 | Nav + access gating | ✅ Done | "Bugs" nav item shown only to Engineering-department users (+ OWNER/COMPANY_ADMIN); bug creation restricted server-side to Engineering projects only |
 
 ---
@@ -232,8 +250,8 @@ The codebase is production-quality end-to-end. These flows work today:
 - Register org + owner (with DPDPA consent, headcount, fiscal year) → magic link emailed → verify → JWT auth → role-based redirect
 - Industry-template departments auto-created on registration (5–6 depts per industry)
 - Create/list departments → standup schedule per dept → dept dashboard (9 widgets + weighted learning score)
-- Create/list goals and KRAs → AI KRA suggestions → task creation with **mandatory KRA** + dependency selector
-- Status changes with blocker capture → KRA progress rollup on DONE → AI suggestions for BLOCKED tasks
+- Status changes with blocker capture → AI suggestions for BLOCKED tasks
+- Tactical (15-day) and Strategic (45-day) department reviews, auto-scheduled on cadence with personalized invitation/reminder emails; Strategic goal-setting with nested Tactical checkpoint goals (M14)
 - CSV import of tasks and users (bulk)
 - Standup: nightly card pre-gen (BullMQ) + T-15 reminder (every 15 min check) + live timer → post-standup AI digest (T+60s auto-trigger) + overdue learning per member
 - Notification bell: unread count, popover, mark-read, polls 30s. Quiet hours respected
