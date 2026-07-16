@@ -1,4 +1,8 @@
 import 'dotenv/config';
+// Must be imported before any routers: patches Router methods so a rejected promise in an
+// async route handler is forwarded to the error middleware below, instead of silently
+// hanging the request with no response until the upstream gateway times it out (504).
+import 'express-async-errors';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';

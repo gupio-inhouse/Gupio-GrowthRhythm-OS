@@ -29,11 +29,23 @@ function isRetryableAIError(err: unknown): boolean {
   return status === 503 || status === 429 || /UNAVAILABLE|high demand|rate.?limit/i.test(message);
 }
 
+// Neither provider SDK enforces its own request timeout, so a slow/hung upstream call
+// used to be able to block a caller indefinitely — including, at one point, the main
+// PATCH /tasks/:id request/response cycle (fixed separately by making that call
+// fire-and-forget), but this still protects every other AI call site in the app.
+const AI_CALL_TIMEOUT_MS = 20_000;
+function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`${label} timed out after ${AI_CALL_TIMEOUT_MS}ms`)), AI_CALL_TIMEOUT_MS)),
+  ]);
+}
+
 async function callGeminiRaw(prompt: string, systemPrompt?: string): Promise<string> {
   const gemini = geminiClient();
   if (!gemini) throw new Error('No AI provider configured. Set GROQ_API_KEY or GEMINI_API_KEY.');
   const fullPrompt = systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt;
-  const response = await gemini.models.generateContent({ model: GEMINI_MODEL, contents: fullPrompt });
+  const response = await withTimeout(gemini.models.generateContent({ model: GEMINI_MODEL, contents: fullPrompt }), 'Gemini');
   return response.text ?? '';
 }
 
@@ -54,14 +66,14 @@ async function callAIRaw(prompt: string, systemPrompt?: string): Promise<string>
   const groq = groqClient();
   if (groq) {
     try {
-      const res = await groq.chat.completions.create({
+      const res = await withTimeout(groq.chat.completions.create({
         model: GROQ_MODEL,
         messages: [
           ...(systemPrompt ? [{ role: 'system' as const, content: systemPrompt }] : []),
           { role: 'user' as const, content: prompt },
         ],
         max_tokens: 1024,
-      });
+      }), 'Groq');
       const text = res.choices[0]?.message?.content ?? '';
       if (text) return text;
     } catch (err) {

@@ -530,6 +530,11 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
   }
 
   const data: Record<string, unknown> = { ...parsed.data };
+  // blockerDescription only exists on TaskStatusHistory (written further below), not on
+  // Task itself — leaving it in `data` makes prisma.task.update() reject with a validation
+  // error on every "blocked with a description" request. That rejection was never caught,
+  // so the request hung with no response until the upstream gateway killed it at 504.
+  delete data.blockerDescription;
   if (parsed.data.assigneeUserId && parsed.data.assigneeUserId !== existingTask.assigneeUserId) {
     data.assignedByUserId = req.user!.userId;
     data.completionSubmittedAt = null;
@@ -646,29 +651,37 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
     }).catch(console.error);
   }
 
-  // Capture status change history and generate suggestions/better options
-  if (task.status !== existingTask.status) {
-    try {
-      const blockerDesc = parsed.data.blockerDescription || '';
-      const suggestions = await generateStatusChangeSuggestions(task.id, task.status, req.user!.orgId, blockerDesc);
-      await prisma.taskStatusHistory.create({
-        data: {
-          taskId: task.id,
-          fromStatus: existingTask.status,
-          toStatus: task.status,
-          changedById: req.user!.userId,
-          blockerType: parsed.data.blockerType || null,
-          blockerDescription: blockerDesc || null,
-          blockerExpectedResolution: parsed.data.blockerExpectedResolution ? new Date(parsed.data.blockerExpectedResolution) : null,
-          suggestions: suggestions,
-        }
-      });
-    } catch (err) {
-      console.error('Error logging status transition history:', err);
-    }
-  }
-
   res.json(task);
+
+  // Capture status change history and generate suggestions/better options — fire-and-forget.
+  // This used to be awaited before res.json(), which meant a slow/hung call to the external
+  // AI provider (Groq/Gemini, no hard timeout) stalled the entire status-update response until
+  // the upstream gateway killed it with a 504 — hit constantly when marking tasks BLOCKED,
+  // since that's the transition that always carries a blockerDescription. Suggestions are only
+  // ever read later via GET /tasks/:id/ai-suggestions or the history log, so nothing needs to
+  // wait on them here.
+  if (task.status !== existingTask.status) {
+    (async () => {
+      try {
+        const blockerDesc = parsed.data.blockerDescription || '';
+        const suggestions = await generateStatusChangeSuggestions(task.id, task.status, req.user!.orgId, blockerDesc);
+        await prisma.taskStatusHistory.create({
+          data: {
+            taskId: task.id,
+            fromStatus: existingTask.status,
+            toStatus: task.status,
+            changedById: req.user!.userId,
+            blockerType: parsed.data.blockerType || null,
+            blockerDescription: blockerDesc || null,
+            blockerExpectedResolution: parsed.data.blockerExpectedResolution ? new Date(parsed.data.blockerExpectedResolution) : null,
+            suggestions: suggestions,
+          }
+        });
+      } catch (err) {
+        console.error('Error logging status transition history:', err);
+      }
+    })();
+  }
 });
 
 // DELETE /tasks/:id
