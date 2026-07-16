@@ -553,18 +553,23 @@ export const reviewWorker = new Worker('review', async (job: Job) => {
       if (dept.users.length === 0) continue;
 
       for (const type of ['STRATEGIC', 'TACTICAL'] as const) {
+        // A review of this type is already scheduled for the upcoming cycle — nothing to do yet.
+        const upcoming = await prisma.review.findFirst({
+          where: { orgId: dept.orgId, departmentId: dept.id, type, scheduledAt: { gt: now } },
+        });
+        if (upcoming) continue;
+
         const last = await prisma.review.findFirst({
           where: { orgId: dept.orgId, departmentId: dept.id, type },
           orderBy: { scheduledAt: 'desc' },
         });
 
+        // Anchor the next cycle off the last review's date, so the cadence stays fixed
+        // (day 15, day 30, day 45, ...) instead of drifting to whenever the cron happens to run.
         const cycleDays = REVIEW_CYCLE_DAYS[type];
-        const nextDue = last ? new Date(last.scheduledAt.getTime() + cycleDays * 86400000) : null;
-        const isDue = !last || (nextDue && nextDue <= now);
-        if (!isDue) continue;
+        const anchor = last ? last.scheduledAt : now;
+        const scheduledAt = new Date(anchor.getTime() + cycleDays * 86400000);
 
-        // Give attendees a day's lead time before the meeting so the invitation email is meaningful.
-        const scheduledAt = new Date(now.getTime() + 86400000);
         const review = await prisma.review.create({
           data: {
             orgId: dept.orgId,
@@ -587,9 +592,10 @@ export const reviewWorker = new Worker('review', async (job: Job) => {
   }
 
   if (job.name === 'send-reminders') {
-    const in24h = new Date(Date.now() + 24 * 3600000);
+    // Reminders start going out 2 days before the review, not the day of.
+    const twoDaysOut = new Date(Date.now() + 2 * 24 * 3600000);
     const due = await prisma.review.findMany({
-      where: { scheduledAt: { gte: new Date(), lte: in24h }, reminderSentAt: null },
+      where: { scheduledAt: { gte: new Date(), lte: twoDaysOut }, reminderSentAt: null },
       select: { id: true },
     });
 
