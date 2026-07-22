@@ -244,7 +244,7 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
 
   const taskToEdit: TaskToEdit | null = task ? {
     id: task.id, title: task.title, description: task.description, expectedOutcome: task.expectedOutcome,
-    priority: task.priority, dueDate: task.dueDate, assignee: task.assignee, department: task.department,
+    priority: task.priority, startDate: task.startDate, dueDate: task.dueDate, assignee: task.assignee, department: task.department,
     teamId: task.team?.id,
     phaseId: (task as any).phase?.id,
   } : null;
