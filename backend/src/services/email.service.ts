@@ -7,31 +7,93 @@ let _emailQueue: Queue | null = null;
 export function setEmailQueue(q: Queue) { _emailQueue = q; }
 
 // ─── Nodemailer transporter ───────────────────────────────────────────────────
-// Supports any SMTP provider via env vars:
-//   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS
-// Common presets:
-//   Gmail:      host=smtp.gmail.com  port=587  (use App Password)
-//   Outlook:    host=smtp.office365.com  port=587
-//   Zoho:       host=smtp.zoho.in  port=587
-//   Brevo:      host=smtp-relay.brevo.com  port=587
-//   Mailtrap:   host=sandbox.smtp.mailtrap.io  port=2525  (dev testing)
-
-let transporter: Transporter | null = null;
+// Two auth modes, tried in this order:
+//
+// 1. Microsoft 365 OAuth2 (client-credentials / app-only) — set AZURE_TENANT_ID,
+//    AZURE_CLIENT_ID, AZURE_CLIENT_SECRET (+ optionally AZURE_SCOPE, defaults to
+//    the Outlook SMTP resource). No mailbox password needed — the Azure app
+//    registration must have the application permission `SMTP.SendAsApp`
+//    (admin-consented) and, on the mailbox side, "Authenticated SMTP" must be
+//    enabled for SMTP_USER. This is Microsoft's replacement for Basic Auth SMTP,
+//    which most tenants now block outright.
+// 2. Plain SMTP username/password — set SMTP_HOST, SMTP_USER, SMTP_PASS.
+//    Common presets: Gmail (smtp.gmail.com:587, App Password), Outlook/M365
+//    (smtp.office365.com:587 — only works if the tenant still allows Basic Auth
+//    SMTP), Zoho (smtp.zoho.in:587), Brevo (smtp-relay.brevo.com:587), Mailtrap
+//    (sandbox.smtp.mailtrap.io:2525, dev testing).
+//
+// The transporter is built lazily (async) rather than once at import time,
+// since the OAuth2 mode needs a token fetched over the network and that token
+// expires (~60–90 min) and must be refreshed.
 
 const SMTP_HOST = process.env.SMTP_HOST;
 const SMTP_PORT = parseInt(process.env.SMTP_PORT || '587', 10);
 const SMTP_USER = process.env.SMTP_USER;
 const SMTP_PASS = process.env.SMTP_PASS;
-const FROM_EMAIL = process.env.SMTP_FROM_EMAIL || SMTP_USER || 'noreply@growthrhythm.app';
+const FROM_EMAIL = process.env.SMTP_FROM_EMAIL || process.env.EMAIL_FROM || SMTP_USER || 'noreply@growthrhythm.app';
 const FROM_NAME = process.env.SMTP_FROM_NAME || 'GrowthRhythm OS';
 
-if (SMTP_HOST && SMTP_USER && SMTP_PASS) {
-  transporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: SMTP_PORT,
-    secure: SMTP_PORT === 465,
-    auth: { user: SMTP_USER, pass: SMTP_PASS },
+const AZURE_TENANT_ID = process.env.AZURE_TENANT_ID;
+const AZURE_CLIENT_ID = process.env.AZURE_CLIENT_ID;
+const AZURE_CLIENT_SECRET = process.env.AZURE_CLIENT_SECRET;
+const AZURE_SCOPE = process.env.AZURE_SCOPE || 'https://outlook.office365.com/.default';
+
+const useMicrosoftOAuth2 = !!(AZURE_TENANT_ID && AZURE_CLIENT_ID && AZURE_CLIENT_SECRET);
+
+// ─── Microsoft 365 OAuth2 token (client-credentials grant) ────────────────────
+let cachedToken: { accessToken: string; expiresAt: number } | null = null;
+
+async function getMicrosoft365AccessToken(): Promise<string> {
+  // 60s safety margin so we never hand nodemailer a token that expires mid-send.
+  if (cachedToken && cachedToken.expiresAt - 60_000 > Date.now()) {
+    return cachedToken.accessToken;
+  }
+
+  const res = await fetch(`https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: AZURE_CLIENT_ID!,
+      client_secret: AZURE_CLIENT_SECRET!,
+      scope: AZURE_SCOPE,
+    }),
   });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Microsoft 365 OAuth2 token request failed (${res.status}): ${body.slice(0, 500)}`);
+  }
+
+  const data = await res.json() as { access_token: string; expires_in: number };
+  cachedToken = { accessToken: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 };
+  return cachedToken.accessToken;
+}
+
+// Cheap to call — building a Transporter doesn't open a connection, that only
+// happens on sendMail(). Returns null when no mode is fully configured (dev/log-only).
+async function getTransporter(): Promise<Transporter | null> {
+  if (useMicrosoftOAuth2) {
+    if (!SMTP_HOST || !SMTP_USER) return null;
+    const accessToken = await getMicrosoft365AccessToken();
+    return nodemailer.createTransport({
+      host: SMTP_HOST,
+      port: SMTP_PORT,
+      secure: SMTP_PORT === 465,
+      auth: { type: 'OAuth2', user: SMTP_USER, accessToken },
+    });
+  }
+
+  if (SMTP_HOST && SMTP_USER && SMTP_PASS) {
+    return nodemailer.createTransport({
+      host: SMTP_HOST,
+      port: SMTP_PORT,
+      secure: SMTP_PORT === 465,
+      auth: { user: SMTP_USER, pass: SMTP_PASS },
+    });
+  }
+
+  return null;
 }
 
 // ─── Generic send ────────────────────────────────────────────────────────────
@@ -44,8 +106,9 @@ interface SendEmailParams {
 }
 
 export async function sendEmail({ to, subject, html, text }: SendEmailParams): Promise<boolean> {
+  const transporter = await getTransporter();
   if (!transporter) {
-    console.log('[email.service] DEV MODE — SMTP not configured (set SMTP_HOST, SMTP_USER, SMTP_PASS)');
+    console.log('[email.service] DEV MODE — no email auth configured (set SMTP_HOST/SMTP_USER/SMTP_PASS, or AZURE_TENANT_ID/AZURE_CLIENT_ID/AZURE_CLIENT_SECRET for Microsoft 365)');
     console.log(`  To:      ${to}`);
     console.log(`  Subject: ${subject}`);
     console.log(`  Body:    ${(text ?? html.replace(/<[^>]+>/g, ' ').trim()).slice(0, 300)}`);
@@ -71,7 +134,8 @@ export async function sendEmail({ to, subject, html, text }: SendEmailParams): P
 
 // Called by emailWorker to actually deliver the message
 export async function deliverEmail({ to, subject, html, text }: SendEmailParams): Promise<void> {
-  if (!transporter) throw new Error('SMTP not configured');
+  const transporter = await getTransporter();
+  if (!transporter) throw new Error('Email sending not configured');
   await transporter.sendMail({
     from: `"${FROM_NAME}" <${FROM_EMAIL}>`,
     to,
