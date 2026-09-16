@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -13,6 +13,7 @@ import { WeekdayDatePicker } from '@/components/ui/weekday-date-picker';
 import {
   ClipboardList, User, Calendar, Clock, Tag, FolderKanban,
   ChevronDown, Search, X, Repeat, Sparkles, Loader2,
+  ImagePlus, FileText, GitPullRequest,
 } from 'lucide-react';
 import api from '@/api/client';
 import { useAuthStore } from '@/store/authStore';
@@ -102,6 +103,8 @@ type FormData = z.infer<ReturnType<typeof buildElevatedSchema>>;
 type UserItem      = { id: string; name: string; role: string; departmentId?: string };
 type Department    = { id: string; name: string };
 type TeamItem      = { id: string; name: string; members: { user: { id: string } }[] };
+type PendingFile   = { key: string; file: File; type: 'SCREENSHOT' | 'DOCUMENT' };
+type PendingPR     = { key: string; title: string; url: string };
 
 export type TaskToEdit = {
   id: string;
@@ -152,6 +155,15 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
   const [enhanceDescCount, setEnhanceDescCount] = useState(0);
   const ENHANCE_LIMIT = 2;
 
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+  const [pendingPRs, setPendingPRs] = useState<PendingPR[]>([]);
+  const [prFormOpen, setPrFormOpen] = useState(false);
+  const [prTitle, setPrTitle] = useState('');
+  const [prUrl, setPrUrl] = useState('');
+  const [uploadingDeliveries, setUploadingDeliveries] = useState(false);
+  const screenshotInputRef = useRef<HTMLInputElement | null>(null);
+  const documentInputRef = useRef<HTMLInputElement | null>(null);
+
   const { data: users = [] } = useQuery<UserItem[]>({
     queryKey: ['users-list'],
     queryFn:  () => api.get('/users').then((r) => r.data),
@@ -197,6 +209,11 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
     setCustomDays([]);
     setEnhanceTitleCount(0);
     setEnhanceDescCount(0);
+    setPendingFiles([]);
+    setPendingPRs([]);
+    setPrFormOpen(false);
+    setPrTitle('');
+    setPrUrl('');
     if (taskToEdit) {
       reset({
         title:           taskToEdit.title,
@@ -242,7 +259,46 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
     }
   }, [canAssignToAny, watchedAssigneeId]);
 
-  const handleClose = () => { reset(); setUserSearch(''); setUserDropOpen(false); setRecurrence('NONE'); setCustomDays([]); setEnhanceTitleCount(0); setEnhanceDescCount(0); onClose(); };
+  const handleClose = () => {
+    reset(); setUserSearch(''); setUserDropOpen(false); setRecurrence('NONE'); setCustomDays([]);
+    setEnhanceTitleCount(0); setEnhanceDescCount(0);
+    setPendingFiles([]); setPendingPRs([]); setPrFormOpen(false); setPrTitle(''); setPrUrl('');
+    onClose();
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, type: 'SCREENSHOT' | 'DOCUMENT') => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setPendingFiles((prev) => [...prev, { key: `${Date.now()}-${file.name}`, file, type }]);
+  };
+  const removePendingFile = (key: string) => setPendingFiles((prev) => prev.filter((f) => f.key !== key));
+
+  const addPendingPR = () => {
+    if (!prTitle.trim() || !prUrl.trim()) return;
+    setPendingPRs((prev) => [...prev, { key: `${Date.now()}-${prTitle}`, title: prTitle.trim(), url: prUrl.trim() }]);
+    setPrTitle(''); setPrUrl(''); setPrFormOpen(false);
+  };
+  const removePendingPR = (key: string) => setPendingPRs((prev) => prev.filter((p) => p.key !== key));
+
+  const uploadDeliveries = async (taskId: string) => {
+    for (const pending of pendingFiles) {
+      try {
+        const form = new FormData(); form.append('file', pending.file);
+        const up = await api.post('/upload/content', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+        await api.post(`/tasks/${taskId}/attachments`, { name: up.data.originalName, url: up.data.url, type: pending.type, size: up.data.size });
+      } catch {
+        toast.error(`Failed to upload "${pending.file.name}"`, 'You can add it later from the task detail view.');
+      }
+    }
+    for (const pr of pendingPRs) {
+      try {
+        await api.post(`/tasks/${taskId}/pull-requests`, { title: pr.title, url: pr.url });
+      } catch {
+        toast.error(`Failed to link PR "${pr.title}"`, 'You can add it later from the task detail view.');
+      }
+    }
+  };
 
   const handleEnhanceTitle = async () => {
     if (enhanceTitleCount >= ENHANCE_LIMIT) { toast.error('Enhance limit reached (max 2 times per task)'); return; }
@@ -328,10 +384,16 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
         await api.patch(`/tasks/${taskToEdit.id}`, payload);
         toast.success('Task updated');
       } else {
-        await api.post('/tasks', payload);
+        const res = await api.post('/tasks', payload);
+        if (pendingFiles.length > 0 || pendingPRs.length > 0) {
+          setUploadingDeliveries(true);
+          await uploadDeliveries(res.data.id);
+          setUploadingDeliveries(false);
+        }
         toast.success('Task created');
       }
       reset();
+      setPendingFiles([]); setPendingPRs([]);
       onCreated();
       onClose();
     } catch (err: unknown) {
@@ -841,6 +903,94 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
                 </Select>
               </div>
             )}
+
+            {/* Delivery attachments — create mode only; editing has its own attachment UI in the drawer */}
+            {!isEditMode && (
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Attachments <span className="text-muted-foreground/60 font-normal normal-case">(optional)</span>
+                </Label>
+                <input ref={screenshotInputRef} type="file" accept="image/*" className="hidden"
+                  onChange={(e) => handleFileSelect(e, 'SCREENSHOT')} />
+                <input ref={documentInputRef} type="file" accept=".pdf,.doc,.docx" className="hidden"
+                  onChange={(e) => handleFileSelect(e, 'DOCUMENT')} />
+                <div className="flex gap-1.5 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => screenshotInputRef.current?.click()}
+                    className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl border border-border/60 bg-white text-xs font-semibold text-muted-foreground hover:border-indigo-300 hover:text-indigo-700 hover:bg-indigo-50 transition-all"
+                  >
+                    <ImagePlus className="h-3.5 w-3.5" /> Screenshot
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => documentInputRef.current?.click()}
+                    className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl border border-border/60 bg-white text-xs font-semibold text-muted-foreground hover:border-indigo-300 hover:text-indigo-700 hover:bg-indigo-50 transition-all"
+                  >
+                    <FileText className="h-3.5 w-3.5" /> Document
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPrFormOpen((v) => !v)}
+                    className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl border border-border/60 bg-white text-xs font-semibold text-muted-foreground hover:border-indigo-300 hover:text-indigo-700 hover:bg-indigo-50 transition-all"
+                  >
+                    <GitPullRequest className="h-3.5 w-3.5" /> PR Link
+                  </button>
+                </div>
+
+                {prFormOpen && (
+                  <div className="flex flex-col sm:flex-row gap-1.5 pt-1">
+                    <Input
+                      placeholder="PR title"
+                      value={prTitle}
+                      onChange={(e) => setPrTitle(e.target.value)}
+                      className="rounded-xl border-border/60 text-sm"
+                    />
+                    <Input
+                      placeholder="PR URL"
+                      value={prUrl}
+                      onChange={(e) => setPrUrl(e.target.value)}
+                      className="rounded-xl border-border/60 text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={addPendingPR}
+                      disabled={!prTitle.trim() || !prUrl.trim()}
+                      className="h-9 px-3 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 transition-all disabled:opacity-50 shrink-0"
+                    >
+                      Add
+                    </button>
+                  </div>
+                )}
+
+                {(pendingFiles.length > 0 || pendingPRs.length > 0) && (
+                  <div className="space-y-1.5 pt-1">
+                    {pendingFiles.map((pf) => (
+                      <div key={pf.key} className="flex items-center justify-between gap-2 rounded-xl border border-border/60 bg-muted/20 px-3 py-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          {pf.type === 'SCREENSHOT' ? <ImagePlus className="h-3.5 w-3.5 text-sky-600 shrink-0" /> : <FileText className="h-3.5 w-3.5 text-violet-600 shrink-0" />}
+                          <span className="text-xs font-medium truncate">{pf.file.name}</span>
+                        </div>
+                        <button type="button" onClick={() => removePendingFile(pf.key)} className="h-6 w-6 rounded-lg flex items-center justify-center text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-all shrink-0">
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                    {pendingPRs.map((pr) => (
+                      <div key={pr.key} className="flex items-center justify-between gap-2 rounded-xl border border-border/60 bg-muted/20 px-3 py-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <GitPullRequest className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                          <span className="text-xs font-medium truncate">{pr.title}</span>
+                        </div>
+                        <button type="button" onClick={() => removePendingPR(pr.key)} className="h-6 w-6 rounded-lg flex items-center justify-center text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-all shrink-0">
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* ── Footer ── */}
@@ -861,12 +1011,14 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
               </button>
               <button
                 type="submit"
-                disabled={isSubmitting}
+                disabled={isSubmitting || uploadingDeliveries}
                 className="h-9 px-5 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-600 text-white text-sm font-bold hover:from-indigo-600 hover:to-violet-700 transition-all shadow-sm disabled:opacity-60"
               >
-                {isSubmitting
-                  ? (isEditMode ? 'Saving…' : 'Creating…')
-                  : (isEditMode ? 'Save Changes' : isTeamMember ? 'Add Task' : 'Create Task')}
+                {uploadingDeliveries
+                  ? 'Uploading attachments…'
+                  : isSubmitting
+                    ? (isEditMode ? 'Saving…' : 'Creating…')
+                    : (isEditMode ? 'Save Changes' : isTeamMember ? 'Add Task' : 'Create Task')}
               </button>
             </div>
           </div>

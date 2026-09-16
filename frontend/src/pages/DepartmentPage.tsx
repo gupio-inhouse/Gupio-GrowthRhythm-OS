@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
@@ -9,7 +9,7 @@ import {
   TrendingUp, Plus, Pencil, Trash2, UserPlus, UserMinus, UserCog,
   ChevronDown, ChevronUp, ChevronLeft, X, FolderKanban, ChevronRight,
   BarChart2, ArrowLeft, ClipboardList, Filter, FileText, Link2, Upload, Star, Search, Calendar,
-  Loader2, Sparkles,
+  Loader2, Sparkles, ImagePlus, GitPullRequest,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -3640,6 +3640,49 @@ function AddProjectTaskDialog({ teamId, members, canAssign, selfId, deptName, on
   const [enhanceDescCount, setEnhanceDescCount] = useState(0);
   const ENHANCE_LIMIT = 2;
 
+  const [pendingFiles, setPendingFiles] = useState<Array<{ key: string; file: File; type: 'SCREENSHOT' | 'DOCUMENT' }>>([]);
+  const [pendingPRs, setPendingPRs] = useState<Array<{ key: string; title: string; url: string }>>([]);
+  const [prFormOpen, setPrFormOpen] = useState(false);
+  const [prTitle, setPrTitle] = useState('');
+  const [prUrl, setPrUrl] = useState('');
+  const [uploadingDeliveries, setUploadingDeliveries] = useState(false);
+  const screenshotInputRef = useRef<HTMLInputElement | null>(null);
+  const documentInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, type: 'SCREENSHOT' | 'DOCUMENT') => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setPendingFiles((prev) => [...prev, { key: `${Date.now()}-${file.name}`, file, type }]);
+  };
+  const removePendingFile = (key: string) => setPendingFiles((prev) => prev.filter((f) => f.key !== key));
+
+  const addPendingPR = () => {
+    if (!prTitle.trim() || !prUrl.trim()) return;
+    setPendingPRs((prev) => [...prev, { key: `${Date.now()}-${prTitle}`, title: prTitle.trim(), url: prUrl.trim() }]);
+    setPrTitle(''); setPrUrl(''); setPrFormOpen(false);
+  };
+  const removePendingPR = (key: string) => setPendingPRs((prev) => prev.filter((p) => p.key !== key));
+
+  const uploadTaskDeliveries = async (taskId: string) => {
+    for (const pending of pendingFiles) {
+      try {
+        const form = new FormData(); form.append('file', pending.file);
+        const up = await api.post('/upload/content', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+        await api.post(`/tasks/${taskId}/attachments`, { name: up.data.originalName, url: up.data.url, type: pending.type, size: up.data.size });
+      } catch {
+        toast.error(`Failed to upload "${pending.file.name}"`, 'You can add it later from the task detail view.');
+      }
+    }
+    for (const pr of pendingPRs) {
+      try {
+        await api.post(`/tasks/${taskId}/pull-requests`, { title: pr.title, url: pr.url });
+      } catch {
+        toast.error(`Failed to link PR "${pr.title}"`, 'You can add it later from the task detail view.');
+      }
+    }
+  };
+
   const handleEnhanceTitle = async () => {
     if (enhanceTitleCount >= ENHANCE_LIMIT) { toast.error('Enhance limit reached (max 2 times per task)'); return; }
     const currentTitle = watch('title')?.trim();
@@ -3707,7 +3750,7 @@ function AddProjectTaskDialog({ teamId, members, canAssign, selfId, deptName, on
         }
       }
     }
-    await api.post(`/teams/${teamId}/tasks`, {
+    const res = await api.post(`/teams/${teamId}/tasks`, {
       title:           data.title,
       description:     data.description || undefined,
       priority:        data.priority,
@@ -3716,6 +3759,14 @@ function AddProjectTaskDialog({ teamId, members, canAssign, selfId, deptName, on
       assignToUserId:  canAssign ? data.assigneeUserId : selfId,
       phaseId:         data.phaseId || undefined,
     });
+    if (pendingFiles.length > 0 || pendingPRs.length > 0) {
+      const createdTaskId = res.data.created?.[0]?.id;
+      if (createdTaskId) {
+        setUploadingDeliveries(true);
+        await uploadTaskDeliveries(createdTaskId);
+        setUploadingDeliveries(false);
+      }
+    }
     onCreated();
   };
 
@@ -3914,10 +3965,81 @@ function AddProjectTaskDialog({ teamId, members, canAssign, selfId, deptName, on
             </div>
           </div>
 
+          {/* Attachments */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Attachments <span className="text-muted-foreground/60 font-normal normal-case">(optional)</span>
+            </Label>
+            <input ref={screenshotInputRef} type="file" accept="image/*" className="hidden"
+              onChange={(e) => handleFileSelect(e, 'SCREENSHOT')} />
+            <input ref={documentInputRef} type="file" accept=".pdf,.doc,.docx" className="hidden"
+              onChange={(e) => handleFileSelect(e, 'DOCUMENT')} />
+            <div className="flex gap-1.5 flex-wrap">
+              <button
+                type="button"
+                onClick={() => screenshotInputRef.current?.click()}
+                className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl border border-border/60 bg-white text-xs font-semibold text-muted-foreground hover:border-indigo-300 hover:text-indigo-700 hover:bg-indigo-50 transition-all"
+              >
+                <ImagePlus className="h-3.5 w-3.5" /> Screenshot
+              </button>
+              <button
+                type="button"
+                onClick={() => documentInputRef.current?.click()}
+                className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl border border-border/60 bg-white text-xs font-semibold text-muted-foreground hover:border-indigo-300 hover:text-indigo-700 hover:bg-indigo-50 transition-all"
+              >
+                <FileText className="h-3.5 w-3.5" /> Document
+              </button>
+              <button
+                type="button"
+                onClick={() => setPrFormOpen((v) => !v)}
+                className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl border border-border/60 bg-white text-xs font-semibold text-muted-foreground hover:border-indigo-300 hover:text-indigo-700 hover:bg-indigo-50 transition-all"
+              >
+                <GitPullRequest className="h-3.5 w-3.5" /> PR Link
+              </button>
+            </div>
+
+            {prFormOpen && (
+              <div className="flex flex-col sm:flex-row gap-1.5 pt-1">
+                <Input placeholder="PR title" value={prTitle} onChange={(e) => setPrTitle(e.target.value)} className="text-sm" />
+                <Input placeholder="PR URL" value={prUrl} onChange={(e) => setPrUrl(e.target.value)} className="text-sm" />
+                <Button type="button" size="sm" onClick={addPendingPR} disabled={!prTitle.trim() || !prUrl.trim()} className="shrink-0">
+                  Add
+                </Button>
+              </div>
+            )}
+
+            {(pendingFiles.length > 0 || pendingPRs.length > 0) && (
+              <div className="space-y-1.5 pt-1">
+                {pendingFiles.map((pf) => (
+                  <div key={pf.key} className="flex items-center justify-between gap-2 rounded-xl border border-border/60 bg-muted/20 px-3 py-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {pf.type === 'SCREENSHOT' ? <ImagePlus className="h-3.5 w-3.5 text-sky-600 shrink-0" /> : <FileText className="h-3.5 w-3.5 text-violet-600 shrink-0" />}
+                      <span className="text-xs font-medium truncate">{pf.file.name}</span>
+                    </div>
+                    <button type="button" onClick={() => removePendingFile(pf.key)} className="h-6 w-6 rounded-lg flex items-center justify-center text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-all shrink-0">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+                {pendingPRs.map((pr) => (
+                  <div key={pr.key} className="flex items-center justify-between gap-2 rounded-xl border border-border/60 bg-muted/20 px-3 py-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <GitPullRequest className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                      <span className="text-xs font-medium truncate">{pr.title}</span>
+                    </div>
+                    <button type="button" onClick={() => removePendingPR(pr.key)} className="h-6 w-6 rounded-lg flex items-center justify-center text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-all shrink-0">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            <Button type="submit" disabled={isSubmitting || members.length === 0}>
-              {isSubmitting ? 'Creating…' : 'Create Task'}
+            <Button type="submit" disabled={isSubmitting || uploadingDeliveries || members.length === 0}>
+              {uploadingDeliveries ? 'Uploading attachments…' : isSubmitting ? 'Creating…' : 'Create Task'}
             </Button>
           </div>
         </form>
