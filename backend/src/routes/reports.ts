@@ -25,7 +25,7 @@ function parseRange(query: unknown): { from: Date; to: Date } | { error: string 
 
 const taskSelect = {
   id: true, title: true, status: true, priority: true,
-  startDate: true, dueDate: true, completedAt: true,
+  startDate: true, dueDate: true, completedAt: true, completionSubmittedAt: true,
   blockerType: true,
   team: { select: { id: true, name: true } },
 } as const;
@@ -67,8 +67,11 @@ function summarizeTasks<T extends { status: string; dueDate: Date | null; comple
   const inReviewTasks = tasks.filter((t) => t.status === 'IN_REVIEW').length;
   const todoTasks = tasks.filter((t) => t.status === 'TODO').length;
   const cancelledTasks = tasks.filter((t) => t.status === 'CANCELLED').length;
+  // IN_REVIEW is excluded: the assignee's part is done once submitted — from that
+  // moment on, any further delay is the reviewer's, not the assignee's, so it
+  // should stop accruing as "overdue" against them (see taskDelay()).
   const overdueTasks = tasks.filter((t) =>
-    t.status !== 'DONE' && t.status !== 'CANCELLED' && !!t.dueDate && t.dueDate < now
+    t.status !== 'DONE' && t.status !== 'CANCELLED' && t.status !== 'IN_REVIEW' && !!t.dueDate && t.dueDate < now
   ).length;
   const lateCompletedTasks = tasks.filter((t) =>
     t.status === 'DONE' && !!t.dueDate && !!t.completedAt && t.completedAt > t.dueDate
@@ -98,19 +101,34 @@ function formatDelayMs(ms: number): string {
 
 type DelayInfo = { kind: 'overdue' | 'late'; label: string } | null;
 
-function taskDelay(task: { status: string; dueDate: Date | null; completedAt: Date | null }, now: Date): DelayInfo {
+function taskDelay(
+  task: { status: string; dueDate: Date | null; completedAt: Date | null; completionSubmittedAt: Date | null },
+  now: Date,
+): DelayInfo {
   if (!task.dueDate) return null;
+
   if (task.status === 'DONE') {
     if (!task.completedAt || task.completedAt <= task.dueDate) return null;
     return { kind: 'late', label: `${formatDelayMs(task.completedAt.getTime() - task.dueDate.getTime())} late` };
   }
+
+  // Once submitted for review, the clock freezes at the submission time — the
+  // assignee's part is done, so waiting-for-reviewer time is never counted as
+  // still-growing "overdue" against them. If they submitted late, that's shown
+  // as a fixed "late" amount instead, same treatment as a late DONE task.
+  if (task.status === 'IN_REVIEW') {
+    const submitted = task.completionSubmittedAt;
+    if (!submitted || submitted <= task.dueDate) return null;
+    return { kind: 'late', label: `${formatDelayMs(submitted.getTime() - task.dueDate.getTime())} late` };
+  }
+
   if (task.status !== 'CANCELLED' && task.dueDate < now) {
     return { kind: 'overdue', label: `${formatDelayMs(now.getTime() - task.dueDate.getTime())} overdue` };
   }
   return null;
 }
 
-function withDelay<T extends { status: string; dueDate: Date | null; completedAt: Date | null }>(tasks: T[], now: Date) {
+function withDelay<T extends { status: string; dueDate: Date | null; completedAt: Date | null; completionSubmittedAt: Date | null }>(tasks: T[], now: Date) {
   return tasks.map((t) => ({ ...t, delay: taskDelay(t, now) }));
 }
 

@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
+  ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+} from 'recharts';
+import {
   BarChart3, CheckCircle2, ClipboardList, Users as UsersIcon,
   Bug as BugIcon, AlertTriangle, Download,
 } from 'lucide-react';
@@ -15,6 +18,12 @@ import {
   cn, formatDate, priorityColor, statusColor, getInitials,
   calcWorkingMs, formatWorkingMs,
 } from '@/lib/utils';
+
+// ── Chart palette (matches the Dashboard page's chart colors) ──────────────────
+const C = {
+  green: '#22c55e', blue: '#3b82f6', orange: '#f97316', amber: '#f59e0b',
+  red: '#ef4444', slate: '#94a3b8', indigo: '#6366f1', violet: '#8b5cf6', cyan: '#06b6d4',
+};
 
 type ScopeType = 'individual' | 'department';
 type PeriodType = 'week' | 'month' | 'custom';
@@ -102,8 +111,9 @@ function downloadCsv(filename: string, sections: Array<{ title?: string; rows: A
 
 // Summary rows shared by both scopes' CSV exports — one label/value pair per metric,
 // reading naturally as a small report when opened in Excel/Sheets.
-function summaryCsvRows(summary: TaskSummary, bugSummary?: BugSummary) {
+function summaryCsvRows(periodLabel: string, summary: TaskSummary, bugSummary?: BugSummary) {
   const rows: Array<{ metric: string; value: string | number }> = [
+    { metric: 'Report Period', value: periodLabel },
     { metric: 'Total Tasks', value: summary.totalTasks },
     { metric: 'Completed', value: summary.completedTasks },
     { metric: 'In Progress', value: summary.inProgressTasks },
@@ -174,6 +184,133 @@ const STAT_TONE = {
   total: 'text-blue-600 bg-blue-50',
   members: 'text-violet-600 bg-violet-50',
 } as const;
+
+// ── Completion-rate gauge (SVG arc) ─────────────────────────────────────────────
+function GaugeArc({ percent, color, label }: { percent: number; color: string; label: string }) {
+  const SIZE = 200, CX = SIZE / 2, CY = SIZE / 2 + 10, R = 78, SW = 16, START = 135, SWEEP = 270;
+  function toXY(deg: number) {
+    const rad = ((deg - 90) * Math.PI) / 180;
+    return { x: CX + R * Math.cos(rad), y: CY + R * Math.sin(rad) };
+  }
+  function arc(startDeg: number, endDeg: number) {
+    const s = toXY(startDeg), e = toXY(endDeg);
+    const diff = ((endDeg - startDeg) % 360 + 360) % 360;
+    return `M ${s.x.toFixed(3)} ${s.y.toFixed(3)} A ${R} ${R} 0 ${diff > 180 ? 1 : 0} 1 ${e.x.toFixed(3)} ${e.y.toFixed(3)}`;
+  }
+  const bgEnd = START + SWEEP;
+  const safeEnd = percent > 0 ? START + (SWEEP * Math.min(Math.max(percent, 0), 100)) / 100 : START + 0.01;
+  return (
+    <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="w-full" style={{ maxHeight: 190 }}>
+      <path d={arc(START, bgEnd)} fill="none" stroke="#f1f5f9" strokeWidth={SW} strokeLinecap="round" />
+      <path d={arc(START, safeEnd)} fill="none" stroke={color} strokeWidth={SW} strokeLinecap="round" />
+      <text x={CX} y={CY - 8} textAnchor="middle" fontSize={38} fontWeight={900} fill={color} fontFamily="inherit">{percent}</text>
+      <text x={CX} y={CY + 14} textAnchor="middle" fontSize={13} fontWeight={600} fill={color} opacity={0.7} fontFamily="inherit">%</text>
+      <text x={CX} y={CY + 32} textAnchor="middle" fontSize={10} fill="#94a3b8" fontFamily="inherit">{label}</text>
+    </svg>
+  );
+}
+
+function PieTip({ active, payload }: { active?: boolean; payload?: Array<{ name: string; value: number; payload: { color: string } }> }) {
+  if (!active || !payload?.length) return null;
+  const p = payload[0];
+  return (
+    <div className="rounded-xl border border-border/60 bg-white/95 backdrop-blur-sm shadow-xl px-3 py-2">
+      <div className="flex items-center gap-2">
+        <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: p.payload.color }} />
+        <span className="text-xs text-muted-foreground">{p.name}</span>
+        <span className="text-sm font-bold ml-2 tabular-nums">{p.value}</span>
+      </div>
+    </div>
+  );
+}
+
+function ChartTip({ active, payload, label }: { active?: boolean; payload?: Array<{ name: string; value: number; color: string }>; label?: string }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="rounded-xl border border-border/60 bg-white/95 backdrop-blur-sm shadow-xl px-3 py-2 min-w-[110px]">
+      {label && <p className="text-[10px] font-bold text-muted-foreground mb-1 uppercase tracking-wide">{label}</p>}
+      {payload.map((p) => (
+        <div key={p.name} className="flex items-center gap-2 py-0.5">
+          <span className="h-2 w-2 rounded-full shrink-0" style={{ background: p.color }} />
+          <span className="text-xs text-muted-foreground capitalize flex-1">{p.name}</span>
+          <span className="text-sm font-bold tabular-nums">{p.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Status breakdown donut ──────────────────────────────────────────────────────
+function StatusDonut({ summary }: { summary: TaskSummary }) {
+  const slices = [
+    { name: 'Completed', value: summary.completedTasks, color: C.green },
+    { name: 'In Progress', value: summary.inProgressTasks, color: C.blue },
+    { name: 'In Review', value: summary.inReviewTasks, color: C.violet },
+    { name: 'Blocked', value: summary.blockedTasks, color: C.red },
+    { name: 'To Do', value: summary.todoTasks, color: C.slate },
+    { name: 'Cancelled', value: summary.cancelledTasks, color: '#cbd5e1' },
+  ].filter((s) => s.value > 0);
+
+  if (slices.length === 0) {
+    return <p className="text-sm text-muted-foreground text-center py-10">No tasks to chart in this period.</p>;
+  }
+
+  return (
+    <div className="flex flex-col sm:flex-row items-center gap-4">
+      {/* Fixed-size wrapper — ResponsiveContainer measures its parent, and a flex
+          item with no explicit width/height can collapse it to a sliver. */}
+      <div className="w-full sm:w-[200px] h-[200px] shrink-0">
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie data={slices} cx="50%" cy="50%" innerRadius="55%" outerRadius="90%" paddingAngle={3} dataKey="value" strokeWidth={0} isAnimationActive={false}>
+              {slices.map((s) => <Cell key={s.name} fill={s.color} />)}
+            </Pie>
+            <Tooltip content={<PieTip />} />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 flex-1">
+        {slices.map((s) => (
+          <div key={s.name} className="flex items-center gap-2 text-sm">
+            <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: s.color }} />
+            <span className="text-muted-foreground flex-1">{s.name}</span>
+            <span className="font-semibold tabular-nums">{s.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Per-member comparison bar chart (department scope) ──────────────────────────
+function MemberBarChart({ members }: { members: Array<{ name: string; completedTasks: number }> }) {
+  const chartData = [...members]
+    .sort((a, b) => b.completedTasks - a.completedTasks)
+    .slice(0, 10)
+    .map((m) => ({ name: m.name.split(' ')[0], completed: m.completedTasks }));
+  const yAxisWidth = chartData.length ? Math.max(64, Math.min(120, Math.max(...chartData.map((d) => d.name.length)) * 7 + 10)) : 64;
+
+  if (chartData.every((d) => d.completed === 0)) {
+    return <p className="text-sm text-muted-foreground text-center py-10">No completed tasks to chart in this period.</p>;
+  }
+
+  return (
+    <ResponsiveContainer width="100%" height={Math.max(200, chartData.length * 34)}>
+      <BarChart data={chartData} layout="vertical" margin={{ top: 0, right: 20, left: 4, bottom: 0 }}>
+        <defs>
+          <linearGradient id="reportsBarGrad" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor={C.indigo} /><stop offset="100%" stopColor={C.violet} stopOpacity={0.7} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+        <XAxis type="number" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} allowDecimals={false} />
+        <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#1e293b', fontWeight: 600 }} width={yAxisWidth} axisLine={false} tickLine={false} />
+        <Tooltip content={<ChartTip />} cursor={{ fill: 'rgba(99,102,241,0.04)' }} />
+        <Bar dataKey="completed" fill="url(#reportsBarGrad)" radius={[0, 8, 8, 0]} name="Completed Tasks" maxBarSize={18} isAnimationActive={false} />
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
 
 function StatTile({ label, value, sub, icon: Icon, tone }: { label: string; value: string | number; sub?: string; icon: typeof CheckCircle2; tone: string }) {
   return (
@@ -340,16 +477,16 @@ export default function Reports() {
             employeeName: data.user.name, employeeEmail: data.user.email,
             department: data.user.department?.name || '', project: t.team?.name || '',
             taskTitle: t.title, status: t.status, priority: t.priority,
-            blockerType: t.blockerType || '', assignedDate: t.startDate || '', endDate: t.dueDate || '',
+            blockerType: t.blockerType || '', assignedDate: t.startDate ? formatDate(t.startDate) : '—', endDate: t.dueDate ? formatDate(t.dueDate) : '—',
             duration: formatWorkingMs(taskDurationMs(t)) || '',
             delay: t.delay?.label || '',
           }));
           const bugRows = data.bugs.map((b) => ({
             title: b.title, project: b.team?.name || '', type: b.type, status: b.status, severity: b.severity,
-            createdAt: b.createdAt, resolvedAt: b.closedAt || b.resolvedAt || '',
+            createdAt: formatDate(b.createdAt), resolvedAt: (b.closedAt || b.resolvedAt) ? formatDate(b.closedAt || b.resolvedAt!) : '—',
           }));
           downloadCsv(`${data.user.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-report.csv`, [
-            { title: 'Summary', rows: summaryCsvRows(data.summary, data.bugSummary) },
+            { title: 'Summary', rows: summaryCsvRows(`${formatDate(data.from)} – ${formatDate(data.to)}`, data.summary, data.bugSummary) },
             { title: 'Tasks', rows: taskRows },
             { title: 'Bugs', rows: bugRows },
           ]);
@@ -376,6 +513,17 @@ export default function Reports() {
               <StatTile label="In Progress" value={data.summary.inProgressTasks} sub={`${data.summary.todoTasks} to do`} icon={ClipboardList} tone="text-blue-600 bg-blue-50" />
               <StatTile label="Blocked" value={data.summary.blockedTasks} icon={AlertTriangle} tone="text-orange-600 bg-orange-50" />
               <StatTile label="Overdue" value={data.summary.overdueTasks} sub={`${data.summary.lateCompletedTasks} finished late`} icon={AlertTriangle} tone="text-red-600 bg-red-50" />
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <Card>
+                <CardHeader><CardTitle className="text-base">Completion Rate</CardTitle></CardHeader>
+                <CardContent><GaugeArc percent={data.summary.completionRate} color={C.green} label="completion rate" /></CardContent>
+              </Card>
+              <Card className="lg:col-span-2">
+                <CardHeader><CardTitle className="text-base">Status Breakdown</CardTitle></CardHeader>
+                <CardContent><StatusDonut summary={data.summary} /></CardContent>
+              </Card>
             </div>
 
             {hasBugs && (
@@ -500,17 +648,17 @@ export default function Reports() {
               ? m.tasks.map((t) => ({
                   department: data.department.name, memberName: m.name, memberRole: m.role,
                   project: t.team?.name || '', taskTitle: t.title, status: t.status, priority: t.priority,
-                  blockerType: t.blockerType || '', assignedDate: t.startDate || '', endDate: t.dueDate || '',
+                  blockerType: t.blockerType || '', assignedDate: t.startDate ? formatDate(t.startDate) : '—', endDate: t.dueDate ? formatDate(t.dueDate) : '—',
                   duration: formatWorkingMs(taskDurationMs(t)) || '', delay: t.delay?.label || '',
                 }))
               : [{
                   department: data.department.name, memberName: m.name, memberRole: m.role,
                   project: '', taskTitle: '(no tasks in period)', status: '', priority: '',
-                  blockerType: '', assignedDate: '', endDate: '', duration: '', delay: '',
+                  blockerType: '', assignedDate: '—', endDate: '—', duration: '', delay: '',
                 }]
           );
           downloadCsv(`${data.department.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-report.csv`, [
-            { title: 'Summary', rows: summaryCsvRows(data.summary, data.bugSummary) },
+            { title: 'Summary', rows: summaryCsvRows(`${formatDate(data.from)} – ${formatDate(data.to)}`, data.summary, data.bugSummary) },
             { title: 'Per-Member Summary', rows: memberSummaryRows },
             { title: 'Tasks', rows: taskRows },
           ]);
@@ -536,6 +684,22 @@ export default function Reports() {
               <StatTile label="Overdue" value={data.summary.overdueTasks} sub={`${data.summary.lateCompletedTasks} finished late`} icon={AlertTriangle} tone="text-red-600 bg-red-50" />
               <StatTile label="Members" value={data.members.length} icon={UsersIcon} tone={STAT_TONE.members} />
             </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <Card>
+                <CardHeader><CardTitle className="text-base">Completion Rate</CardTitle></CardHeader>
+                <CardContent><GaugeArc percent={data.summary.completionRate} color={C.green} label="completion rate" /></CardContent>
+              </Card>
+              <Card className="lg:col-span-2">
+                <CardHeader><CardTitle className="text-base">Status Breakdown</CardTitle></CardHeader>
+                <CardContent><StatusDonut summary={data.summary} /></CardContent>
+              </Card>
+            </div>
+
+            <Card>
+              <CardHeader><CardTitle className="text-base">Completed Tasks by Member</CardTitle></CardHeader>
+              <CardContent><MemberBarChart members={data.members} /></CardContent>
+            </Card>
 
             {hasBugs && (
               <div className="space-y-2">
