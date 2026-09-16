@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { BarChart3, CheckCircle2, ClipboardList, Users as UsersIcon } from 'lucide-react';
+import {
+  BarChart3, CheckCircle2, ClipboardList, Users as UsersIcon,
+  Bug as BugIcon, AlertTriangle, Download,
+} from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import api from '@/api/client';
 import {
   cn, formatDate, priorityColor, statusColor, getInitials,
-  isEngineeringDept, calcWorkingMs, formatWorkingMs,
+  calcWorkingMs, formatWorkingMs,
 } from '@/lib/utils';
 
 type ScopeType = 'individual' | 'department';
@@ -19,31 +22,111 @@ type PeriodType = 'week' | 'month' | 'custom';
 type UserItem = { id: string; name: string; role: string };
 type DeptItem = { id: string; name: string };
 
+type TaskDelay = { kind: 'overdue' | 'late'; label: string } | null;
+
 type ReportTask = {
   id: string; title: string; status: string; priority: string;
   startDate?: string | null; dueDate?: string | null; completedAt?: string | null;
+  blockerType?: string | null;
+  team?: { id: string; name: string } | null;
+  delay?: TaskDelay;
+};
+
+type ReportBug = {
+  id: string; title: string; type: string; status: string; severity: string;
+  createdAt: string; resolvedAt?: string | null; closedAt?: string | null;
   team?: { id: string; name: string } | null;
 };
 
-type IndividualReportResp = {
-  user: { id: string; name: string; department?: { id: string; name: string } | null };
-  from: string; to: string;
-  summary: { totalTasks: number; completedTasks: number; completionRate: number };
-  tasks: ReportTask[];
+type BugSummary = {
+  totalBugs: number; resolvedBugs: number; inReviewBugs: number; openBugs: number; bugResolutionRate: number;
 };
 
-type DeptMemberRow = {
-  userId: string; name: string; role: string;
-  totalTasks: number; completedTasks: number; completionRate: number;
+type TaskSummary = {
+  totalTasks: number; completedTasks: number; inProgressTasks: number; blockedTasks: number;
+  inReviewTasks: number; todoTasks: number; cancelledTasks: number; overdueTasks: number;
+  lateCompletedTasks: number; onTimeCompletedTasks: number; completionRate: number; onTimeRate: number;
+};
+
+type IndividualReportResp = {
+  user: { id: string; name: string; email: string; role: string; department?: { id: string; name: string } | null };
+  from: string; to: string;
+  summary: TaskSummary;
   tasks: ReportTask[];
+  bugSummary: BugSummary;
+  bugs: ReportBug[];
+};
+
+type DeptMemberRow = TaskSummary & {
+  userId: string; name: string; role: string;
+  tasks: ReportTask[];
+  bugSummary: BugSummary;
 };
 
 type DeptReportResp = {
   department: { id: string; name: string };
   from: string; to: string;
-  summary: { totalTasks: number; completedTasks: number; completionRate: number };
+  summary: TaskSummary;
   members: DeptMemberRow[];
+  bugSummary: BugSummary;
 };
+
+const BUG_STATUS_STYLE: Record<string, string> = {
+  OPEN: 'text-slate-600 bg-slate-100', REOPENED: 'text-orange-600 bg-orange-50',
+  IN_PROGRESS: 'text-blue-600 bg-blue-50', IN_REVIEW: 'text-amber-700 bg-amber-50',
+  FIXED: 'text-green-600 bg-green-50', CLOSED: 'text-gray-500 bg-gray-100',
+  WONT_FIX: 'text-gray-500 bg-gray-100', DUPLICATE: 'text-gray-500 bg-gray-100',
+};
+
+// CSV helpers — quote/escape each cell, support several labelled sections (Summary,
+// Per-Member Summary, Tasks, Bugs) in one downloaded file, and trigger the download.
+function csvBlock(rows: Array<Record<string, unknown>>): string {
+  if (rows.length === 0) return '';
+  const headers = Object.keys(rows[0]);
+  const escape = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  return [headers.join(','), ...rows.map((row) => headers.map((h) => escape(row[h])).join(','))].join('\n');
+}
+
+function downloadCsv(filename: string, sections: Array<{ title?: string; rows: Array<Record<string, unknown>> }>) {
+  const blocks = sections
+    .filter((s) => s.rows.length > 0)
+    .map((s) => (s.title ? `${s.title}\n${csvBlock(s.rows)}` : csvBlock(s.rows)));
+  if (blocks.length === 0) return;
+  const blob = new Blob([blocks.join('\n\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url; anchor.download = filename;
+  document.body.appendChild(anchor); anchor.click(); anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+// Summary rows shared by both scopes' CSV exports — one label/value pair per metric,
+// reading naturally as a small report when opened in Excel/Sheets.
+function summaryCsvRows(summary: TaskSummary, bugSummary?: BugSummary) {
+  const rows: Array<{ metric: string; value: string | number }> = [
+    { metric: 'Total Tasks', value: summary.totalTasks },
+    { metric: 'Completed', value: summary.completedTasks },
+    { metric: 'In Progress', value: summary.inProgressTasks },
+    { metric: 'Blocked', value: summary.blockedTasks },
+    { metric: 'In Review', value: summary.inReviewTasks },
+    { metric: 'To Do', value: summary.todoTasks },
+    { metric: 'Cancelled', value: summary.cancelledTasks },
+    { metric: 'Overdue', value: summary.overdueTasks },
+    { metric: 'Completed Late', value: summary.lateCompletedTasks },
+    { metric: 'Completion Rate', value: `${summary.completionRate}%` },
+    { metric: 'On-Time Completion Rate', value: `${summary.onTimeRate}%` },
+  ];
+  if (bugSummary && bugSummary.totalBugs > 0) {
+    rows.push(
+      { metric: 'Total Bugs', value: bugSummary.totalBugs },
+      { metric: 'Bugs Resolved', value: bugSummary.resolvedBugs },
+      { metric: 'Bugs In Review', value: bugSummary.inReviewBugs },
+      { metric: 'Bugs Open', value: bugSummary.openBugs },
+      { metric: 'Bug Resolution Rate', value: `${bugSummary.bugResolutionRate}%` },
+    );
+  }
+  return rows;
+}
 
 function startOfWeek(d: Date) {
   const date = new Date(d);
@@ -65,15 +148,25 @@ function endOfMonth(d: Date) {
 }
 
 // Sum of working-hour durations across tasks — used for a member/department "Total Duration".
-function taskDurationMs(task: ReportTask, excludeSat: boolean): number {
+// Reports always treat Monday–Saturday as working days (Sunday only excluded), regardless
+// of department — unlike the Mon–Fri Engineering rule used for task deadlines/date pickers.
+function taskDurationMs(task: ReportTask): number {
   const end = task.dueDate || task.completedAt;
   if (!task.startDate || !end) return 0;
-  return calcWorkingMs(new Date(task.startDate), new Date(end), excludeSat);
+  return calcWorkingMs(new Date(task.startDate), new Date(end), false);
 }
 
-function TaskDurationCell({ task, excludeSat }: { task: ReportTask; excludeSat: boolean }) {
-  const label = formatWorkingMs(taskDurationMs(task, excludeSat));
+function TaskDurationCell({ task }: { task: ReportTask }) {
+  const label = formatWorkingMs(taskDurationMs(task));
   return <span className="text-sm tabular-nums">{label ?? '—'}</span>;
+}
+
+// Overdue (still open, past due) shows red; late (finished after due date) shows orange —
+// on time / not yet due / no due date renders as a plain dash.
+function DelayCell({ delay }: { delay?: TaskDelay }) {
+  if (!delay) return <span className="text-sm text-muted-foreground">—</span>;
+  const tone = delay.kind === 'overdue' ? 'text-red-600 bg-red-50 border-red-200' : 'text-orange-600 bg-orange-50 border-orange-200';
+  return <Badge className={cn('border', tone)}>{delay.label}</Badge>;
 }
 
 const STAT_TONE = {
@@ -240,20 +333,64 @@ export default function Reports() {
       {/* ── Individual results ── */}
       {scope === 'individual' && generated && individualQuery.data && (() => {
         const data = individualQuery.data;
-        const excludeSat = isEngineeringDept(data.user.department?.name);
+        const hasBugs = data.bugSummary.totalBugs > 0;
+
+        const exportCsv = () => {
+          const taskRows = data.tasks.map((t) => ({
+            employeeName: data.user.name, employeeEmail: data.user.email,
+            department: data.user.department?.name || '', project: t.team?.name || '',
+            taskTitle: t.title, status: t.status, priority: t.priority,
+            blockerType: t.blockerType || '', assignedDate: t.startDate || '', endDate: t.dueDate || '',
+            duration: formatWorkingMs(taskDurationMs(t)) || '',
+            delay: t.delay?.label || '',
+          }));
+          const bugRows = data.bugs.map((b) => ({
+            title: b.title, project: b.team?.name || '', type: b.type, status: b.status, severity: b.severity,
+            createdAt: b.createdAt, resolvedAt: b.closedAt || b.resolvedAt || '',
+          }));
+          downloadCsv(`${data.user.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-report.csv`, [
+            { title: 'Summary', rows: summaryCsvRows(data.summary, data.bugSummary) },
+            { title: 'Tasks', rows: taskRows },
+            { title: 'Bugs', rows: bugRows },
+          ]);
+        };
+
         return (
           <div className="space-y-6">
-            <div className="flex items-center gap-3">
-              <Badge variant="secondary" className="text-xs">{formatDate(data.from)} – {formatDate(data.to)}</Badge>
-              <span className="text-sm font-semibold">{data.user.name}</span>
-              {data.user.department && <span className="text-xs text-muted-foreground">{data.user.department.name}</span>}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <Badge variant="secondary" className="text-xs">{formatDate(data.from)} – {formatDate(data.to)}</Badge>
+                <span className="text-sm font-semibold">{data.user.name}</span>
+                <span className="text-xs text-muted-foreground">{data.user.email}</span>
+                {data.user.department && <span className="text-xs text-muted-foreground">{data.user.department.name}</span>}
+              </div>
+              <Button size="sm" variant="outline" onClick={exportCsv} className="gap-1.5">
+                <Download className="h-3.5 w-3.5" /> Download CSV
+              </Button>
             </div>
 
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
               <StatTile label="Completion" value={`${data.summary.completionRate}%`} sub={`${data.summary.completedTasks}/${data.summary.totalTasks} done`} icon={CheckCircle2} tone={STAT_TONE.completion} />
+              <StatTile label="On-Time Rate" value={`${data.summary.onTimeRate}%`} sub={`${data.summary.onTimeCompletedTasks}/${data.summary.completedTasks} on time`} icon={CheckCircle2} tone="text-emerald-600 bg-emerald-50" />
               <StatTile label="Total Tasks" value={data.summary.totalTasks} icon={ClipboardList} tone={STAT_TONE.total} />
-              <StatTile label="Completed" value={data.summary.completedTasks} icon={CheckCircle2} tone={STAT_TONE.completion} />
+              <StatTile label="In Progress" value={data.summary.inProgressTasks} sub={`${data.summary.todoTasks} to do`} icon={ClipboardList} tone="text-blue-600 bg-blue-50" />
+              <StatTile label="Blocked" value={data.summary.blockedTasks} icon={AlertTriangle} tone="text-orange-600 bg-orange-50" />
+              <StatTile label="Overdue" value={data.summary.overdueTasks} sub={`${data.summary.lateCompletedTasks} finished late`} icon={AlertTriangle} tone="text-red-600 bg-red-50" />
             </div>
+
+            {hasBugs && (
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-muted-foreground flex items-center gap-1.5">
+                  <BugIcon className="h-4 w-4" /> Bug Tracker
+                </p>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <StatTile label="Resolution Rate" value={`${data.bugSummary.bugResolutionRate}%`} sub={`${data.bugSummary.resolvedBugs}/${data.bugSummary.totalBugs} resolved`} icon={CheckCircle2} tone="text-cyan-600 bg-cyan-50" />
+                  <StatTile label="Open" value={data.bugSummary.openBugs} icon={BugIcon} tone="text-cyan-600 bg-cyan-50" />
+                  <StatTile label="In Review" value={data.bugSummary.inReviewBugs} icon={AlertTriangle} tone="text-amber-600 bg-amber-50" />
+                  <StatTile label="Resolved" value={data.bugSummary.resolvedBugs} icon={CheckCircle2} tone="text-green-600 bg-green-50" />
+                </div>
+              </div>
+            )}
 
             <Card>
               <CardHeader><CardTitle className="text-base">Tasks in period</CardTitle></CardHeader>
@@ -266,17 +403,21 @@ export default function Reports() {
                       <thead>
                         <tr className="text-left text-xs text-muted-foreground border-b">
                           <th className="py-2 pr-4 font-semibold">Title</th>
+                          <th className="py-2 pr-4 font-semibold">Project</th>
                           <th className="py-2 pr-4 font-semibold">Status</th>
                           <th className="py-2 pr-4 font-semibold">Priority</th>
                           <th className="py-2 pr-4 font-semibold">Assigned Date</th>
                           <th className="py-2 pr-4 font-semibold">End Date</th>
                           <th className="py-2 pr-4 font-semibold">Duration</th>
+                          <th className="py-2 pr-4 font-semibold">Delay</th>
+                          <th className="py-2 pr-4 font-semibold">Blocker</th>
                         </tr>
                       </thead>
                       <tbody>
                         {data.tasks.map((t) => (
                           <tr key={t.id} className="border-b border-border/40 last:border-0">
                             <td className="py-2.5 pr-4 font-medium">{t.title}</td>
+                            <td className="py-2.5 pr-4 text-muted-foreground">{t.team?.name || '—'}</td>
                             <td className="py-2.5 pr-4">
                               <Badge className={cn('border', statusColor(t.status))}>{t.status.replace(/_/g, ' ')}</Badge>
                             </td>
@@ -285,7 +426,9 @@ export default function Reports() {
                             </td>
                             <td className="py-2.5 pr-4 text-muted-foreground">{t.startDate ? formatDate(t.startDate) : '—'}</td>
                             <td className="py-2.5 pr-4 text-muted-foreground">{t.dueDate ? formatDate(t.dueDate) : '—'}</td>
-                            <td className="py-2.5 pr-4"><TaskDurationCell task={t} excludeSat={excludeSat} /></td>
+                            <td className="py-2.5 pr-4"><TaskDurationCell task={t} /></td>
+                            <td className="py-2.5 pr-4"><DelayCell delay={t.delay} /></td>
+                            <td className="py-2.5 pr-4 text-muted-foreground">{t.blockerType ? t.blockerType.toLowerCase().replace(/_/g, ' ') : '—'}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -294,6 +437,47 @@ export default function Reports() {
                 )}
               </CardContent>
             </Card>
+
+            {hasBugs && (
+              <Card>
+                <CardHeader><CardTitle className="text-base flex items-center gap-1.5"><BugIcon className="h-4 w-4" /> Bugs in period</CardTitle></CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-xs text-muted-foreground border-b">
+                          <th className="py-2 pr-4 font-semibold">Title</th>
+                          <th className="py-2 pr-4 font-semibold">Project</th>
+                          <th className="py-2 pr-4 font-semibold">Status</th>
+                          <th className="py-2 pr-4 font-semibold">Severity</th>
+                          <th className="py-2 pr-4 font-semibold">Created</th>
+                          <th className="py-2 pr-4 font-semibold">Resolved</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.bugs.map((b) => (
+                          <tr key={b.id} className="border-b border-border/40 last:border-0">
+                            <td className="py-2.5 pr-4 font-medium">
+                              {b.title}
+                              {b.type === 'ENHANCEMENT' && <Badge className="ml-2 border text-violet-600 bg-violet-50">Improvement</Badge>}
+                            </td>
+                            <td className="py-2.5 pr-4 text-muted-foreground">{b.team?.name || '—'}</td>
+                            <td className="py-2.5 pr-4">
+                              <Badge className={cn('border', BUG_STATUS_STYLE[b.status] ?? 'text-gray-600 bg-gray-100')}>{b.status.replace(/_/g, ' ')}</Badge>
+                            </td>
+                            <td className="py-2.5 pr-4">
+                              <Badge className={cn('border', priorityColor(b.severity))}>{b.severity}</Badge>
+                            </td>
+                            <td className="py-2.5 pr-4 text-muted-foreground">{formatDate(b.createdAt)}</td>
+                            <td className="py-2.5 pr-4 text-muted-foreground">{b.closedAt || b.resolvedAt ? formatDate(b.closedAt || b.resolvedAt!) : '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </div>
         );
       })()}
@@ -301,19 +485,71 @@ export default function Reports() {
       {/* ── Department results ── */}
       {scope === 'department' && generated && deptQuery.data && (() => {
         const data = deptQuery.data;
-        const excludeSat = isEngineeringDept(data.department.name);
+        const hasBugs = data.bugSummary.totalBugs > 0;
+
+        const exportCsv = () => {
+          const memberSummaryRows = data.members.map((m) => ({
+            memberName: m.name, role: m.role,
+            totalTasks: m.totalTasks, completed: m.completedTasks, inProgress: m.inProgressTasks,
+            blocked: m.blockedTasks, overdue: m.overdueTasks,
+            completionRate: `${m.completionRate}%`, onTimeRate: `${m.onTimeRate}%`,
+            bugsFixed: m.bugSummary.resolvedBugs, bugsOpen: m.bugSummary.openBugs,
+          }));
+          const taskRows = data.members.flatMap((m) =>
+            m.tasks.length > 0
+              ? m.tasks.map((t) => ({
+                  department: data.department.name, memberName: m.name, memberRole: m.role,
+                  project: t.team?.name || '', taskTitle: t.title, status: t.status, priority: t.priority,
+                  blockerType: t.blockerType || '', assignedDate: t.startDate || '', endDate: t.dueDate || '',
+                  duration: formatWorkingMs(taskDurationMs(t)) || '', delay: t.delay?.label || '',
+                }))
+              : [{
+                  department: data.department.name, memberName: m.name, memberRole: m.role,
+                  project: '', taskTitle: '(no tasks in period)', status: '', priority: '',
+                  blockerType: '', assignedDate: '', endDate: '', duration: '', delay: '',
+                }]
+          );
+          downloadCsv(`${data.department.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-report.csv`, [
+            { title: 'Summary', rows: summaryCsvRows(data.summary, data.bugSummary) },
+            { title: 'Per-Member Summary', rows: memberSummaryRows },
+            { title: 'Tasks', rows: taskRows },
+          ]);
+        };
+
         return (
           <div className="space-y-6">
-            <div className="flex items-center gap-3">
-              <Badge variant="secondary" className="text-xs">{formatDate(data.from)} – {formatDate(data.to)}</Badge>
-              <span className="text-sm font-semibold">{data.department.name}</span>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <Badge variant="secondary" className="text-xs">{formatDate(data.from)} – {formatDate(data.to)}</Badge>
+                <span className="text-sm font-semibold">{data.department.name}</span>
+              </div>
+              <Button size="sm" variant="outline" onClick={exportCsv} className="gap-1.5">
+                <Download className="h-3.5 w-3.5" /> Download CSV
+              </Button>
             </div>
 
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
               <StatTile label="Completion" value={`${data.summary.completionRate}%`} sub={`${data.summary.completedTasks}/${data.summary.totalTasks} done`} icon={CheckCircle2} tone={STAT_TONE.completion} />
+              <StatTile label="On-Time Rate" value={`${data.summary.onTimeRate}%`} sub={`${data.summary.onTimeCompletedTasks}/${data.summary.completedTasks} on time`} icon={CheckCircle2} tone="text-emerald-600 bg-emerald-50" />
               <StatTile label="Total Tasks" value={data.summary.totalTasks} icon={ClipboardList} tone={STAT_TONE.total} />
+              <StatTile label="In Progress" value={data.summary.inProgressTasks} sub={`${data.summary.todoTasks} to do`} icon={ClipboardList} tone="text-blue-600 bg-blue-50" />
+              <StatTile label="Overdue" value={data.summary.overdueTasks} sub={`${data.summary.lateCompletedTasks} finished late`} icon={AlertTriangle} tone="text-red-600 bg-red-50" />
               <StatTile label="Members" value={data.members.length} icon={UsersIcon} tone={STAT_TONE.members} />
             </div>
+
+            {hasBugs && (
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-muted-foreground flex items-center gap-1.5">
+                  <BugIcon className="h-4 w-4" /> Bug Tracker
+                </p>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <StatTile label="Resolution Rate" value={`${data.bugSummary.bugResolutionRate}%`} sub={`${data.bugSummary.resolvedBugs}/${data.bugSummary.totalBugs} resolved`} icon={CheckCircle2} tone="text-cyan-600 bg-cyan-50" />
+                  <StatTile label="Open" value={data.bugSummary.openBugs} icon={BugIcon} tone="text-cyan-600 bg-cyan-50" />
+                  <StatTile label="In Review" value={data.bugSummary.inReviewBugs} icon={AlertTriangle} tone="text-amber-600 bg-amber-50" />
+                  <StatTile label="Resolved" value={data.bugSummary.resolvedBugs} icon={CheckCircle2} tone="text-green-600 bg-green-50" />
+                </div>
+              </div>
+            )}
 
             <Card>
               <CardHeader><CardTitle className="text-base">Per-member breakdown</CardTitle></CardHeader>
@@ -329,13 +565,18 @@ export default function Reports() {
                           <th className="py-2 pr-4 font-semibold">Role</th>
                           <th className="py-2 pr-4 font-semibold">Tasks</th>
                           <th className="py-2 pr-4 font-semibold">Completed</th>
+                          <th className="py-2 pr-4 font-semibold">In Progress</th>
+                          <th className="py-2 pr-4 font-semibold">Overdue</th>
                           <th className="py-2 pr-4 font-semibold">Completion</th>
+                          <th className="py-2 pr-4 font-semibold">On-Time</th>
                           <th className="py-2 pr-4 font-semibold">Total Duration</th>
+                          {hasBugs && <th className="py-2 pr-4 font-semibold">Bugs Fixed</th>}
+                          {hasBugs && <th className="py-2 pr-4 font-semibold">Bugs Open</th>}
                         </tr>
                       </thead>
                       <tbody>
                         {data.members.map((m) => {
-                          const totalMs = m.tasks.reduce((s, t) => s + taskDurationMs(t, excludeSat), 0);
+                          const totalMs = m.tasks.reduce((s, t) => s + taskDurationMs(t), 0);
                           return (
                             <tr key={m.userId} className="border-b border-border/40 last:border-0">
                               <td className="py-2.5 pr-4 font-medium flex items-center gap-2">
@@ -347,8 +588,13 @@ export default function Reports() {
                               <td className="py-2.5 pr-4 text-muted-foreground">{m.role.toLowerCase().replace(/_/g, ' ')}</td>
                               <td className="py-2.5 pr-4">{m.totalTasks}</td>
                               <td className="py-2.5 pr-4">{m.completedTasks}</td>
+                              <td className="py-2.5 pr-4">{m.inProgressTasks}</td>
+                              <td className={cn('py-2.5 pr-4', m.overdueTasks > 0 && 'text-red-600 font-semibold')}>{m.overdueTasks || '—'}</td>
                               <td className="py-2.5 pr-4 font-semibold">{m.completionRate}%</td>
+                              <td className="py-2.5 pr-4 text-emerald-600 font-semibold">{m.onTimeRate}%</td>
                               <td className="py-2.5 pr-4 tabular-nums">{formatWorkingMs(totalMs) ?? '—'}</td>
+                              {hasBugs && <td className="py-2.5 pr-4">{m.bugSummary.resolvedBugs || '—'}</td>}
+                              {hasBugs && <td className="py-2.5 pr-4">{m.bugSummary.openBugs || '—'}</td>}
                             </tr>
                           );
                         })}
