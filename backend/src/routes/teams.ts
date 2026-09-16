@@ -31,7 +31,7 @@ function formatTeam(team: any) {
   return { ...team, memberCount: (team.members ?? []).length };
 }
 
-async function assertDeptAccess(role: string, userId: string, orgId: string, departmentId: string) {
+export async function assertDeptAccess(role: string, userId: string, orgId: string, departmentId: string) {
   if (['OWNER', 'COMPANY_ADMIN', 'SUPER_ADMIN'].includes(role)) return true;
   if (role === 'DEPARTMENT_HEAD' || role === 'MANAGER') {
     const access = await getUserDeptAccess(userId, orgId, role);

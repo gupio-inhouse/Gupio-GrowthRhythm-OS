@@ -1,5 +1,6 @@
 import prisma from '../lib/prisma';
 import { callGroq } from './ai.service';
+import { BugStatus } from '@prisma/client';
 
 // ── IST helpers ───────────────────────────────────────────────────────────────
 const IST_MS = 5.5 * 3600 * 1000;
@@ -64,6 +65,11 @@ export type TaskInfo = {
   daysLate: number | null; overdueDays: number | null;
 };
 
+export type BugInfo = {
+  id: string; title: string; type: string; status: string; severity: string;
+  teamName: string | null; resolvedAt: Date | null;
+};
+
 export type MemberReport = {
   userId: string; name: string; role: string;
   doneTasks: TaskInfo[];
@@ -74,6 +80,12 @@ export type MemberReport = {
   reviewPendingCount: number; pendingCount: number; overdueCount: number;
   doneDelta: number | null;
   onTimeDelta: number | null;
+  // Bug Tracker — Engineering only in practice, empty for everyone else.
+  resolvedBugs: BugInfo[];   // resolved (fixed/closed/won't-fix/duplicate) in this period
+  inReviewBugs: BugInfo[];   // currently awaiting fix review
+  openBugs: BugInfo[];       // currently open/in-progress, unresolved
+  bugResolvedCount: number; bugInReviewCount: number; bugOpenCount: number;
+  bugResolvedDelta: number | null;
 };
 
 export type DeptReport = {
@@ -82,6 +94,8 @@ export type DeptReport = {
   totalDone: number; totalOnTime: number; totalLate: number;
   totalReviewPending: number; totalPending: number; totalOverdue: number;
   doneDelta: number | null; onTimeDelta: number | null;
+  totalBugResolved: number; totalBugInReview: number; totalBugOpen: number;
+  bugResolvedDelta: number | null;
 };
 
 export type OrgReport = {
@@ -89,30 +103,48 @@ export type OrgReport = {
   from: Date; to: Date; departments: DeptReport[];
   totalDone: number; totalOnTime: number; totalLate: number;
   totalReviewPending: number; totalPending: number; totalOverdue: number;
+  totalBugResolved: number; totalBugInReview: number; totalBugOpen: number;
   aiSummary?: string;
 };
+
+const RESOLVED_BUG_STATUSES: BugStatus[] = ['FIXED', 'CLOSED', 'WONT_FIX', 'DUPLICATE'];
 
 // ── Prior-period stats for delta ───────────────────────────────────────────────
 async function buildPriorStats(
   orgId: string,
   period: 'daily' | 'weekly' | 'monthly',
   currentFrom: Date,
-): Promise<Map<string, { doneCount: number; onTimeCount: number }>> {
+): Promise<Map<string, { doneCount: number; onTimeCount: number; bugResolvedCount: number }>> {
   const prior = getPriorPeriodRange(period, currentFrom);
-  const tasks = await prisma.task.findMany({
-    where: { orgId, status: 'DONE', completedAt: { gte: prior.from, lte: prior.to }, assigneeUserId: { not: null } },
-    select: { assigneeUserId: true, dueDate: true, completedAt: true, completionSubmittedAt: true },
-  });
-  const map = new Map<string, { doneCount: number; onTimeCount: number }>();
+  const [tasks, bugs] = await Promise.all([
+    prisma.task.findMany({
+      where: { orgId, status: 'DONE', completedAt: { gte: prior.from, lte: prior.to }, assigneeUserId: { not: null } },
+      select: { assigneeUserId: true, dueDate: true, completedAt: true, completionSubmittedAt: true },
+    }),
+    prisma.bug.findMany({
+      where: {
+        orgId, assigneeUserId: { not: null }, status: { in: RESOLVED_BUG_STATUSES },
+        OR: [{ closedAt: { gte: prior.from, lte: prior.to } }, { resolvedAt: { gte: prior.from, lte: prior.to } }],
+      },
+      select: { assigneeUserId: true },
+    }),
+  ]);
+  const map = new Map<string, { doneCount: number; onTimeCount: number; bugResolvedCount: number }>();
   for (const t of tasks) {
     if (!t.assigneeUserId || !t.completedAt) continue;
-    const s = map.get(t.assigneeUserId) ?? { doneCount: 0, onTimeCount: 0 };
+    const s = map.get(t.assigneeUserId) ?? { doneCount: 0, onTimeCount: 0, bugResolvedCount: 0 };
     s.doneCount++;
     if (t.dueDate) {
       const submitted = t.completionSubmittedAt ?? t.completedAt;
       if (submitted <= t.dueDate) s.onTimeCount++;
     }
     map.set(t.assigneeUserId, s);
+  }
+  for (const b of bugs) {
+    if (!b.assigneeUserId) continue;
+    const s = map.get(b.assigneeUserId) ?? { doneCount: 0, onTimeCount: 0, bugResolvedCount: 0 };
+    s.bugResolvedCount++;
+    map.set(b.assigneeUserId, s);
   }
   return map;
 }
@@ -158,6 +190,21 @@ export async function buildOrgReport(
     },
   });
 
+  const bugs = await prisma.bug.findMany({
+    where: {
+      orgId, assigneeUserId: { not: null },
+      OR: [
+        { status: { in: RESOLVED_BUG_STATUSES }, OR: [{ closedAt: { gte: from, lte: to } }, { resolvedAt: { gte: from, lte: to } }] },
+        { status: { notIn: RESOLVED_BUG_STATUSES } },
+      ],
+    },
+    select: {
+      id: true, title: true, type: true, status: true, severity: true,
+      resolvedAt: true, closedAt: true, assigneeUserId: true,
+      team: { select: { name: true } },
+    },
+  });
+
   const priorStats = await buildPriorStats(orgId, period, from);
 
   const tasksByUser = new Map<string, typeof tasks>();
@@ -165,6 +212,13 @@ export async function buildOrgReport(
     if (!t.assigneeUserId) continue;
     if (!tasksByUser.has(t.assigneeUserId)) tasksByUser.set(t.assigneeUserId, []);
     tasksByUser.get(t.assigneeUserId)!.push(t);
+  }
+
+  const bugsByUser = new Map<string, typeof bugs>();
+  for (const b of bugs) {
+    if (!b.assigneeUserId) continue;
+    if (!bugsByUser.has(b.assigneeUserId)) bugsByUser.set(b.assigneeUserId, []);
+    bugsByUser.get(b.assigneeUserId)!.push(b);
   }
 
   const deptReports: DeptReport[] = [];
@@ -232,6 +286,28 @@ export async function buildOrgReport(
       const lateCount = doneTasks.filter((t) => t.daysLate !== null).length;
       const prior = priorStats.get(user.id);
 
+      const userBugs = bugsByUser.get(user.id) ?? [];
+      const resolvedBugs: BugInfo[] = [];
+      const inReviewBugs: BugInfo[] = [];
+      const openBugs: BugInfo[] = [];
+
+      for (const b of userBugs) {
+        const resolvedAt = b.closedAt ?? b.resolvedAt;
+        const isResolvedInPeriod = RESOLVED_BUG_STATUSES.includes(b.status)
+          && resolvedAt && resolvedAt >= from && resolvedAt <= to;
+
+        const info: BugInfo = {
+          id: b.id, title: b.title, type: b.type, status: b.status, severity: b.severity,
+          teamName: b.team?.name ?? null, resolvedAt: resolvedAt ?? null,
+        };
+
+        if (isResolvedInPeriod) resolvedBugs.push(info);
+        else if (b.status === 'IN_REVIEW') inReviewBugs.push(info);
+        else if (!RESOLVED_BUG_STATUSES.includes(b.status)) openBugs.push(info);
+      }
+
+      resolvedBugs.sort((a, b) => (b.resolvedAt?.getTime() ?? 0) - (a.resolvedAt?.getTime() ?? 0));
+
       memberReports.push({
         userId: user.id, name: user.name, role: user.role,
         doneTasks, reviewPendingTasks, pendingTasks, overdueTasks,
@@ -240,6 +316,9 @@ export async function buildOrgReport(
         pendingCount: pendingTasks.length, overdueCount: overdueTasks.length,
         doneDelta: prior != null ? doneTasks.length - prior.doneCount : null,
         onTimeDelta: prior != null ? onTimeCount - prior.onTimeCount : null,
+        resolvedBugs, inReviewBugs, openBugs,
+        bugResolvedCount: resolvedBugs.length, bugInReviewCount: inReviewBugs.length, bugOpenCount: openBugs.length,
+        bugResolvedDelta: prior != null ? resolvedBugs.length - prior.bugResolvedCount : null,
       });
     }
 
@@ -253,6 +332,11 @@ export async function buildOrgReport(
       ? memberReports.reduce((s, m) => s + (m.doneDelta ?? 0), 0) : null;
     const onTimeDelta = memberReports.some((m) => m.onTimeDelta !== null)
       ? memberReports.reduce((s, m) => s + (m.onTimeDelta ?? 0), 0) : null;
+    const totalBugResolved = memberReports.reduce((s, m) => s + m.bugResolvedCount, 0);
+    const totalBugInReview = memberReports.reduce((s, m) => s + m.bugInReviewCount, 0);
+    const totalBugOpen = memberReports.reduce((s, m) => s + m.bugOpenCount, 0);
+    const bugResolvedDelta = memberReports.some((m) => m.bugResolvedDelta !== null)
+      ? memberReports.reduce((s, m) => s + (m.bugResolvedDelta ?? 0), 0) : null;
 
     deptReports.push({
       deptId: dept.id, deptName: dept.name,
@@ -260,6 +344,7 @@ export async function buildOrgReport(
       members: memberReports,
       totalDone, totalOnTime, totalLate, totalReviewPending, totalPending, totalOverdue,
       doneDelta, onTimeDelta,
+      totalBugResolved, totalBugInReview, totalBugOpen, bugResolvedDelta,
     });
   }
 
@@ -272,6 +357,9 @@ export async function buildOrgReport(
     totalReviewPending: deptReports.reduce((s, d) => s + d.totalReviewPending, 0),
     totalPending: deptReports.reduce((s, d) => s + d.totalPending, 0),
     totalOverdue: deptReports.reduce((s, d) => s + d.totalOverdue, 0),
+    totalBugResolved: deptReports.reduce((s, d) => s + d.totalBugResolved, 0),
+    totalBugInReview: deptReports.reduce((s, d) => s + d.totalBugInReview, 0),
+    totalBugOpen: deptReports.reduce((s, d) => s + d.totalBugOpen, 0),
   };
 
   const aiSummary = await getAiPerformanceSummary(reportData, period);
@@ -289,18 +377,21 @@ async function getAiPerformanceSummary(report: Omit<OrgReport, 'aiSummary'>, per
       inReview: m.reviewPendingTasks.map((t) => t.title),
       pending: m.pendingTasks.map((t) => t.title),
       overdue: m.overdueTasks.map((t) => `${t.title} (${t.overdueDays}d overdue)`),
+      bugsResolved: m.resolvedBugs.map((b) => b.title),
+      bugsOpen: m.openBugs.map((b) => `${b.title} (${b.severity})`),
     }))
   );
 
   const activeMembers = membersData.filter(
     (m) => m.completed.length > 0 || m.inReview.length > 0 || m.pending.length > 0 || m.overdue.length > 0
+      || m.bugsResolved.length > 0 || m.bugsOpen.length > 0
   );
 
   if (activeMembers.length === 0) return `No member activity this ${period === 'daily' ? 'day' : period === 'weekly' ? 'week' : 'month'}.`;
 
   const periodWord = period === 'daily' ? 'today' : period === 'weekly' ? 'this week' : 'this month';
 
-  const prompt = `You are a professional business coach. Analyze the performance data of the following team members for ${periodWord} and generate an extremely concise, 1-sentence summary (max 15-20 words) for each member. Focus on their progress, wins, or key blockers. Be direct, professional, and action-oriented.
+  const prompt = `You are a professional business coach. Analyze the performance data of the following team members for ${periodWord} and generate an extremely concise, 1-sentence summary (max 15-20 words) for each member. Focus on their progress, wins, or key blockers — for Engineering members, factor in bug-fixing work (bugsResolved/bugsOpen) alongside tasks, not tasks alone. Be direct, professional, and action-oriented.
    
 Return ONLY a valid JSON object mapping each user's ID to their summary string (no markdown block wrappers, no other text), for example:
 {
@@ -357,6 +448,10 @@ const STATUS_COLOR: Record<string, string> = {
   TODO: '#64748b', IN_PROGRESS: '#3b82f6', IN_REVIEW: '#8b5cf6',
   BLOCKED: '#ef4444', DONE: '#22c55e', CANCELLED: '#94a3b8',
 };
+const BUG_STATUS_LABEL: Record<string, string> = {
+  OPEN: 'Open', IN_PROGRESS: 'In Progress', IN_REVIEW: 'In Review', REOPENED: 'Reopened',
+  FIXED: 'Fixed', CLOSED: 'Closed', WONT_FIX: "Won't Fix", DUPLICATE: 'Duplicate',
+};
 
 // ── HTML renderer ──────────────────────────────────────────────────────────────
 export function renderReportHtml(
@@ -384,6 +479,9 @@ export function renderReportHtml(
         totalReviewPending:  depts.reduce((s, d) => s + d.totalReviewPending, 0),
         totalPending:        depts.reduce((s, d) => s + d.totalPending, 0),
         totalOverdue:        depts.reduce((s, d) => s + d.totalOverdue, 0),
+        totalBugResolved:    depts.reduce((s, d) => s + d.totalBugResolved, 0),
+        totalBugInReview:    depts.reduce((s, d) => s + d.totalBugInReview, 0),
+        totalBugOpen:        depts.reduce((s, d) => s + d.totalBugOpen, 0),
       }
     : report;
 
@@ -462,10 +560,41 @@ export function renderReportHtml(
     </tr>`;
   }
 
+  // ── Bug row (severity reuses the same LOW/MEDIUM/HIGH/CRITICAL palette as task priority) ──
+  function bugRow(b: BugInfo, type: 'resolved' | 'in-review' | 'open'): string {
+    const sc = PRIORITY_COLOR[b.severity] ?? '#94a3b8';
+    const badge = type === 'resolved'
+      ? `<span style="display:inline-block;padding:2px 8px;border-radius:5px;font-size:10px;font-weight:700;background-color:#22c55e20;color:#22c55e;border:1px solid #22c55e30;">&#10003; ${BUG_STATUS_LABEL[b.status] ?? b.status}</span>`
+      : type === 'in-review'
+        ? `<span style="display:inline-block;padding:2px 8px;border-radius:5px;font-size:10px;font-weight:700;background-color:#8b5cf620;color:#a78bfa;border:1px solid #8b5cf640;">&#9203; In Review</span>`
+        : `<span style="display:inline-block;padding:2px 8px;border-radius:5px;font-size:10px;font-weight:700;background-color:#06b6d420;color:#22d3ee;border:1px solid #06b6d430;">${b.status === 'IN_PROGRESS' ? 'In Progress' : b.status === 'REOPENED' ? 'Reopened' : 'Open'}</span>`;
+
+    const typeBadge = b.type === 'ENHANCEMENT'
+      ? `<span style="display:inline-block;padding:2px 8px;border-radius:5px;font-size:10px;font-weight:600;background-color:#8b5cf620;color:#a78bfa;border:1px solid #8b5cf640;margin-right:6px;">Improvement</span>`
+      : '';
+    const projectBadge = b.teamName
+      ? `<span style="display:inline-block;padding:2px 8px;border-radius:5px;font-size:10px;font-weight:700;background-color:#2563eb22;color:#60a5fa;border:1px solid #2563eb40;margin-right:6px;">&#128193; ${b.teamName}</span>`
+      : '';
+
+    return `<tr>
+      <td style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
+        <table width="100%" cellpadding="0" cellspacing="0"><tr>
+          <td style="width:4px;background-color:${sc};border-radius:2px;">&nbsp;</td>
+          <td style="padding-left:10px;">
+            <p style="margin:0 0 4px;font-size:13px;font-weight:500;color:#e2e8f0;">${b.title}</p>
+            <div>${projectBadge}${typeBadge}${badge}</div>
+          </td>
+        </tr></table>
+      </td>
+    </tr>`;
+  }
+
   // ── Member card ────────────────────────────────────────────────────────────
   function memberCard(m: MemberReport): string {
+    const hasBugActivity = m.bugResolvedCount > 0 || m.bugInReviewCount > 0 || m.bugOpenCount > 0;
+
     // 8. Zero-activity — compact visible row
-    if (m.doneCount === 0 && m.reviewPendingCount === 0 && m.pendingCount === 0 && m.overdueCount === 0) {
+    if (m.doneCount === 0 && m.reviewPendingCount === 0 && m.pendingCount === 0 && m.overdueCount === 0 && !hasBugActivity) {
       return `
       <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:8px;background-color:#1e293b;border-radius:10px;border:1px solid rgba(255,255,255,0.08);">
         <tr><td style="padding:10px 16px;">
@@ -509,6 +638,25 @@ export function renderReportHtml(
         </td></tr>
         ${m.overdueTasks.map((t) => taskRow(t, 'overdue')).join('')}` : '';
 
+    // Bug Tracker sections — Engineering only in practice, omitted entirely when empty.
+    const bugResolvedSection = m.resolvedBugs.length > 0
+      ? `<tr><td style="padding:10px 0 4px;">
+          <p style="margin:0;font-size:11px;font-weight:700;color:#06b6d4;letter-spacing:0.5px;">&#128027; BUGS RESOLVED (${m.resolvedBugs.length})</p>
+        </td></tr>
+        ${m.resolvedBugs.map((b) => bugRow(b, 'resolved')).join('')}` : '';
+
+    const bugInReviewSection = m.inReviewBugs.length > 0
+      ? `<tr><td style="padding:10px 0 4px;">
+          <p style="margin:0;font-size:11px;font-weight:700;color:#a78bfa;letter-spacing:0.5px;">&#9203; BUGS IN REVIEW (${m.inReviewBugs.length})</p>
+        </td></tr>
+        ${m.inReviewBugs.map((b) => bugRow(b, 'in-review')).join('')}` : '';
+
+    const bugOpenSection = m.openBugs.length > 0
+      ? `<tr><td style="padding:10px 0 4px;">
+          <p style="margin:0;font-size:11px;font-weight:700;color:#22d3ee;letter-spacing:0.5px;">BUGS OPEN / IN PROGRESS (${m.openBugs.length})</p>
+        </td></tr>
+        ${m.openBugs.map((b) => bugRow(b, 'open')).join('')}` : '';
+
     // 6. CTA link
     const ctaLink = (m.overdueCount > 0 || m.pendingCount > 0)
       ? `<tr><td style="padding-top:10px;text-align:right;">
@@ -541,6 +689,9 @@ export function renderReportHtml(
             ${m.reviewPendingCount > 0 ? statPill(m.reviewPendingCount, 'In Review', '#8b5cf6') : ''}
             ${statPill(m.pendingCount, 'Pending', '#f59e0b')}
             ${statPill(m.overdueCount, 'Overdue', '#ef4444')}
+            ${hasBugActivity ? statPill(m.bugResolvedCount, 'Bugs Fixed', '#06b6d4', m.bugResolvedDelta) : ''}
+            ${m.bugInReviewCount > 0 ? statPill(m.bugInReviewCount, 'Bugs In Review', '#8b5cf6') : ''}
+            ${m.bugOpenCount > 0 ? statPill(m.bugOpenCount, 'Bugs Open', '#22d3ee') : ''}
           </tr></table>
         </td>
       </tr>
@@ -553,6 +704,9 @@ export function renderReportHtml(
           ${reviewPendingSection}
           ${pendingSection}
           ${overdueSection}
+          ${bugResolvedSection}
+          ${bugInReviewSection}
+          ${bugOpenSection}
           ${ctaLink}
         </table>
       </td></tr>
@@ -630,6 +784,8 @@ export function renderReportHtml(
             ${d.totalReviewPending > 0 ? statPill(d.totalReviewPending, 'In Review', '#8b5cf6') : ''}
             ${statPill(d.totalPending, 'Pending', '#f59e0b')}
             ${statPill(d.totalOverdue, 'Overdue', '#ef4444')}
+            ${d.totalBugResolved + d.totalBugInReview + d.totalBugOpen > 0 ? statPill(d.totalBugResolved, 'Bugs Fixed', '#06b6d4', d.bugResolvedDelta) : ''}
+            ${d.totalBugOpen > 0 ? statPill(d.totalBugOpen, 'Bugs Open', '#22d3ee') : ''}
           </tr></table>
         </td></tr>
 
@@ -707,7 +863,7 @@ export function renderReportHtml(
   const summaryTable = depts.length > 1 ? `
   <tr><td style="padding-bottom:20px;">
     <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#1e293b;border-radius:14px;border:1px solid rgba(255,255,255,0.07);">
-      <tr><td colspan="6" style="padding:14px 20px 12px;border-bottom:1px solid rgba(255,255,255,0.06);">
+      <tr><td colspan="7" style="padding:14px 20px 12px;border-bottom:1px solid rgba(255,255,255,0.06);">
         <p style="margin:0;font-size:13px;font-weight:700;color:#f1f5f9;">&#128202; Department Summary</p>
       </td></tr>
       <tr style="background-color:#172033;">
@@ -716,7 +872,8 @@ export function renderReportHtml(
         <td style="padding:8px 8px;font-size:10px;font-weight:700;color:#3b82f6;letter-spacing:0.5px;text-align:center;">ON TIME</td>
         <td style="padding:8px 8px;font-size:10px;font-weight:700;color:#f97316;letter-spacing:0.5px;text-align:center;">LATE</td>
         <td style="padding:8px 8px;font-size:10px;font-weight:700;color:#f59e0b;letter-spacing:0.5px;text-align:center;">PENDING</td>
-        <td style="padding:8px 16px 8px 8px;font-size:10px;font-weight:700;color:#ef4444;letter-spacing:0.5px;text-align:center;">OVERDUE</td>
+        <td style="padding:8px 8px;font-size:10px;font-weight:700;color:#ef4444;letter-spacing:0.5px;text-align:center;">OVERDUE</td>
+        <td style="padding:8px 16px 8px 8px;font-size:10px;font-weight:700;color:#06b6d4;letter-spacing:0.5px;text-align:center;">BUGS FIXED</td>
       </tr>
       ${depts.map((d, i) => `
       <tr style="background-color:${i % 2 === 0 ? '#1e293b' : '#1a2540'};">
@@ -725,7 +882,8 @@ export function renderReportHtml(
         <td style="padding:9px 8px;font-size:13px;font-weight:700;color:#3b82f6;text-align:center;border-top:1px solid rgba(255,255,255,0.04);">${d.totalOnTime}${delta(d.onTimeDelta)}</td>
         <td style="padding:9px 8px;font-size:12px;color:${d.totalLate > 0 ? '#f97316' : '#475569'};text-align:center;border-top:1px solid rgba(255,255,255,0.04);">${d.totalLate || '—'}</td>
         <td style="padding:9px 8px;font-size:12px;color:${d.totalPending > 0 ? '#f59e0b' : '#475569'};text-align:center;border-top:1px solid rgba(255,255,255,0.04);">${d.totalPending || '—'}</td>
-        <td style="padding:9px 16px 9px 8px;font-size:12px;font-weight:${d.totalOverdue > 0 ? '700' : '400'};color:${d.totalOverdue > 0 ? '#ef4444' : '#475569'};text-align:center;border-top:1px solid rgba(255,255,255,0.04);">${d.totalOverdue || '—'}</td>
+        <td style="padding:9px 8px;font-size:12px;font-weight:${d.totalOverdue > 0 ? '700' : '400'};color:${d.totalOverdue > 0 ? '#ef4444' : '#475569'};text-align:center;border-top:1px solid rgba(255,255,255,0.04);">${d.totalOverdue || '—'}</td>
+        <td style="padding:9px 16px 9px 8px;font-size:12px;font-weight:700;color:${d.totalBugResolved > 0 ? '#06b6d4' : '#475569'};text-align:center;border-top:1px solid rgba(255,255,255,0.04);">${d.totalBugResolved || '—'}${delta(d.bugResolvedDelta)}</td>
       </tr>`).join('')}
     </table>
   </td></tr>` : '';
@@ -779,6 +937,7 @@ export function renderReportHtml(
       ${grandStats.totalReviewPending > 0 ? statPill(grandStats.totalReviewPending, 'In Review', '#8b5cf6') : ''}
       ${statPill(grandStats.totalPending, 'Pending', '#f59e0b')}
       ${statPill(grandStats.totalOverdue, 'Overdue', '#ef4444')}
+      ${grandStats.totalBugResolved + grandStats.totalBugInReview + grandStats.totalBugOpen > 0 ? statPill(grandStats.totalBugResolved, 'Bugs Fixed', '#06b6d4') : ''}
     </tr></table>
   </td></tr>
 
@@ -823,6 +982,9 @@ export function renderReportText(report: OrgReport): string {
   lines.push(`Period: ${fmtPeriodLabel(report.period, report.from, report.to)}`);
   lines.push('');
   lines.push(`SUMMARY | Done: ${report.totalDone} | On Time: ${report.totalOnTime} | Late: ${report.totalLate} | In Review: ${report.totalReviewPending} | Pending: ${report.totalPending} | Overdue: ${report.totalOverdue}`);
+  if (report.totalBugResolved + report.totalBugInReview + report.totalBugOpen > 0) {
+    lines.push(`BUGS | Fixed: ${report.totalBugResolved} | In Review: ${report.totalBugInReview} | Open: ${report.totalBugOpen}`);
+  }
   lines.push('');
 
   const textSummary = report.aiSummary
@@ -844,10 +1006,14 @@ export function renderReportText(report: OrgReport): string {
     lines.push('='.repeat(52));
     lines.push(`  ${dept.deptName.toUpperCase()}${dept.headName ? ` (Head: ${dept.headName})` : ''}`);
     lines.push(`  Done: ${dept.totalDone} | On Time: ${dept.totalOnTime} | Late: ${dept.totalLate} | Overdue: ${dept.totalOverdue}`);
+    if (dept.totalBugResolved + dept.totalBugInReview + dept.totalBugOpen > 0) {
+      lines.push(`  Bugs — Fixed: ${dept.totalBugResolved} | In Review: ${dept.totalBugInReview} | Open: ${dept.totalBugOpen}`);
+    }
     lines.push('');
 
     for (const m of dept.members) {
-      if (m.doneCount === 0 && m.reviewPendingCount === 0 && m.pendingCount === 0 && m.overdueCount === 0) {
+      const hasBugActivity = m.bugResolvedCount > 0 || m.bugInReviewCount > 0 || m.bugOpenCount > 0;
+      if (m.doneCount === 0 && m.reviewPendingCount === 0 && m.pendingCount === 0 && m.overdueCount === 0 && !hasBugActivity) {
         lines.push(`  ${m.name} — No activity this period`);
         continue;
       }
@@ -861,6 +1027,15 @@ export function renderReportText(report: OrgReport): string {
         lines.push(`    ⚠ ${t.title} [${t.overdueDays}d overdue, due: ${fmtDate(t.dueDate)}]${t.teamName ? ` — ${t.teamName}` : ''}`);
       for (const t of m.pendingTasks)
         lines.push(`    ○ ${t.title} [pending, due: ${fmtDate(t.dueDate)}]${t.teamName ? ` — ${t.teamName}` : ''}`);
+      if (hasBugActivity) {
+        lines.push(`    Bugs — Fixed: ${m.bugResolvedCount} | In Review: ${m.bugInReviewCount} | Open: ${m.bugOpenCount}`);
+        for (const b of m.resolvedBugs)
+          lines.push(`    \u{1F41B} ${b.title} [${b.status.toLowerCase()}]${b.teamName ? ` — ${b.teamName}` : ''}`);
+        for (const b of m.inReviewBugs)
+          lines.push(`    \u{23F3} ${b.title} [in review]${b.teamName ? ` — ${b.teamName}` : ''}`);
+        for (const b of m.openBugs)
+          lines.push(`    \u{25CB} ${b.title} [open, ${b.severity.toLowerCase()}]${b.teamName ? ` — ${b.teamName}` : ''}`);
+      }
       lines.push('');
     }
   }

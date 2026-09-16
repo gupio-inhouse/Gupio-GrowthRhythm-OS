@@ -148,8 +148,8 @@ export const PROMPTS = {
   WEEKLY_DIGEST: {
     version: 'v1',
     system: 'You are a business performance coach for Indian SMBs. Be direct and actionable.',
-    user: (done: number, blocked: number, standups: number) =>
-      `Write a crisp weekly executive digest for an Indian SMB:\n- Tasks completed this week: ${done}\n- Tasks currently blocked: ${blocked}\n- Standups held: ${standups}\n\nHighlight wins, flag concerns, give 2 recommendations. Max 150 words.`,
+    user: (done: number, blocked: number, standups: number, bugsFixed: number, bugsOpen: number) =>
+      `Write a crisp weekly executive digest for an Indian SMB:\n- Tasks completed this week: ${done}\n- Tasks currently blocked: ${blocked}\n- Standups held: ${standups}${bugsFixed + bugsOpen > 0 ? `\n- Bugs fixed this week: ${bugsFixed}\n- Bugs currently open: ${bugsOpen}` : ''}\n\nHighlight wins, flag concerns, give 2 recommendations. Max 150 words.`,
   },
   TASK_SUGGESTIONS: {
     version: 'v1',
@@ -258,17 +258,24 @@ export async function generateStandupDigest(standupId: string): Promise<string> 
 
 export async function generateWeeklyDigest(orgId: string): Promise<string> {
   const weekAgo = new Date(Date.now() - 7 * 86400000);
-  const [doneTasks, blockedTasks, standups] = await Promise.all([
+  const [doneTasks, blockedTasks, standups, bugsFixed, bugsOpen] = await Promise.all([
     prisma.task.count({ where: { orgId, status: 'DONE', completedAt: { gte: weekAgo } } }),
     prisma.task.count({ where: { orgId, status: 'BLOCKED' } }),
     prisma.standup.count({ where: { orgId, status: 'COMPLETED', scheduledAt: { gte: weekAgo } } }),
+    prisma.bug.count({
+      where: {
+        orgId, status: { in: ['FIXED', 'CLOSED', 'WONT_FIX', 'DUPLICATE'] },
+        OR: [{ closedAt: { gte: weekAgo } }, { resolvedAt: { gte: weekAgo } }],
+      },
+    }),
+    prisma.bug.count({ where: { orgId, status: { notIn: ['FIXED', 'CLOSED', 'WONT_FIX', 'DUPLICATE'] } } }),
   ]);
 
   const hasCredits = await deductAiCredits(orgId, 3);
   if (!hasCredits) return 'Insufficient AI credits';
 
   const p = PROMPTS.WEEKLY_DIGEST;
-  return callAI(p.user(doneTasks, blockedTasks, standups), p.system, 43200);
+  return callAI(p.user(doneTasks, blockedTasks, standups, bugsFixed, bugsOpen), p.system, 43200);
 }
 
 export async function generateTaskSuggestions(taskId: string, orgId: string): Promise<string[]> {

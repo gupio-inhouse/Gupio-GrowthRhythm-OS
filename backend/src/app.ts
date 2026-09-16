@@ -31,6 +31,7 @@ import phasesRouter from './routes/phases';
 import bugsRouter from './routes/bugs';
 import reviewsRouter from './routes/reviews';
 import goalsRouter from './routes/goals';
+import reportsRouter from './routes/reports';
 import { setOrgContext } from './middleware/rls';
 
 export function createApp() {
@@ -79,6 +80,7 @@ export function createApp() {
   app.use('/api/bugs', bugsRouter);
   app.use('/api/reviews', reviewsRouter);
   app.use('/api/goals', goalsRouter);
+  app.use('/api/reports', reportsRouter);
 
   app.get('/health', (_req, res) => res.json({ status: 'ok', ts: new Date() }));
 

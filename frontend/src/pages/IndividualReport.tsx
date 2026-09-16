@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
-  AlertTriangle, ArrowLeft, Building2, CheckCircle2, Clock, Download, Mail,
+  AlertTriangle, ArrowLeft, Bug, Building2, CheckCircle2, Clock, Download, Mail,
 } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -25,6 +25,29 @@ type ReportTask = {
   description?: string | null;
   dependency?: { id: string; title: string; status: string } | null;
   _count: { comments: number; attachments: number };
+};
+
+type ReportBug = {
+  id: string;
+  title: string;
+  type: string;
+  status: string;
+  severity: string;
+  createdAt: string;
+  resolvedAt?: string | null;
+  closedAt?: string | null;
+  team: { id: string; name: string };
+};
+
+const BUG_STATUS_STYLE: Record<string, string> = {
+  OPEN: 'text-slate-600 bg-slate-100',
+  REOPENED: 'text-orange-600 bg-orange-50',
+  IN_PROGRESS: 'text-blue-600 bg-blue-50',
+  IN_REVIEW: 'text-amber-700 bg-amber-50',
+  FIXED: 'text-green-600 bg-green-50',
+  CLOSED: 'text-gray-500 bg-gray-100',
+  WONT_FIX: 'text-gray-500 bg-gray-100',
+  DUPLICATE: 'text-gray-500 bg-gray-100',
 };
 
 type IndividualReportPayload = {
@@ -54,6 +77,17 @@ type IndividualReportPayload = {
   };
   priorityCounts: Record<string, number>;
   recentTasks: ReportTask[];
+  bugSummary: {
+    totalBugs: number;
+    openBugs: number;
+    inProgressBugs: number;
+    inReviewBugs: number;
+    resolvedBugs: number;
+    resolvedThisWeek: number;
+    bugResolutionRate: number;
+  };
+  bugSeverityCounts: Record<string, number>;
+  recentBugs: ReportBug[];
 };
 
 export default function IndividualReport() {
@@ -111,7 +145,8 @@ export default function IndividualReport() {
     );
   }
 
-  const { user, summary, priorityCounts, recentTasks } = data;
+  const { user, summary, priorityCounts, recentTasks, bugSummary, bugSeverityCounts, recentBugs } = data;
+  const hasBugs = bugSummary.totalBugs > 0;
 
   return (
     <div className="p-4 sm:p-8 space-y-6">
@@ -184,6 +219,37 @@ export default function IndividualReport() {
         ))}
       </div>
 
+      {hasBugs && (
+        <div className="space-y-2">
+          <p className="text-sm font-semibold text-muted-foreground flex items-center gap-1.5">
+            <Bug className="h-4 w-4" /> Bug Tracker Workload
+          </p>
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+            {[
+              { label: 'Resolution Rate', value: `${bugSummary.bugResolutionRate}%`, sub: `${bugSummary.resolvedBugs}/${bugSummary.totalBugs} resolved`, icon: CheckCircle2, tone: 'text-green-600 bg-green-50' },
+              { label: 'In Progress', value: bugSummary.inProgressBugs, sub: `${bugSummary.openBugs} open`, icon: Clock, tone: 'text-blue-600 bg-blue-50' },
+              { label: 'In Review', value: bugSummary.inReviewBugs, sub: 'awaiting approval', icon: AlertTriangle, tone: 'text-amber-600 bg-amber-50' },
+              { label: 'Resolved This Week', value: bugSummary.resolvedThisWeek, sub: 'fixed / closed', icon: Bug, tone: 'text-violet-600 bg-violet-50' },
+            ].map(({ label, value, sub, icon: Icon, tone }) => (
+              <Card key={label}>
+                <CardContent className="p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm text-muted-foreground">{label}</p>
+                      <p className="text-3xl font-bold mt-1">{value}</p>
+                      <p className="text-xs text-muted-foreground mt-1">{sub}</p>
+                    </div>
+                    <div className={cn('rounded-lg p-2.5', tone)}>
+                      <Icon className="h-5 w-5" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2">
           <CardHeader>
@@ -210,6 +276,29 @@ export default function IndividualReport() {
                 </div>
               ))}
             </div>
+
+            {hasBugs && (
+              <>
+                <div className="flex items-center justify-between text-sm pt-2">
+                  <span className="text-muted-foreground">Bug resolution rate</span>
+                  <span className="font-medium">{bugSummary.bugResolutionRate}%</span>
+                </div>
+                <Progress value={bugSummary.bugResolutionRate} className="h-2" />
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {[
+                    ['Low', bugSeverityCounts.LOW || 0],
+                    ['Medium', bugSeverityCounts.MEDIUM || 0],
+                    ['High', bugSeverityCounts.HIGH || 0],
+                    ['Critical', bugSeverityCounts.CRITICAL || 0],
+                  ].map(([label, count]) => (
+                    <div key={label} className="rounded-lg border bg-muted/30 p-3">
+                      <p className="text-xs text-muted-foreground">{label} severity</p>
+                      <p className="text-2xl font-semibold mt-1">{count}</p>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
 
@@ -284,6 +373,49 @@ export default function IndividualReport() {
           </CardContent>
         </Card>
       </div>
+
+      {hasBugs && (
+        <div className="grid grid-cols-1 gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-1.5">
+                <Bug className="h-4 w-4" /> Recent Bugs
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {recentBugs.map((bug) => (
+                  <div key={bug.id} className="rounded-lg border p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-medium">{bug.title}</p>
+                          <Badge className={cn('border', BUG_STATUS_STYLE[bug.status] ?? 'text-gray-600 bg-gray-100')}>
+                            {bug.status.replace(/_/g, ' ')}
+                          </Badge>
+                          <Badge className={cn('border', priorityColor(bug.severity))}>
+                            {bug.severity}
+                          </Badge>
+                          {bug.type === 'ENHANCEMENT' && (
+                            <Badge className="border text-violet-600 bg-violet-50">Improvement</Badge>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-2">{bug.team.name}</p>
+                      </div>
+                      <div className="text-xs text-muted-foreground text-right">
+                        <p>Created {formatDate(bug.createdAt)}</p>
+                        {(bug.closedAt || bug.resolvedAt) && (
+                          <p className="mt-1">Resolved {formatDate(bug.closedAt || bug.resolvedAt!)}</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

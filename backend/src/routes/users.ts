@@ -11,7 +11,7 @@ import { getUserDeptAccess } from '../lib/deptAccess';
 const router = Router();
 router.use(authenticate);
 
-async function getViewerScope(userId: string) {
+export async function getViewerScope(userId: string) {
   const viewer = await prisma.user.findUnique({
     where: { id: userId },
     select: { id: true, role: true, departmentId: true },
@@ -24,7 +24,7 @@ function canViewUserDirectory(viewerRole: string) {
   return ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'].includes(viewerRole);
 }
 
-function canAccessUser(viewer: { id: string; role: string; departmentId: string | null }, target: { id: string; departmentId: string | null }) {
+export function canAccessUser(viewer: { id: string; role: string; departmentId: string | null }, target: { id: string; departmentId: string | null }) {
   if (['OWNER', 'COMPANY_ADMIN', 'SUPER_ADMIN'].includes(viewer.role)) return true;
   if (viewer.role === 'TEAM_MEMBER') return viewer.id === target.id;
   return !!viewer.departmentId && viewer.departmentId === target.departmentId;
@@ -373,6 +373,46 @@ router.get('/:id/report', async (req: AuthRequest, res: Response) => {
     })
     .slice(0, 12);
 
+  // Bug Tracker workload (Engineering only in practice, but queried generically —
+  // a user with no bugs assigned just gets zeroed-out counts and an empty list).
+  const RESOLVED_BUG_STATUSES = ['FIXED', 'CLOSED', 'WONT_FIX', 'DUPLICATE'];
+  const bugs = await prisma.bug.findMany({
+    where: { orgId: req.user!.orgId, assigneeUserId: user.id },
+    select: {
+      id: true,
+      title: true,
+      type: true,
+      status: true,
+      severity: true,
+      createdAt: true,
+      resolvedAt: true,
+      closedAt: true,
+      team: { select: { id: true, name: true } },
+    },
+    orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
+  });
+
+  const totalBugs = bugs.length;
+  const openBugs = bugs.filter((bug) => bug.status === 'OPEN' || bug.status === 'REOPENED').length;
+  const inProgressBugs = bugs.filter((bug) => bug.status === 'IN_PROGRESS').length;
+  const inReviewBugs = bugs.filter((bug) => bug.status === 'IN_REVIEW').length;
+  const resolvedBugs = bugs.filter((bug) => RESOLVED_BUG_STATUSES.includes(bug.status)).length;
+  const resolvedThisWeek = bugs.filter((bug) => {
+    const resolvedAt = bug.closedAt ?? bug.resolvedAt;
+    return !!resolvedAt && resolvedAt >= weekStart;
+  }).length;
+  const bugResolutionRate = totalBugs > 0 ? Math.round((resolvedBugs / totalBugs) * 100) : 0;
+
+  const severityCounts = bugs.reduce<Record<string, number>>((acc, bug) => {
+    acc[bug.severity] = (acc[bug.severity] || 0) + 1;
+    return acc;
+  }, {});
+
+  const recentBugs = bugs
+    .slice()
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    .slice(0, 12);
+
   res.json({
     user,
     summary: {
@@ -394,6 +434,22 @@ router.get('/:id/report', async (req: AuthRequest, res: Response) => {
       CRITICAL: priorityCounts.CRITICAL || 0,
     },
     recentTasks,
+    bugSummary: {
+      totalBugs,
+      openBugs,
+      inProgressBugs,
+      inReviewBugs,
+      resolvedBugs,
+      resolvedThisWeek,
+      bugResolutionRate,
+    },
+    bugSeverityCounts: {
+      LOW: severityCounts.LOW || 0,
+      MEDIUM: severityCounts.MEDIUM || 0,
+      HIGH: severityCounts.HIGH || 0,
+      CRITICAL: severityCounts.CRITICAL || 0,
+    },
+    recentBugs,
   });
 });
 
@@ -475,9 +531,39 @@ router.get('/:id/report/export-csv', async (req: AuthRequest, res: Response) => 
     };
   }));
 
+  const bugs = await prisma.bug.findMany({
+    where: { orgId: req.user!.orgId, assigneeUserId: user.id },
+    select: {
+      title: true,
+      type: true,
+      status: true,
+      severity: true,
+      createdAt: true,
+      resolvedAt: true,
+      closedAt: true,
+      team: { select: { name: true } },
+    },
+    orderBy: [{ createdAt: 'desc' }],
+  });
+
+  const bugCsv = createCsv(bugs.map((bug) => ({
+    employeeName: user.name,
+    employeeEmail: user.email,
+    project: bug.team.name,
+    title: bug.title,
+    type: bug.type,
+    status: bug.status,
+    severity: bug.severity,
+    createdAt: formatIndianDateTime(bug.createdAt),
+    resolvedAt: formatIndianDateTime(bug.closedAt ?? bug.resolvedAt),
+  })));
+
+  const sections = [csv];
+  if (bugCsv) sections.push('', 'Bugs', bugCsv);
+
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${user.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-report.csv"`);
-  res.send(csv);
+  res.send(sections.join('\n'));
 });
 
 // POST /users/invite — invite a team member

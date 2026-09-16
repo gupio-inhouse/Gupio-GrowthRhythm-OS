@@ -78,9 +78,10 @@ export function calcWorkingMs(start: Date, end: Date, excludeSat: boolean): numb
 }
 
 // Human label from working ms (e.g. "2d 3h", "5h", "10d") — a "day" here is one
-// 10-hour working day (9:30 AM–7:30 PM), not a 24h calendar day.
-export function workingDurationLabel(start: Date, end: Date, excludeSat: boolean): string | null {
-  const ms = calcWorkingMs(start, end, excludeSat);
+// 10-hour working day (9:30 AM–7:30 PM), not a 24h calendar day. Exported on its
+// own so a total summed across several tasks (e.g. a report's "total duration"
+// column) can be formatted the same way as a single task's start→due span.
+export function formatWorkingMs(ms: number): string | null {
   if (ms <= 0) return null;
   const totalHours = Math.floor(ms / 3_600_000);
   const days       = Math.floor(totalHours / WORK_DAY_HOURS);
@@ -88,6 +89,10 @@ export function workingDurationLabel(start: Date, end: Date, excludeSat: boolean
   if (totalHours < WORK_DAY_HOURS) return `${totalHours}h`;
   if (remHours > 0 && days < 7) return `${days}d ${remHours}h`;
   return `${days}d`;
+}
+
+export function workingDurationLabel(start: Date, end: Date, excludeSat: boolean): string | null {
+  return formatWorkingMs(calcWorkingMs(start, end, excludeSat));
 }
 
 // If dateStr falls on a non-working day, advance to the next working day.

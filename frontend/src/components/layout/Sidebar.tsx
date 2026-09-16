@@ -2,7 +2,7 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, CheckSquare, Users, Zap,
   Building2, Settings, LogOut, Shield, MessageSquare, X, ClipboardList,
-  GraduationCap, Bug, CalendarClock,
+  GraduationCap, Bug, CalendarClock, BarChart3,
 } from 'lucide-react';
 import { cn, isEngineeringDept } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
@@ -20,6 +20,7 @@ const navItems = [
   { label: 'Learning', href: '/learning', icon: GraduationCap, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER', 'TEAM_MEMBER'] },
   { label: 'Departments', href: '/departments', icon: Building2, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'] },
   { label: 'Team', href: '/team', icon: Users, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'] },
+  { label: 'Reports', href: '/reports', icon: BarChart3, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'] },
   { label: 'Audit Log', href: '/audit-log', icon: ClipboardList, roles: ['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'] },
   { label: 'App Feedback', href: '/app-feedback', icon: MessageSquare, roles: ['OWNER', 'COMPANY_ADMIN'] },
   { label: 'Settings', href: '/settings', icon: Settings, roles: ['OWNER', 'COMPANY_ADMIN'] },
