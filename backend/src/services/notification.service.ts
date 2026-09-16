@@ -2,6 +2,7 @@ import prisma from '../lib/prisma';
 
 export type NotificationEvent =
   | 'TASK_ASSIGNED'
+  | 'TASKS_IMPORTED'
   | 'TASK_BLOCKED'
   | 'TASK_SUBMITTED_FOR_REVIEW'
   | 'TASK_DUE_TODAY'
@@ -20,6 +21,12 @@ export type NotificationEvent =
 
 const TEMPLATES: Record<NotificationEvent, (d: Record<string, unknown>) => { title: string; body: string }> = {
   TASK_ASSIGNED: (d) => ({ title: 'New task assigned', body: `You've been assigned: "${d.taskTitle}"${d.dueDate ? ` · due ${d.dueDate}` : ''}` }),
+  // One notification for a whole imported batch — a 200-row sheet must not bury
+  // the assignee's notification list under 200 separate TASK_ASSIGNED entries.
+  TASKS_IMPORTED: (d) => ({
+    title: `${d.count} new task${Number(d.count) === 1 ? '' : 's'} assigned`,
+    body: `${d.importedByName || 'Someone'} imported ${d.count} task${Number(d.count) === 1 ? '' : 's'} for you, starting with "${d.taskTitle}".${d.needsDates ? ` ${d.needsDates} still need${Number(d.needsDates) === 1 ? 's' : ''} a start and end date before you can begin.` : ''}`,
+  }),
   TASK_BLOCKED: (d) => ({ title: 'Task blocked', body: `"${d.taskTitle}" is blocked: ${d.blockerType || 'Unknown reason'}` }),
   TASK_SUBMITTED_FOR_REVIEW: (d) => ({ title: 'Task ready for review', body: `${d.assigneeName || 'A team member'} marked "${d.taskTitle}" complete and needs your review.` }),
   TASK_DUE_TODAY: (d) => ({ title: 'Task due today', body: `"${d.taskTitle}" is due today — mark it done before EOD.` }),
@@ -41,6 +48,7 @@ const TEMPLATES: Record<NotificationEvent, (d: Record<string, unknown>) => { tit
 
 const EVENT_PREF_KEY: Record<NotificationEvent, string> = {
   TASK_ASSIGNED: 'taskAssigned',
+  TASKS_IMPORTED: 'taskAssigned',
   TASK_BLOCKED: 'taskBlocked',
   TASK_SUBMITTED_FOR_REVIEW: 'taskAssigned',
   TASK_DUE_TODAY: 'taskAssigned',

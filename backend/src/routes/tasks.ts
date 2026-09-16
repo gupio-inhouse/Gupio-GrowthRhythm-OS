@@ -8,6 +8,7 @@ import { generateTaskSuggestions, generateStatusChangeSuggestions, enhanceTaskWi
 import { sendTaskAssignedEmail } from '../services/email.service';
 import { deleteFromS3 } from '../lib/s3';
 import { getUserDeptAccess } from '../lib/deptAccess';
+import { runTaskImport } from '../services/taskImport.service';
 
 const APP_URL = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();
 
@@ -466,6 +467,29 @@ router.patch('/:id', auditLog('task', 'UPDATE'), async (req: AuthRequest, res: R
       res.status(400).json({ error: 'Start date must be before the end date.' });
       return;
     }
+
+    // Work can't leave To Do half-specified. Bulk imports accept sheets with
+    // missing dates on purpose — this is where those gaps have to be closed, so
+    // nobody starts a task that has no schedule. Only the exit from To Do is
+    // gated: tasks already in flight (including everything that predates the
+    // start-date field) move between statuses untouched.
+    const startingWork = existingTask.status === 'TODO'
+      && !!parsed.data.status
+      && ['IN_PROGRESS', 'IN_REVIEW', 'DONE'].includes(parsed.data.status);
+
+    if (startingWork) {
+      const missingFields: string[] = [];
+      if (!resolvedStartDate) missingFields.push('startDate');
+      if (!resolvedDueDateForRange) missingFields.push('dueDate');
+      if (missingFields.length > 0) {
+        const labels = missingFields.map((field) => (field === 'startDate' ? 'a start date' : 'an end date'));
+        res.status(400).json({
+          error: `This task still needs ${labels.join(' and ')}. Edit the task and fill them in before starting it.`,
+          missingFields,
+        });
+        return;
+      }
+    }
   }
 
   // Validate phase-wise tasks for Engineering department projects
@@ -818,77 +842,50 @@ router.get('/:id/ai-suggestions', async (req: AuthRequest, res: Response) => {
   res.json({ suggestions });
 });
 
-// POST /tasks/import-csv
-router.post('/import-csv', auditLog('task', 'CREATE'), async (req: AuthRequest, res: Response) => {
+// POST /tasks/import — bulk import from a spreadsheet.
+//
+// Deliberately forgiving: the uploader supplies rows keyed by canonical field
+// name (or the legacy assigneeEmail/departmentName/projectName spellings) and
+// everything is coerced from there. Only a title and an identifiable assignee
+// are required; anything else that can't be read becomes a warning and a gap the
+// status gate below makes someone close before the task can start.
+//
+// `dryRun` runs the whole pipeline without writing, so the import wizard can
+// show exactly what will land before anyone commits to it.
+const importSchema = z.object({
+  rows: z.array(z.record(z.unknown())).min(1, 'At least one row is required'),
+  dryRun: z.boolean().optional(),
+  timeZone: z.string().optional(),
+  dayFirst: z.boolean().optional(),
+});
+
+const handleImport = async (req: AuthRequest, res: Response) => {
   if (!['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD', 'MANAGER'].includes(req.user!.role)) {
     res.status(403).json({ error: 'Forbidden' });
     return;
   }
-  const { rows } = req.body as { rows: Array<Record<string, string>> };
-  if (!Array.isArray(rows) || rows.length === 0) {
-    res.status(400).json({ error: 'rows array required' });
+
+  const parsed = importSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten().fieldErrors });
     return;
   }
 
-  const results: { created: number; errors: string[] } = { created: 0, errors: [] };
+  const result = await runTaskImport(parsed.data.rows, {
+    orgId: req.user!.orgId,
+    actorUserId: req.user!.userId,
+    timeZone: parsed.data.timeZone,
+    dayFirst: parsed.data.dayFirst,
+    dryRun: parsed.data.dryRun === true,
+  });
 
-  for (const row of rows.slice(0, 500)) {
-    try {
-      // Resolve assigneeEmail → assigneeUserId
-      let assigneeUserId: string | undefined = row.assigneeUserId || undefined;
-      if (!assigneeUserId && row.assigneeEmail) {
-        const found = await prisma.user.findFirst({
-          where: { email: row.assigneeEmail.trim().toLowerCase(), orgId: req.user!.orgId, status: 'ACTIVE' },
-          select: { id: true },
-        });
-        if (!found) { results.errors.push(`Row "${row.title}": no active user found with email "${row.assigneeEmail}"`); continue; }
-        assigneeUserId = found.id;
-      }
-      // Resolve departmentName/department → departmentId
-      let departmentId: string | undefined = row.departmentId || undefined;
-      const deptName = row.departmentName || row.department;
-      if (!departmentId && deptName) {
-        const found = await prisma.department.findFirst({
-          where: { orgId: req.user!.orgId, isActive: true, name: { equals: deptName.trim(), mode: 'insensitive' } },
-          select: { id: true },
-        });
-        if (!found) { results.errors.push(`Row "${row.title}": no department found with name "${deptName}"`); continue; }
-        departmentId = found.id;
-      }
-      // Resolve projectName/project → teamId
-      let teamId: string | undefined = row.teamId || undefined;
-      const projName = row.projectName || row.project;
-      if (!teamId && projName) {
-        const found = await prisma.team.findFirst({
-          where: { orgId: req.user!.orgId, isActive: true, name: { equals: projName.trim(), mode: 'insensitive' } },
-          select: { id: true },
-        });
-        if (!found) { results.errors.push(`Row "${row.title}": no project found with name "${projName}"`); continue; }
-        teamId = found.id;
-      }
-      const parsed = createSchema.safeParse({
-        title: row.title,
-        description: row.description || undefined,
-        expectedOutcome: row.expectedOutcome || undefined,
-        priority: row.priority?.toUpperCase() || 'MEDIUM',
-        assigneeUserId,
-        departmentId,
-        teamId,
-        // CSV template predates the start-date field — default to now for imported rows.
-        startDate: row.startDate ? new Date(row.startDate).toISOString() : new Date().toISOString(),
-        dueDate: row.dueDate ? new Date(row.dueDate).toISOString() : undefined,
-        recurrence: row.recurrence?.toUpperCase() || undefined,
-      });
-      if (!parsed.success) { results.errors.push(`Row "${row.title}": ${JSON.stringify(parsed.error.flatten().fieldErrors)}`); continue; }
-      await prisma.task.create({ data: { ...parsed.data, orgId: req.user!.orgId, assignedByUserId: req.user!.userId } });
-      results.created++;
-    } catch (e) {
-      results.errors.push(`Row "${row.title}": ${(e as Error).message}`);
-    }
-  }
+  res.json(result);
+};
 
-  res.json(results);
-});
+router.post('/import', auditLog('task', 'CREATE'), handleImport);
+// Original path, kept so older clients keep working — the response still carries
+// the flat { created, errors } fields they read.
+router.post('/import-csv', auditLog('task', 'CREATE'), handleImport);
 
 // POST /tasks/fix-dept — OWNER only: backfill departmentId on tasks that have none
 // Derives department from the assignee's departmentId so existing data is properly scoped.

@@ -195,7 +195,7 @@ function DurationBadge({ startDate, createdAt, dueDate, isEng = false }: { start
   if (!label) return null;
   return (
     <span
-      title={`Working duration: ${startDate ? 'start' : 'created'} → due (${isEng ? 'Mon–Sat' : 'Mon–Fri'})`}
+      title={`Working duration: ${startDate ? 'start' : 'created'} → due (${isEng ? 'Mon–Fri' : 'Mon–Sat'})`}
       className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-50 text-slate-500 border border-slate-200 tabular-nums"
     >
       <Clock className="h-2.5 w-2.5" />

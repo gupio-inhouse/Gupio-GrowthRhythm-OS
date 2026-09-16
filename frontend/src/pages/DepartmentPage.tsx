@@ -2695,7 +2695,7 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
           <TabsContent value="phases" className="mt-5 space-y-4">
             <div className="flex items-center justify-between">
               <p className="text-sm font-semibold">Project Phases ({phases.length})</p>
-              {['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'].includes(authUser?.role || '') && (
+              {(canManage || isProjectManager) && (
                 <Button size="sm" className="gap-1.5" onClick={() => {
                   setNewPhaseName('');
                   setNewPhaseDueDate('');
@@ -2713,7 +2713,7 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
                     <div className="flex items-center justify-between">
                       <h3 className="font-bold text-lg text-foreground/80">{phase.name}</h3>
                       <div className="flex items-center gap-1.5">
-                        {['OWNER', 'COMPANY_ADMIN', 'DEPARTMENT_HEAD'].includes(authUser?.role || '') && (
+                        {(canManage || isProjectManager) && (
                           <>
                             <Button size="sm" variant="outline" onClick={() => {
                               setExtendedDueDate(phase.dueDate.split('T')[0]);

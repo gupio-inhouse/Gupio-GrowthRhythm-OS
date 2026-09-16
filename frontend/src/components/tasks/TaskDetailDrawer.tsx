@@ -448,7 +448,7 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
                           <span className="inline-flex items-center gap-1.5 text-sm font-semibold tabular-nums">
                             {label}
                             <span className="text-[10px] font-normal text-muted-foreground">
-                              (working days · {isEng ? 'Mon–Sat' : 'Mon–Fri'})
+                              (working days · {isEng ? 'Mon–Fri' : 'Mon–Sat'})
                             </span>
                           </span>
                         ),
