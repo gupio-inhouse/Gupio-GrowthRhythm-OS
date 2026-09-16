@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import ExcelJS from 'exceljs';
 import {
   ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts';
@@ -87,21 +88,53 @@ const BUG_STATUS_STYLE: Record<string, string> = {
   WONT_FIX: 'text-gray-500 bg-gray-100', DUPLICATE: 'text-gray-500 bg-gray-100',
 };
 
-// CSV helpers — quote/escape each cell, support several labelled sections (Summary,
-// Per-Member Summary, Tasks, Bugs) in one downloaded file, and trigger the download.
-function csvBlock(rows: Array<Record<string, unknown>>): string {
-  if (rows.length === 0) return '';
-  const headers = Object.keys(rows[0]);
-  const escape = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  return [headers.join(','), ...rows.map((row) => headers.map((h) => escape(row[h])).join(','))].join('\n');
+// ── Excel export helpers ────────────────────────────────────────────────────────
+// One plain worksheet, no charts — just data, stacked as labelled sections. A real
+// .xlsx (vs. CSV) still avoids two CSV-in-Excel quirks: mojibake from missing
+// encoding info on non-ASCII characters (e.g. the "–" in a date range), and Excel
+// auto-detecting date-shaped text and showing #### when its date format doesn't
+// fit the column — every cell here is written as an explicit string.
+function writeSectionTitle(sheet: ExcelJS.Worksheet, row: number, title: string): number {
+  const cell = sheet.getCell(row, 1);
+  cell.value = title;
+  cell.font = { bold: true, size: 13 };
+  return row + 1;
 }
 
-function downloadCsv(filename: string, sections: Array<{ title?: string; rows: Array<Record<string, unknown>> }>) {
-  const blocks = sections
-    .filter((s) => s.rows.length > 0)
-    .map((s) => (s.title ? `${s.title}\n${csvBlock(s.rows)}` : csvBlock(s.rows)));
-  if (blocks.length === 0) return;
-  const blob = new Blob([blocks.join('\n\n')], { type: 'text/csv;charset=utf-8;' });
+function writeMetricRows(sheet: ExcelJS.Worksheet, row: number, rows: Array<{ metric: string; value: string | number }>): number {
+  rows.forEach((r, i) => {
+    sheet.getCell(row + i, 1).value = r.metric;
+    sheet.getCell(row + i, 2).value = r.value;
+  });
+  return row + rows.length;
+}
+
+function writeTableRows(sheet: ExcelJS.Worksheet, row: number, rows: Array<Record<string, unknown>>): number {
+  if (rows.length === 0) return row;
+  const headers = Object.keys(rows[0]);
+  headers.forEach((h, i) => {
+    const cell = sheet.getCell(row, i + 1);
+    cell.value = h.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase()).trim();
+    cell.font = { bold: true };
+  });
+  rows.forEach((r, ri) => {
+    headers.forEach((h, ci) => {
+      sheet.getCell(row + 1 + ri, ci + 1).value = (r[h] as ExcelJS.CellValue) ?? '';
+    });
+  });
+  return row + 1 + rows.length;
+}
+
+function newReportSheet(workbook: ExcelJS.Workbook) {
+  const sheet = workbook.addWorksheet('Report');
+  sheet.columns = Array.from({ length: 10 }, () => ({ width: 20 }));
+  return sheet;
+}
+
+// exceljs's writeBuffer() is typed for both Node (Buffer) and browser (ArrayBuffer)
+// targets; in this browser bundle it's always an ArrayBuffer at runtime.
+function downloadWorkbookBuffer(filename: string, buffer: ArrayBuffer) {
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url; anchor.download = filename;
@@ -109,9 +142,8 @@ function downloadCsv(filename: string, sections: Array<{ title?: string; rows: A
   URL.revokeObjectURL(url);
 }
 
-// Summary rows shared by both scopes' CSV exports — one label/value pair per metric,
-// reading naturally as a small report when opened in Excel/Sheets.
-function summaryCsvRows(periodLabel: string, summary: TaskSummary, bugSummary?: BugSummary) {
+// Summary rows shared by both scopes' Excel exports — one label/value pair per metric.
+function summaryMetricRows(periodLabel: string, summary: TaskSummary, bugSummary?: BugSummary) {
   const rows: Array<{ metric: string; value: string | number }> = [
     { metric: 'Report Period', value: periodLabel },
     { metric: 'Total Tasks', value: summary.totalTasks },
@@ -339,6 +371,7 @@ export default function Reports() {
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
   const [generated, setGenerated] = useState<{ from: string; to: string } | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
 
   const { data: users = [] } = useQuery<UserItem[]>({
     queryKey: ['users-list'],
@@ -472,24 +505,41 @@ export default function Reports() {
         const data = individualQuery.data;
         const hasBugs = data.bugSummary.totalBugs > 0;
 
-        const exportCsv = () => {
-          const taskRows = data.tasks.map((t) => ({
-            employeeName: data.user.name, employeeEmail: data.user.email,
-            department: data.user.department?.name || '', project: t.team?.name || '',
-            taskTitle: t.title, status: t.status, priority: t.priority,
-            blockerType: t.blockerType || '', assignedDate: t.startDate ? formatDate(t.startDate) : '—', endDate: t.dueDate ? formatDate(t.dueDate) : '—',
-            duration: formatWorkingMs(taskDurationMs(t)) || '',
-            delay: t.delay?.label || '',
-          }));
-          const bugRows = data.bugs.map((b) => ({
-            title: b.title, project: b.team?.name || '', type: b.type, status: b.status, severity: b.severity,
-            createdAt: formatDate(b.createdAt), resolvedAt: (b.closedAt || b.resolvedAt) ? formatDate(b.closedAt || b.resolvedAt!) : '—',
-          }));
-          downloadCsv(`${data.user.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-report.csv`, [
-            { title: 'Summary', rows: summaryCsvRows(`${formatDate(data.from)} – ${formatDate(data.to)}`, data.summary, data.bugSummary) },
-            { title: 'Tasks', rows: taskRows },
-            { title: 'Bugs', rows: bugRows },
-          ]);
+        const exportExcel = async () => {
+          setIsExporting(true);
+          try {
+            const workbook = new ExcelJS.Workbook();
+            workbook.creator = 'GrowthRhythm OS';
+            const sheet = newReportSheet(workbook);
+
+            let row = writeSectionTitle(sheet, 1, 'Summary');
+            row = writeMetricRows(sheet, row, summaryMetricRows(`${formatDate(data.from)} – ${formatDate(data.to)}`, data.summary, data.bugSummary));
+            row += 2;
+
+            row = writeSectionTitle(sheet, row, 'Tasks');
+            row = writeTableRows(sheet, row, data.tasks.map((t) => ({
+              employeeName: data.user.name, employeeEmail: data.user.email,
+              department: data.user.department?.name || '', project: t.team?.name || '',
+              taskTitle: t.title, status: t.status, priority: t.priority,
+              blockerType: t.blockerType || '', assignedDate: t.startDate ? formatDate(t.startDate) : '—', endDate: t.dueDate ? formatDate(t.dueDate) : '—',
+              duration: formatWorkingMs(taskDurationMs(t)) || '',
+              delay: t.delay?.label || '',
+            })));
+
+            if (data.bugs.length > 0) {
+              row += 2;
+              row = writeSectionTitle(sheet, row, 'Bugs');
+              writeTableRows(sheet, row, data.bugs.map((b) => ({
+                title: b.title, project: b.team?.name || '', type: b.type, status: b.status, severity: b.severity,
+                createdAt: formatDate(b.createdAt), resolvedAt: (b.closedAt || b.resolvedAt) ? formatDate(b.closedAt || b.resolvedAt!) : '—',
+              })));
+            }
+
+            const buffer = await workbook.xlsx.writeBuffer() as ArrayBuffer;
+            downloadWorkbookBuffer(`${data.user.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-report.xlsx`, buffer);
+          } finally {
+            setIsExporting(false);
+          }
         };
 
         return (
@@ -501,8 +551,8 @@ export default function Reports() {
                 <span className="text-xs text-muted-foreground">{data.user.email}</span>
                 {data.user.department && <span className="text-xs text-muted-foreground">{data.user.department.name}</span>}
               </div>
-              <Button size="sm" variant="outline" onClick={exportCsv} className="gap-1.5">
-                <Download className="h-3.5 w-3.5" /> Download CSV
+              <Button size="sm" variant="outline" onClick={exportExcel} disabled={isExporting} className="gap-1.5">
+                <Download className="h-3.5 w-3.5" /> {isExporting ? 'Preparing…' : 'Download Excel'}
               </Button>
             </div>
 
@@ -635,33 +685,48 @@ export default function Reports() {
         const data = deptQuery.data;
         const hasBugs = data.bugSummary.totalBugs > 0;
 
-        const exportCsv = () => {
-          const memberSummaryRows = data.members.map((m) => ({
-            memberName: m.name, role: m.role,
-            totalTasks: m.totalTasks, completed: m.completedTasks, inProgress: m.inProgressTasks,
-            blocked: m.blockedTasks, overdue: m.overdueTasks,
-            completionRate: `${m.completionRate}%`, onTimeRate: `${m.onTimeRate}%`,
-            bugsFixed: m.bugSummary.resolvedBugs, bugsOpen: m.bugSummary.openBugs,
-          }));
-          const taskRows = data.members.flatMap((m) =>
-            m.tasks.length > 0
-              ? m.tasks.map((t) => ({
-                  department: data.department.name, memberName: m.name, memberRole: m.role,
-                  project: t.team?.name || '', taskTitle: t.title, status: t.status, priority: t.priority,
-                  blockerType: t.blockerType || '', assignedDate: t.startDate ? formatDate(t.startDate) : '—', endDate: t.dueDate ? formatDate(t.dueDate) : '—',
-                  duration: formatWorkingMs(taskDurationMs(t)) || '', delay: t.delay?.label || '',
-                }))
-              : [{
-                  department: data.department.name, memberName: m.name, memberRole: m.role,
-                  project: '', taskTitle: '(no tasks in period)', status: '', priority: '',
-                  blockerType: '', assignedDate: '—', endDate: '—', duration: '', delay: '',
-                }]
-          );
-          downloadCsv(`${data.department.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-report.csv`, [
-            { title: 'Summary', rows: summaryCsvRows(`${formatDate(data.from)} – ${formatDate(data.to)}`, data.summary, data.bugSummary) },
-            { title: 'Per-Member Summary', rows: memberSummaryRows },
-            { title: 'Tasks', rows: taskRows },
-          ]);
+        const exportExcel = async () => {
+          setIsExporting(true);
+          try {
+            const workbook = new ExcelJS.Workbook();
+            workbook.creator = 'GrowthRhythm OS';
+            const sheet = newReportSheet(workbook);
+
+            let row = writeSectionTitle(sheet, 1, 'Summary');
+            row = writeMetricRows(sheet, row, summaryMetricRows(`${formatDate(data.from)} – ${formatDate(data.to)}`, data.summary, data.bugSummary));
+            row += 2;
+
+            row = writeSectionTitle(sheet, row, 'Per-Member Summary');
+            row = writeTableRows(sheet, row, data.members.map((m) => ({
+              memberName: m.name, role: m.role,
+              totalTasks: m.totalTasks, completed: m.completedTasks, inProgress: m.inProgressTasks,
+              blocked: m.blockedTasks, overdue: m.overdueTasks,
+              completionRate: `${m.completionRate}%`, onTimeRate: `${m.onTimeRate}%`,
+              bugsFixed: m.bugSummary.resolvedBugs, bugsOpen: m.bugSummary.openBugs,
+            })));
+            row += 2;
+
+            row = writeSectionTitle(sheet, row, 'Tasks');
+            writeTableRows(sheet, row, data.members.flatMap((m) =>
+              m.tasks.length > 0
+                ? m.tasks.map((t) => ({
+                    department: data.department.name, memberName: m.name, memberRole: m.role,
+                    project: t.team?.name || '', taskTitle: t.title, status: t.status, priority: t.priority,
+                    blockerType: t.blockerType || '', assignedDate: t.startDate ? formatDate(t.startDate) : '—', endDate: t.dueDate ? formatDate(t.dueDate) : '—',
+                    duration: formatWorkingMs(taskDurationMs(t)) || '', delay: t.delay?.label || '',
+                  }))
+                : [{
+                    department: data.department.name, memberName: m.name, memberRole: m.role,
+                    project: '', taskTitle: '(no tasks in period)', status: '', priority: '',
+                    blockerType: '', assignedDate: '—', endDate: '—', duration: '', delay: '',
+                  }]
+            ));
+
+            const buffer = await workbook.xlsx.writeBuffer() as ArrayBuffer;
+            downloadWorkbookBuffer(`${data.department.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-report.xlsx`, buffer);
+          } finally {
+            setIsExporting(false);
+          }
         };
 
         return (
@@ -671,8 +736,8 @@ export default function Reports() {
                 <Badge variant="secondary" className="text-xs">{formatDate(data.from)} – {formatDate(data.to)}</Badge>
                 <span className="text-sm font-semibold">{data.department.name}</span>
               </div>
-              <Button size="sm" variant="outline" onClick={exportCsv} className="gap-1.5">
-                <Download className="h-3.5 w-3.5" /> Download CSV
+              <Button size="sm" variant="outline" onClick={exportExcel} disabled={isExporting} className="gap-1.5">
+                <Download className="h-3.5 w-3.5" /> {isExporting ? 'Preparing…' : 'Download Excel'}
               </Button>
             </div>
 
