@@ -2,6 +2,7 @@
 FROM node:20-alpine AS builder
 
 # Install necessary system libraries for Prisma and compilation
+RUN sed -i 's/https/http/g' /etc/apk/repositories
 RUN apk add --no-cache libc6-compat openssl
 WORKDIR /app
 
@@ -29,6 +30,7 @@ ENV NODE_ENV=production
 ENV PORT=4000
 
 # Install openssl for Prisma compatibility on Alpine
+RUN sed -i 's/https/http/g' /etc/apk/repositories
 RUN apk add --no-cache openssl
 
 # Copy only the essentials: pruned node_modules, compiled dist folders, Prisma schema, and package info

@@ -51,7 +51,7 @@ pipeline {
                     BRANCH="$TARGET_BRANCH"
                     REPO_URL="git@github.com:gupio-inhouse/Gupio-GrowthRhythm-OS.git"
 
-                    export GIT_SSH_COMMAND="ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=6 -o TCPKeepAlive=yes"
+                    export GIT_SSH_COMMAND="ssh -4 -o ServerAliveInterval=30 -o ServerAliveCountMax=6 -o TCPKeepAlive=yes"
 
                     if [ ! -d .git ]; then
                       git init .
