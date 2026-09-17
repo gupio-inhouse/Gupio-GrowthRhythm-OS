@@ -84,10 +84,12 @@ export const escalationWorker = new Worker('escalation', async (job: Job) => {
   if (job.name === 'check-overdue') {
     const threeDaysAgo = new Date(Date.now() - 3 * 86400000);
 
-    // Find overdue tasks (not done, past due date)
+    // Find overdue tasks (not done, past due date). Tasks already submitted for
+    // review are excluded — the delay clock freezes once it's out of the
+    // assignee's hands, so they shouldn't keep getting escalation nags for it.
     const overdue = await prisma.task.findMany({
       where: {
-        status: { notIn: ['DONE', 'CANCELLED'] },
+        status: { notIn: ['DONE', 'CANCELLED', 'IN_REVIEW'] },
         dueDate: { lt: new Date() },
       },
       include: {
@@ -349,10 +351,12 @@ export const taskReminderWorker = new Worker('task-reminder', async (job: Job) =
     remindedCount++;
   }
 
-  // Overdue tasks (due date passed today, not yet done)
+  // Overdue tasks (due date passed today, not yet done). Tasks already
+  // submitted for review are excluded — the delay clock freezes once it's out
+  // of the assignee's hands, so they shouldn't keep getting overdue emails.
   const overdue = await prisma.task.findMany({
     where: {
-      status: { notIn: ['DONE', 'CANCELLED'] },
+      status: { notIn: ['DONE', 'CANCELLED', 'IN_REVIEW'] },
       dueDate: { lt: now },
     },
     include: {

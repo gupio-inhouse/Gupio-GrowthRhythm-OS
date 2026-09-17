@@ -15,7 +15,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { cn, getInitials, formatDate, priorityColor, statusColor, isEngineeringDept } from '@/lib/utils';
+import { cn, getInitials, formatDate, priorityColor, statusColor, isEngineeringDept, isTaskOverdue } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/api/client';
 import { toast } from '@/hooks/use-toast';
@@ -37,7 +37,7 @@ type OrgUser = { id: string; name: string; email: string; avatarUrl?: string; ro
 
 type TaskSummary = {
   id: string; title: string; status: string; priority: string;
-  dueDate?: string; assigneeUserId: string;
+  dueDate?: string; assigneeUserId: string; completionSubmittedAt?: string;
   department?: { id: string; name: string };
 };
 type MemberStat = {
@@ -659,7 +659,7 @@ function MemberTaskCard({ ms, expanded, onToggle, onRemove, removing }: {
       {expanded && ms.tasks.length > 0 && (
         <div className="border-t border-border/40 divide-y divide-border/40">
           {ms.tasks.map((t) => {
-            const overdue = t.dueDate && new Date(t.dueDate) < now && t.status !== 'DONE' && t.status !== 'CANCELLED';
+            const overdue = isTaskOverdue(t, now);
             return (
               <div key={t.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50/60 transition-colors">
                 <div className="flex-1 min-w-0">

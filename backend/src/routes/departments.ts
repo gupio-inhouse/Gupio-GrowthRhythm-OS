@@ -244,7 +244,7 @@ router.get('/:slug/dashboard', async (req: AuthRequest, res: Response) => {
   const todayEnd = new Date(now); todayEnd.setHours(23, 59, 59, 999);
 
   const [overdueCount, blockedCount, dueTodayCount, recentStandup, topBlockers, deptUsers] = await Promise.all([
-    prisma.task.count({ where: { departmentId: dept.id, status: { notIn: ['DONE', 'CANCELLED'] }, dueDate: { lt: now } } }),
+    prisma.task.count({ where: { departmentId: dept.id, status: { notIn: ['DONE', 'CANCELLED', 'IN_REVIEW'] }, dueDate: { lt: now } } }),
     prisma.task.count({ where: { departmentId: dept.id, status: 'BLOCKED' } }),
     prisma.task.count({ where: { departmentId: dept.id, dueDate: { gte: todayStart, lt: todayEnd }, status: { notIn: ['DONE', 'CANCELLED'] } } }),
     prisma.standup.findFirst({ where: { departmentId: dept.id }, orderBy: { scheduledAt: 'desc' }, include: { _count: { select: { cards: true } } } }),

@@ -13,7 +13,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BlockerDialog } from './BlockerDialog';
 import { NewTaskDialog, type TaskToEdit } from './NewTaskDialog';
-import { cn, formatDate, formatRelative, getInitials, isEngineeringDept, workingDurationLabel, countWorkingDays } from '@/lib/utils';
+import { cn, formatDate, formatRelative, getInitials, isEngineeringDept, workingDurationLabel, countWorkingDays, isTaskOverdue } from '@/lib/utils';
 import api from '@/api/client';
 import { useAuthStore } from '@/store/authStore';
 import { toast } from '@/hooks/use-toast';
@@ -102,10 +102,6 @@ function resolveAttachmentUrl(url: string) {
   if (typeof base === 'string' && /^https?:\/\//i.test(base)) return new URL(url, base).toString();
   return url;
 }
-function isOverdueDate(dueDate: string, status: string) {
-  return !!dueDate && !['DONE', 'CANCELLED'].includes(status) && new Date(dueDate) < new Date();
-}
-
 // ── Drawer ─────────────────────────────────────────────────────────────────────
 export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose }: Props) {
   const qc = useQueryClient();
@@ -254,7 +250,7 @@ export function TaskDetailDrawer({ taskId, initialDeliveryAction = null, onClose
   const documents     = (task?.attachments ?? []).filter((a) => a.type !== 'SCREENSHOT' && a.type !== 'PULL_REQUEST');
 
   const statusTokens  = task ? (S[task.status] ?? S.TODO) : S.TODO;
-  const overdueTask   = task?.dueDate ? isOverdueDate(task.dueDate, task.status) : false;
+  const overdueTask   = task ? isTaskOverdue(task) : false;
   const isTeamMemberViewer = user?.role === 'TEAM_MEMBER';
   const availableStatuses = isTeamMemberViewer && task
     ? Array.from(new Set([...TEAM_MEMBER_STATUSES, task.status]))

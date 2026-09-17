@@ -26,7 +26,7 @@ router.get('/cockpit', async (req: AuthRequest, res: Response) => {
   // Total tasks — respects status filter for the "total" denominator
   let totalWhere: Record<string, unknown> = { ...taskBase };
   if (statusFilter === 'overdue') {
-    totalWhere = { ...taskBase, status: { notIn: ['DONE', 'CANCELLED'] }, dueDate: { lt: new Date() } };
+    totalWhere = { ...taskBase, status: { notIn: ['DONE', 'CANCELLED', 'IN_REVIEW'] }, dueDate: { lt: new Date() } };
   } else if (statusFilter === 'due_today') {
     const start = new Date(); start.setUTCHours(0, 0, 0, 0);
     const end   = new Date(); end.setUTCHours(23, 59, 59, 999);
@@ -57,7 +57,7 @@ router.get('/cockpit', async (req: AuthRequest, res: Response) => {
     }),
     prisma.task.count({ where: totalWhere }),
     prisma.task.count({ where: { ...taskBase, status: 'DONE' } }),
-    prisma.task.count({ where: { ...taskBase, status: { notIn: ['DONE', 'CANCELLED'] }, dueDate: { lt: new Date() } } }),
+    prisma.task.count({ where: { ...taskBase, status: { notIn: ['DONE', 'CANCELLED', 'IN_REVIEW'] }, dueDate: { lt: new Date() } } }),
     prisma.task.count({ where: { ...taskBase, status: 'BLOCKED' } }),
     prisma.standup.findMany({
       where: {
@@ -86,7 +86,7 @@ router.get('/cockpit', async (req: AuthRequest, res: Response) => {
   });
   const deptOverdueCounts = await prisma.task.groupBy({
     by: ['departmentId'],
-    where: { orgId, departmentId: { not: null }, status: { notIn: ['DONE', 'CANCELLED'] }, dueDate: { lt: new Date() } },
+    where: { orgId, departmentId: { not: null }, status: { notIn: ['DONE', 'CANCELLED', 'IN_REVIEW'] }, dueDate: { lt: new Date() } },
     _count: true,
   });
   type DeptStat = { done: number; blocked: number; overdue: number; total: number };

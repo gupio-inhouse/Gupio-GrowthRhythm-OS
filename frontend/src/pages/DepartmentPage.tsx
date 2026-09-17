@@ -21,7 +21,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { cn, getInitials, formatDate, formatRelative, priorityColor, statusColor, isEngineeringDept, countWorkingDays } from '@/lib/utils';
+import { cn, getInitials, formatDate, formatRelative, priorityColor, statusColor, isEngineeringDept, countWorkingDays, isTaskOverdue } from '@/lib/utils';
 import { WeekdayDatePicker } from '@/components/ui/weekday-date-picker';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/api/client';
@@ -246,7 +246,7 @@ export default function DepartmentPage() {
   });
   const filteredTasks = preStatusTaskFiltered.filter((t) => {
     if (taskFilter === 'all')         return true;
-    if (taskFilter === 'overdue')     return !!t.dueDate && new Date(t.dueDate) < now && t.status !== 'DONE' && t.status !== 'CANCELLED';
+    if (taskFilter === 'overdue')     return isTaskOverdue(t, now);
     if (taskFilter === 'due_today')   return !!t.createdAt && new Date(t.createdAt) >= todayMidnight && new Date(t.createdAt) <= endOfToday;
     if (taskFilter === 'blocked')     return t.status === 'BLOCKED';
     if (taskFilter === 'in_progress') return t.status === 'IN_PROGRESS';
@@ -688,7 +688,7 @@ export default function DepartmentPage() {
                     {deptTeams.map((team) => {
                       const teamTasks = deptTasks.filter((t) => t.team?.id === team.id);
                       const doneCt    = teamTasks.filter((t) => t.status === 'DONE').length;
-                      const overdueCt = teamTasks.filter((t) => !!t.dueDate && new Date(t.dueDate) < now && t.status !== 'DONE' && t.status !== 'CANCELLED').length;
+                      const overdueCt = teamTasks.filter((t) => isTaskOverdue(t, now)).length;
                       const blockedCt = teamTasks.filter((t) => t.status === 'BLOCKED').length;
                       const ipCt      = teamTasks.filter((t) => t.status === 'IN_PROGRESS').length;
                       const pct       = teamTasks.length > 0 ? Math.round((doneCt / teamTasks.length) * 100) : -1;
@@ -920,7 +920,7 @@ export default function DepartmentPage() {
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
               {([
                 { label: 'Total',       key: 'all',         count: preStatusTaskFiltered.length,                                                                                                                                                    icon: ClipboardList, grad: 'from-slate-500 to-gray-600',    shadow: 'hover:shadow-gray-200/60'    },
-                { label: 'Overdue',     key: 'overdue',     count: preStatusTaskFiltered.filter((t) => !!t.dueDate && new Date(t.dueDate) < now && t.status !== 'DONE' && t.status !== 'CANCELLED').length,                                          icon: Clock,         grad: 'from-red-500 to-rose-600',      shadow: 'hover:shadow-red-200/60'     },
+                { label: 'Overdue',     key: 'overdue',     count: preStatusTaskFiltered.filter((t) => isTaskOverdue(t, now)).length,                                          icon: Clock,         grad: 'from-red-500 to-rose-600',      shadow: 'hover:shadow-red-200/60'     },
                 { label: 'Blocked',     key: 'blocked',     count: preStatusTaskFiltered.filter((t) => t.status === 'BLOCKED').length,                                                                                                               icon: AlertTriangle, grad: 'from-orange-500 to-amber-600',  shadow: 'hover:shadow-orange-200/60'  },
                 { label: 'In Progress', key: 'in_progress', count: preStatusTaskFiltered.filter((t) => t.status === 'IN_PROGRESS' || t.status === 'IN_REVIEW').length,                                                                               icon: Zap,           grad: 'from-blue-500 to-indigo-600',   shadow: 'hover:shadow-blue-200/60'    },
                 { label: 'Done',        key: 'done',        count: preStatusTaskFiltered.filter((t) => t.status === 'DONE').length,                                                                                                                  icon: CheckSquare,   grad: 'from-emerald-500 to-teal-600',  shadow: 'hover:shadow-emerald-200/60' },
@@ -966,7 +966,7 @@ export default function DepartmentPage() {
               <>
                 <div className="space-y-1.5">
                   {paginate(filteredTasks, deptTasksPage).map((task) => {
-                    const isOverdue = !!task.dueDate && new Date(task.dueDate) < now && task.status !== 'DONE' && task.status !== 'CANCELLED';
+                    const isOverdue = isTaskOverdue(task, now);
                     return (
                       <div
                         key={task.id}
@@ -1063,7 +1063,7 @@ export default function DepartmentPage() {
                   const doneCt   = mTasks.filter((t) => t.status === 'DONE').length;
                   const ipCt     = mTasks.filter((t) => t.status === 'IN_PROGRESS').length;
                   const blockedCt= mTasks.filter((t) => t.status === 'BLOCKED').length;
-                  const overdueCt= mTasks.filter((t) => !!t.dueDate && new Date(t.dueDate) < now && t.status !== 'DONE' && t.status !== 'CANCELLED').length;
+                  const overdueCt= mTasks.filter((t) => isTaskOverdue(t, now)).length;
                   const rate     = mTasks.length > 0 ? Math.round((doneCt / mTasks.length) * 100) : -1;
                   const rateColor= rate >= 75 ? 'text-green-700' : rate >= 40 ? 'text-blue-700' : 'text-amber-700';
                   const barColor = rate >= 75 ? 'bg-green-500' : rate >= 40 ? 'bg-blue-500' : 'bg-amber-500';
@@ -1335,14 +1335,14 @@ function MemberDetailDialog({ member, tasks, isEng = false, onClose }: {
   const done       = tasks.filter((t) => t.status === 'DONE').length;
   const blocked    = tasks.filter((t) => t.status === 'BLOCKED').length;
   const inProgress = tasks.filter((t) => t.status === 'IN_PROGRESS').length;
-  const overdue    = tasks.filter((t) => !!t.dueDate && new Date(t.dueDate) < now && t.status !== 'DONE' && t.status !== 'CANCELLED').length;
+  const overdue    = tasks.filter((t) => isTaskOverdue(t, now)).length;
   const rate       = tasks.length > 0 ? Math.round((done / tasks.length) * 100) : 0;
   const [filter, setFilter] = useState<string>('all');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
   const shown = tasks.filter((t) => {
     if (filter === 'all')      return true;
-    if (filter === 'overdue')  return !!t.dueDate && new Date(t.dueDate) < now && t.status !== 'DONE' && t.status !== 'CANCELLED';
+    if (filter === 'overdue')  return isTaskOverdue(t, now);
     return t.status === filter;
   });
 
@@ -1413,7 +1413,7 @@ function MemberDetailDialog({ member, tasks, isEng = false, onClose }: {
             <div className="text-center py-6 text-muted-foreground text-sm">No tasks match this filter</div>
           ) : (
             shown.map((task) => {
-              const isOverdue = !!task.dueDate && new Date(task.dueDate) < now && task.status !== 'DONE' && task.status !== 'CANCELLED';
+              const isOverdue = isTaskOverdue(task, now);
               return (
                 <div key={task.id} onClick={() => setSelectedTaskId(task.id)} className="flex items-center gap-3 rounded-lg border px-3 py-2.5 cursor-pointer hover:bg-muted/40 transition-colors">
                   <div className={cn('h-2 w-2 rounded-full shrink-0', {
@@ -1975,7 +1975,7 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
   });
   const filteredProjectTasks = preStatusProjectFilter.filter((t) => {
     if (taskFilter === 'all')         return true;
-    if (taskFilter === 'overdue')     return !!t.dueDate && new Date(t.dueDate) < now && t.status !== 'DONE' && t.status !== 'CANCELLED';
+    if (taskFilter === 'overdue')     return isTaskOverdue(t, now);
     if (taskFilter === 'due_today')   return !!t.createdAt && new Date(t.createdAt) >= todayMidnight && new Date(t.createdAt) <= endOfToday;
     return t.status === taskFilter;
   });
@@ -2366,7 +2366,7 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             {([
               { label: 'Total',       key: 'all',         count: preStatusProjectFilter.length,                                                                                                                                                icon: ClipboardList, grad: 'from-slate-500 to-gray-600',    shadow: 'hover:shadow-gray-200/60'    },
-              { label: 'Overdue',     key: 'overdue',     count: preStatusProjectFilter.filter((t) => !!t.dueDate && new Date(t.dueDate) < now && t.status !== 'DONE' && t.status !== 'CANCELLED').length,                                    icon: Clock,         grad: 'from-red-500 to-rose-600',      shadow: 'hover:shadow-red-200/60'     },
+              { label: 'Overdue',     key: 'overdue',     count: preStatusProjectFilter.filter((t) => isTaskOverdue(t, now)).length,                                    icon: Clock,         grad: 'from-red-500 to-rose-600',      shadow: 'hover:shadow-red-200/60'     },
               { label: 'Blocked',     key: 'BLOCKED',     count: preStatusProjectFilter.filter((t) => t.status === 'BLOCKED').length,                                                                                                         icon: AlertTriangle, grad: 'from-orange-500 to-amber-600',  shadow: 'hover:shadow-orange-200/60'  },
               { label: 'In Progress', key: 'IN_PROGRESS', count: preStatusProjectFilter.filter((t) => t.status === 'IN_PROGRESS' || t.status === 'IN_REVIEW').length,                                                                         icon: Zap,           grad: 'from-blue-500 to-indigo-600',   shadow: 'hover:shadow-blue-200/60'    },
               { label: 'Done',        key: 'DONE',        count: preStatusProjectFilter.filter((t) => t.status === 'DONE').length,                                                                                                            icon: CheckSquare,   grad: 'from-emerald-500 to-teal-600',  shadow: 'hover:shadow-emerald-200/60' },
@@ -2425,7 +2425,7 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
 
                     <div className="space-y-2">
                       {phaseTasks.map((task) => {
-                        const isOverdue = !!task.dueDate && new Date(task.dueDate) < now && task.status !== 'DONE' && task.status !== 'CANCELLED';
+                        const isOverdue = isTaskOverdue(task, now);
                         return (
                           <div
                             key={task.id}
@@ -2520,7 +2520,7 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
 
                     <div className="space-y-2">
                       {ungrouped.map((task) => {
-                        const isOverdue = !!task.dueDate && new Date(task.dueDate) < now && task.status !== 'DONE' && task.status !== 'CANCELLED';
+                        const isOverdue = isTaskOverdue(task, now);
                         return (
                           <div
                             key={task.id}
@@ -2604,7 +2604,7 @@ function ProjectFullView({ team, canManage, deptId, onBack, onUpdated, onDelete,
             <>
               <div className="space-y-1.5">
                 {paginate(filteredProjectTasks, tasksPage).map((task) => {
-                  const isOverdue = !!task.dueDate && new Date(task.dueDate) < now && task.status !== 'DONE' && task.status !== 'CANCELLED';
+                  const isOverdue = isTaskOverdue(task, now);
                   return (
                     <div
                       key={task.id}
@@ -2953,7 +2953,7 @@ function MemberTaskRow({ ms, expanded, onToggle, onRemove, removing, canManage, 
       {expanded && ms.tasks.length > 0 && (
         <div className="border-t divide-y bg-background">
           {ms.tasks.map((t) => {
-            const overdue = t.dueDate && new Date(t.dueDate) < now && t.status !== 'DONE' && t.status !== 'CANCELLED';
+            const overdue = isTaskOverdue(t, now);
             return (
               <div key={t.id} onClick={() => onTaskClick?.(t.id)} className={cn('flex items-center gap-3 px-3 py-2 transition-colors', onTaskClick && 'cursor-pointer hover:bg-muted/40')}>
                 <div className="flex-1 min-w-0">

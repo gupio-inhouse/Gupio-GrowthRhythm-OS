@@ -19,6 +19,17 @@ export function formatRelative(date: string | Date) {
   return formatDate(date);
 }
 
+// A task stops counting as overdue the moment it's submitted for review — from
+// then on the delay is the reviewer's responsibility, not the assignee's, so
+// the "overdue" clock must not keep running against `now` while IN_REVIEW.
+export function isTaskOverdue(task: { dueDate?: string | Date | null; status: string }, now: Date = new Date()): boolean {
+  return !!task.dueDate
+    && task.status !== 'DONE'
+    && task.status !== 'CANCELLED'
+    && task.status !== 'IN_REVIEW'
+    && new Date(task.dueDate) < now;
+}
+
 export function getInitials(name: string) {
   return name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
 }

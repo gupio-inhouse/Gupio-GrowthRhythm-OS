@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { cn, priorityColor, formatDate, getInitials, isEngineeringDept, workingDurationLabel, countWorkingDays } from '@/lib/utils';
+import { cn, priorityColor, formatDate, getInitials, isEngineeringDept, workingDurationLabel, countWorkingDays, isTaskOverdue } from '@/lib/utils';
 import { WeekdayDatePicker } from '@/components/ui/weekday-date-picker';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
@@ -168,6 +168,29 @@ function DueBadge({
         ✓ On time
       </span>
     );
+  }
+
+  if (status === 'IN_REVIEW') {
+    // Submitted for review — the clock freezes at submission time. Whatever
+    // happens while it waits on the reviewer is not counted against the
+    // assignee, so this never grows into a bigger "overdue" number over time.
+    if (!completionSubmittedAt) {
+      return <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200', className)}>In Review</span>;
+    }
+    const submitted    = new Date(completionSubmittedAt);
+    const submittedDay = new Date(completionSubmittedAt); submittedDay.setHours(0, 0, 0, 0);
+
+    if (submitted > due) {
+      const lateDays = countWorkingDays(dueDay, submittedDay, isEng);
+      return (
+        <span className={cn('inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200', className)}>
+          <span>In Review</span>
+          <span className="opacity-60">·</span>
+          <span>{lateDays === 0 ? 'same day' : lateDays === 1 ? '1wd late' : `${lateDays}wd late`}</span>
+        </span>
+      );
+    }
+    return <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200', className)}>In Review</span>;
   }
 
   // Active task — use working-day count
@@ -456,7 +479,6 @@ export default function Tasks() {
   const todayMidnight = new Date(); todayMidnight.setHours(0, 0, 0, 0);
   const endOfToday    = new Date(); endOfToday.setHours(23, 59, 59, 999);
 
-  const isTaskOverdue    = (t: Task) => !!(t.dueDate && !['DONE', 'CANCELLED'].includes(t.status) && new Date(t.dueDate) < now);
   const isTaskDueToday   = (t: Task) => !!(t.dueDate && !['DONE', 'CANCELLED'].includes(t.status) && new Date(t.dueDate) >= now && new Date(t.dueDate) <= endOfToday);
   const isCreatedToday   = (t: Task) => !!(t.createdAt && new Date(t.createdAt) >= todayMidnight && new Date(t.createdAt) <= endOfToday);
 
@@ -476,7 +498,7 @@ export default function Tasks() {
         const due   = new Date(t.dueDate);
         if (due < start || due > end) return false;
       }
-      if (statusFilter === 'overdue')   return isTaskOverdue(t);
+      if (statusFilter === 'overdue')   return isTaskOverdue(t, now);
       if (statusFilter === 'due_today') return isCreatedToday(t);
       if (statusFilter && taskColumn(t) !== statusFilter) return false;
       return true;
@@ -485,7 +507,7 @@ export default function Tasks() {
       const aInactive = ['DONE', 'CANCELLED'].includes(taskColumn(a));
       const bInactive = ['DONE', 'CANCELLED'].includes(taskColumn(b));
       if (aInactive !== bInactive) return aInactive ? 1 : -1;
-      const urgency = (t: Task) => isTaskOverdue(t) ? 0 : isTaskDueToday(t) ? 1 : t.dueDate ? 2 : 3;
+      const urgency = (t: Task) => isTaskOverdue(t, now) ? 0 : isTaskDueToday(t) ? 1 : t.dueDate ? 2 : 3;
       const uA = urgency(a), uB = urgency(b);
       if (uA !== uB) return uA - uB;
       if (a.dueDate && b.dueDate) return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
@@ -847,7 +869,7 @@ function TaskListRow({
   const minDate = new Date(); minDate.setDate(minDate.getDate() + 1);
   const minDateStr = minDate.toISOString().split('T')[0];
   const now = new Date();
-  const isOverdue = !!(task.dueDate && !['DONE', 'CANCELLED'].includes(task.status) && new Date(task.dueDate) < now);
+  const isOverdue = isTaskOverdue(task, now);
   const { user } = useAuthStore();
   const displayStatus = task.isBug ? (task.bugStatus ?? 'OPEN') : task.status;
   const statusTokens = task.isBug ? (BUG_S[displayStatus] ?? BUG_S.OPEN) : (S[displayStatus] ?? S.TODO);
@@ -1125,7 +1147,7 @@ function KanbanCard({
   const minDate = new Date(); minDate.setDate(minDate.getDate() + 1);
   const minDateStr = minDate.toISOString().split('T')[0];
   const now = new Date();
-  const isOverdue = !!(task.dueDate && !['DONE', 'CANCELLED'].includes(task.status) && new Date(task.dueDate) < now);
+  const isOverdue = isTaskOverdue(task, now);
   const { user } = useAuthStore();
   const displayStatus = task.isBug ? (task.bugStatus ?? 'OPEN') : task.status;
   const statusStyleMap = task.isBug ? BUG_S : S;

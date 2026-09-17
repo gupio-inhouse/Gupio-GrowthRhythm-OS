@@ -326,6 +326,7 @@ router.get('/:id/report', async (req: AuthRequest, res: Response) => {
       dueDate: true,
       createdAt: true,
       completedAt: true,
+      completionSubmittedAt: true,
       blockerType: true,
       blockerCount: true,
       expectedOutcome: true,
@@ -347,6 +348,7 @@ router.get('/:id/report', async (req: AuthRequest, res: Response) => {
     !!task.dueDate &&
     task.status !== 'DONE' &&
     task.status !== 'CANCELLED' &&
+    task.status !== 'IN_REVIEW' &&
     task.dueDate < now
   ).length;
   const dueTodayTasks = tasks.filter((task) =>
@@ -491,6 +493,7 @@ router.get('/:id/report/export-csv', async (req: AuthRequest, res: Response) => 
       priority: true,
       dueDate: true,
       completedAt: true,
+      completionSubmittedAt: true,
       createdAt: true,
       updatedAt: true,
       blockerType: true,
@@ -504,8 +507,13 @@ router.get('/:id/report/export-csv', async (req: AuthRequest, res: Response) => 
   const csv = createCsv(tasks.map((task) => {
     let overdueStr = 'NO';
     if (task.dueDate && task.status !== 'CANCELLED') {
+      // Once a task is submitted for review, the delay clock freezes at that
+      // moment — waiting-for-reviewer time is never counted as still-growing
+      // overdue against the assignee.
       const refDate = task.status === 'DONE'
         ? (task.completedAt || task.updatedAt || new Date())
+        : task.status === 'IN_REVIEW'
+        ? (task.completionSubmittedAt || task.updatedAt || new Date())
         : new Date();
       const overdueDays = getOverdueDays(task.dueDate, refDate);
       if (overdueDays > 0) {

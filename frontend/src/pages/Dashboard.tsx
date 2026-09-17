@@ -18,7 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuthStore } from '@/store/authStore';
-import { cn, formatDate, getInitials, formatRelative, isEngineeringDept } from '@/lib/utils';
+import { cn, formatDate, getInitials, formatRelative, isEngineeringDept, isTaskOverdue } from '@/lib/utils';
 import api from '@/api/client';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -36,7 +36,7 @@ function departmentNameFromSlug(slug?: string) {
 // ── Types ─────────────────────────────────────────────────────────────────────
 type Task = {
   id: string; title: string; status: string; priority: string;
-  dueDate?: string; blockerType?: string;
+  dueDate?: string; blockerType?: string; completionSubmittedAt?: string;
   assignee?: { id: string; name: string };
 };
 type DeptDashboard = {
@@ -246,7 +246,7 @@ function OwnerHome() {
   const now = new Date();
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const todayEnd   = new Date(); todayEnd.setHours(23, 59, 59, 999);
-  const isOverdue  = (t: Task) => !!t.dueDate && !['DONE', 'CANCELLED'].includes(t.status) && new Date(t.dueDate) < now;
+  const isOverdue  = (t: Task) => isTaskOverdue(t, now);
   const isDueToday = (t: Task) => !!t.dueDate && !['DONE', 'CANCELLED'].includes(t.status) && new Date(t.dueDate) >= now && new Date(t.dueDate) <= todayEnd;
   const overdueTasks   = allTasks.filter(isOverdue);
   const dueTodayTasks  = allTasks.filter(isDueToday);
@@ -1328,7 +1328,7 @@ function DepartmentDashboard({ slug }: { slug: string }) {
   const deptTeams   = allTeams.filter((t) => t.department.slug === slug);
   const selectedTeam = deptTeams.find((t) => t.id === selectedTeamId) ?? null;
   const now = new Date();
-  const isOverdueFn = (t: Task) => !!t.dueDate && !['DONE','CANCELLED'].includes(t.status) && new Date(t.dueDate) < now;
+  const isOverdueFn = (t: Task) => isTaskOverdue(t, now);
   const deptProjectProgress = deptTeams.map((pt, i) => {
     const ptTasks   = deptTasks.filter((t) => (t as unknown as { team?: { id: string } }).team?.id === pt.id);
     const ptDone    = ptTasks.filter((t) => t.status === 'DONE').length;
@@ -1827,7 +1827,7 @@ function DeptHeadHome() {
   const now        = new Date();
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const todayEnd   = new Date(); todayEnd.setHours(23, 59, 59, 999);
-  const isOverdue  = (t: Task) => !!t.dueDate && !['DONE', 'CANCELLED'].includes(t.status) && new Date(t.dueDate) < now;
+  const isOverdue  = (t: Task) => isTaskOverdue(t, now);
   const isDueToday = (t: Task) => !!t.dueDate && !['DONE', 'CANCELLED'].includes(t.status) && new Date(t.dueDate) >= now && new Date(t.dueDate) <= todayEnd;
 
   const openTasks     = tasks.filter((t) => !['DONE', 'CANCELLED'].includes(t.status));

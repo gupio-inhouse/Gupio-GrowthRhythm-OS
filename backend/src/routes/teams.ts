@@ -158,7 +158,7 @@ router.get(
     const now = new Date();
 
     const isOverdue = (t: { dueDate: Date | null; status: string }) =>
-      !!t.dueDate && t.dueDate < now && t.status !== 'DONE' && t.status !== 'CANCELLED';
+      !!t.dueDate && t.dueDate < now && t.status !== 'DONE' && t.status !== 'CANCELLED' && t.status !== 'IN_REVIEW';
 
     // Overall stats
     const total = allTasks.length;
