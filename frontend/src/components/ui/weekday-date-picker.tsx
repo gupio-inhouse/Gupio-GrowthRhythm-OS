@@ -45,7 +45,6 @@ export function WeekdayDatePicker({
   function isDisabled(d: Date): boolean {
     const day = getDay(d);
     if (day === 0) return true;
-    if (excludeSat && day === 6) return true;
     if (minD && d < minD) return true;
     return false;
   }
@@ -101,8 +100,7 @@ export function WeekdayDatePicker({
         <div className="grid grid-cols-7 mb-1">
           {DAY_HEADERS.map((d) => {
             const isSun   = d === 'Sun';
-            const isSat   = d === 'Sat';
-            const blocked = isSun || (excludeSat && isSat);
+            const blocked = isSun;
             return (
               <div
                 key={d}
@@ -152,7 +150,7 @@ export function WeekdayDatePicker({
         <div className="mt-3 pt-2 border-t border-border/40 flex items-center justify-between gap-2">
           <span className="text-[10px] text-muted-foreground">
             <span className="line-through text-red-400 opacity-60 mr-1">00</span>
-            = {excludeSat ? 'Sat & Sun disabled' : 'Sun disabled'}
+            = Sun disabled
           </span>
           {selected && (
             <button

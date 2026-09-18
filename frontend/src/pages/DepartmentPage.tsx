@@ -3629,9 +3629,25 @@ function AddProjectTaskDialog({ teamId, members, canAssign, selfId, deptName, on
   onCreated: () => void;
 }) {
   const isEngTask = isEngineeringDept(deptName);
+  const getTodayString = () => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  };
+  const getCurrentTimeString = () => {
+    const now = new Date();
+    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    if (timeStr < PROJECT_TASK_WORK_START_TIME) return PROJECT_TASK_WORK_START_TIME;
+    if (timeStr > PROJECT_TASK_WORK_END_TIME) return PROJECT_TASK_WORK_END_TIME;
+    return timeStr;
+  };
   const { register, handleSubmit, setValue, watch, formState: { errors, isSubmitting } } = useForm<AddProjectTaskForm>({
     resolver: zodResolver(addProjectTaskSchema),
-    defaultValues: { priority: 'MEDIUM', assigneeUserId: canAssign ? '' : selfId },
+    defaultValues: {
+      priority: 'MEDIUM',
+      assigneeUserId: canAssign ? '' : selfId,
+      startDate: getTodayString(),
+      startTime: getCurrentTimeString(),
+    },
   });
 
   const [enhancingTitle, setEnhancingTitle] = useState(false);

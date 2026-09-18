@@ -29,6 +29,24 @@ const END_WORK_HOURS_MESSAGE   = 'End time must be within working hours (9:30 AM
 
 type DateFields = { startDate?: string; startTime?: string; dueDate?: string; dueTime?: string };
 
+function getTodayString(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getCurrentTimeString(): string {
+  const now = new Date();
+  const hours = String(now.getHours()).padStart(2, '0');
+  const mins = String(now.getMinutes()).padStart(2, '0');
+  const timeStr = `${hours}:${mins}`;
+  if (timeStr < WORK_START_TIME) return WORK_START_TIME;
+  if (timeStr > WORK_END_TIME) return WORK_END_TIME;
+  return timeStr;
+}
+
 // Shared across both roles: working-hours bounds + start-before-end ordering.
 function applyDateRules(data: DateFields, ctx: z.RefinementCtx) {
   if (data.startTime && !isWithinWorkingHours(data.startTime)) {
@@ -241,7 +259,11 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
         })(),
       });
     } else {
-      reset({ priority: 'MEDIUM' });
+      reset({
+        priority: 'MEDIUM',
+        startDate: getTodayString(),
+        startTime: getCurrentTimeString(),
+      });
       // If opened from within a specific department, pre-select it; otherwise use the user's own dept
       const presetDeptId = defaultDepartmentId || user?.departmentId;
       if (presetDeptId) setValue('departmentId', presetDeptId);
@@ -251,11 +273,20 @@ export function NewTaskDialog({ open, onClose, onCreated, taskToEdit, defaultDep
 
   // Unassigned tasks don't get a start/end date yet — both are set later, once someone assigns the task.
   useEffect(() => {
-    if (canAssignToAny && !watchedAssigneeId) {
-      setValue('startDate', '');
-      setValue('startTime', '');
-      setValue('dueDate', '');
-      setValue('dueTime', '');
+    if (canAssignToAny) {
+      if (!watchedAssigneeId) {
+        setValue('startDate', '');
+        setValue('startTime', '');
+        setValue('dueDate', '');
+        setValue('dueTime', '');
+      } else {
+        if (!watch('startDate')) {
+          setValue('startDate', getTodayString(), { shouldValidate: true });
+        }
+        if (!watch('startTime')) {
+          setValue('startTime', getCurrentTimeString(), { shouldValidate: true });
+        }
+      }
     }
   }, [canAssignToAny, watchedAssigneeId]);
 
