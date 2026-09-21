@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import prisma from '../lib/prisma';
-import { signToken } from '../lib/jwt';
+import { signToken, verifySsoAssertion, SsoAssertion } from '../lib/jwt';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { generateMagicLink, verifyMagicLink, consumeMagicLink } from '../services/magic-link.service';
 import { sendMagicLinkEmail } from '../services/email.service';
@@ -152,6 +152,104 @@ router.post('/login', async (req: Request, res: Response) => {
   }
 
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+
+  const token = signToken({ userId: user.id, orgId: user.orgId, role: user.role, email: user.email });
+
+  res.json({
+    token,
+    user: {
+      id: user.id, name: user.name, email: user.email, role: user.role,
+      departmentId: user.departmentId,
+      departmentName: user.department?.name ?? null,
+      departmentSlug: user.department?.slug ?? null,
+      bugTrackerFullAccess: user.bugTrackerFullAccess,
+    },
+    org: user.org,
+  });
+});
+
+const ssoSchema = z.object({
+  assertion: z.string().min(1),
+});
+
+// POST /auth/sso — exchanges a short-lived signed assertion (minted by the
+// CRM backend's GET /auth/growth-rhythm-sso-token for its own already-logged-in
+// user) for a real GrowthRhythm session, so a CRM user reaching the embedded
+// Task Tracker workspace never sees a second login. The assertion's signature
+// (a secret shared only with the CRM backend, distinct from JWT_SECRET) is the
+// entire auth check here — there is no password. Finds the matching user by
+// email within the fixed SSO workspace org, or auto-provisions a minimal
+// TEAM_MEMBER account on first login; an existing account's role/department
+// is never touched.
+router.post('/sso', async (req: Request, res: Response) => {
+  const parsed = ssoSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+
+  let assertion: SsoAssertion;
+  try {
+    assertion = verifySsoAssertion(parsed.data.assertion);
+  } catch {
+    res.status(401).json({ error: 'Invalid or expired SSO assertion' });
+    return;
+  }
+
+  const orgName = process.env.GROWTH_RHYTHM_DEFAULT_ORG_NAME || 'Gupio';
+  const org = await prisma.organization.findFirst({
+    where: { name: { contains: orgName, mode: 'insensitive' } },
+  });
+  if (!org) {
+    console.error(`POST /auth/sso: no organization matching "${orgName}" (GROWTH_RHYTHM_DEFAULT_ORG_NAME) found`);
+    res.status(500).json({ error: 'SSO workspace is not configured' });
+    return;
+  }
+
+  const userInclude = {
+    org: { select: { id: true, name: true, plan: true, industry: true } },
+    department: { select: { id: true, name: true, slug: true } },
+  } as const;
+
+  let user = await prisma.user.findFirst({
+    where: { orgId: org.id, email: assertion.email },
+    include: userInclude,
+  });
+
+  if (user) {
+    user = await prisma.user.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date() },
+      include: userInclude,
+    });
+  } else {
+    try {
+      user = await prisma.user.create({
+        data: {
+          orgId: org.id,
+          email: assertion.email,
+          name: assertion.name,
+          status: 'ACTIVE',
+          role: 'TEAM_MEMBER',
+        },
+        include: userInclude,
+      });
+    } catch (err: unknown) {
+      // Two concurrent first-time SSO calls for the same user (e.g. React
+      // StrictMode's dev-only double-effect-invoke, or overlapping tabs) can
+      // both see no existing row and race to create one — the loser hits the
+      // (orgId, email) unique constraint here rather than a real conflict.
+      // Treat that as "someone else just created it" and re-fetch instead of
+      // 500ing a request that should have succeeded.
+      if ((err as { code?: string }).code === 'P2002') {
+        user = await prisma.user.findFirst({
+          where: { orgId: org.id, email: assertion.email },
+          include: userInclude,
+        });
+      }
+      if (!user) throw err;
+    }
+  }
 
   const token = signToken({ userId: user.id, orgId: user.orgId, role: user.role, email: user.email });
 

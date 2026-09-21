@@ -21,3 +21,17 @@ export function verifyToken(token: string): JwtPayload {
 export function signMagicToken(payload: object, ttlSeconds = 3600): string {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: ttlSeconds });
 }
+
+export interface SsoAssertion {
+  email: string;
+  name: string;
+  sub: string;
+}
+
+// Verifies the short-lived handshake assertion the CRM backend signs (GET
+// /auth/growth-rhythm-sso-token) — a deliberately different secret from
+// JWT_SECRET above, so a leaked CRM SSO secret can't be used to forge a
+// full GrowthRhythm session token directly.
+export function verifySsoAssertion(token: string): SsoAssertion {
+  return jwt.verify(token, process.env.GROWTH_RHYTHM_SSO_SECRET!) as SsoAssertion;
+}
