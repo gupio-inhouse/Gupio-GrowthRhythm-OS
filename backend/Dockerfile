@@ -6,7 +6,7 @@ RUN sed -i 's/https/http/g' /etc/apk/repositories
 RUN apk add --no-cache libc6-compat openssl
 WORKDIR /app
 
-# Copy only dependency manifests first to leverage layer caching
+# Copy only dependency manifests first to leverage layer cachinggg
 COPY backend/package.json backend/package-lock.json* ./
 
 # Install all dependencies (development + production)

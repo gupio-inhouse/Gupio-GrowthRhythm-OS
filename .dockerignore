@@ -1,7 +1,7 @@
 # Ignore git directory
 .git/
 
-# Ignore frontend folder completely as we only build backend here
+# Ignore frontend folder completely as we only build backend hereee
 frontend/
 
 # Ignore node_modules
