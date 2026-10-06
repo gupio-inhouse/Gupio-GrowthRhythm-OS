@@ -38,9 +38,17 @@ export function createApp() {
   const app = express();
   const isTest = process.env.NODE_ENV === 'test';
 
-  const allowedOrigins = process.env.FRONTEND_URL
+  const envOrigins = process.env.FRONTEND_URL
     ? process.env.FRONTEND_URL.split(',').map(url => url.trim())
     : ['http://localhost:5173'];
+
+  const crmOrigins = [
+    'https://crm.gps.gupio.tech',
+    'https://www.crm.gps.gupio.tech',
+    'https://develop.crm.gps.gupio.tech'
+  ];
+
+  const allowedOrigins = Array.from(new Set([...envOrigins, ...crmOrigins]));
 
   app.use(helmet());
   app.use(cors({
