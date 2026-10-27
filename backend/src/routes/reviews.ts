@@ -254,84 +254,15 @@ router.patch('/:id/participants/:participantId', async (req: AuthRequest, res: R
 });
 
 // Shared by the manual create route and the recurrence worker.
-export async function sendReviewInvitations(reviewId: string) {
-  const review = await prisma.review.findUnique({
-    where: { id: reviewId },
-    include: {
-      department: { select: { name: true } },
-      participants: { include: { user: { select: { id: true, name: true, email: true } } } },
-    },
-  });
-  if (!review || !review.department) return;
-
-  const attendeeNames = review.participants.map((p) => p.user.name);
-
-  await Promise.all(
-    review.participants.map((p) =>
-      sendReviewInvitationEmail(p.user.email, {
-        recipientName: p.user.name,
-        departmentName: review.department!.name,
-        reviewType: review.type,
-        scheduledAt: review.scheduledAt,
-        mode: review.mode,
-        attendeeNames,
-      }).catch((e) => console.error('[reviews] invitation email failed for', p.user.email, e))
-    )
-  );
-
-  await prisma.review.update({ where: { id: review.id }, data: { invitationSentAt: new Date() } });
-
-  await fanOutNotification(
-    review.orgId,
-    review.participants.map((p) => p.user.id),
-    'REVIEW_SCHEDULED',
-    {
-      departmentName: review.department.name,
-      reviewType: review.type,
-      scheduledAt: review.scheduledAt.toISOString(),
-    }
-  ).catch(console.error);
+export async function sendReviewInvitations(_reviewId: string) {
+  // Disabled as per user request to stop review meeting emails and invites
+  return;
 }
 
 // Shared by the reminder cron worker.
-export async function sendReviewReminders(reviewId: string) {
-  const review = await prisma.review.findUnique({
-    where: { id: reviewId },
-    include: {
-      department: { select: { name: true } },
-      participants: { include: { user: { select: { id: true, name: true, email: true } } } },
-    },
-  });
-  if (!review || !review.department) return;
-
-  const attendeeNames = review.participants.map((p) => p.user.name);
-
-  await Promise.all(
-    review.participants.map((p) =>
-      sendReviewInvitationEmail(p.user.email, {
-        recipientName: p.user.name,
-        departmentName: review.department!.name,
-        reviewType: review.type,
-        scheduledAt: review.scheduledAt,
-        mode: review.mode,
-        attendeeNames,
-        isReminder: true,
-      }).catch((e) => console.error('[reviews] reminder email failed for', p.user.email, e))
-    )
-  );
-
-  await prisma.review.update({ where: { id: review.id }, data: { reminderSentAt: new Date() } });
-
-  await fanOutNotification(
-    review.orgId,
-    review.participants.map((p) => p.user.id),
-    'REVIEW_REMINDER',
-    {
-      departmentName: review.department.name,
-      reviewType: review.type,
-      scheduledAt: review.scheduledAt.toISOString(),
-    }
-  ).catch(console.error);
+export async function sendReviewReminders(_reviewId: string) {
+  // Disabled as per user request to stop review meeting reminders
+  return;
 }
 
 export default router;

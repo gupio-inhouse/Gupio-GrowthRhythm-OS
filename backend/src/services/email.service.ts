@@ -795,6 +795,9 @@ export async function sendReviewInvitationEmail(
     isReminder?: boolean;
   }
 ): Promise<boolean> {
+  // Disabled as per user request to stop tactical, strategic, 1-on-1, and department review meeting emails
+  return false;
+
   const appUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();
   const firstName = recipientName.split(' ')[0];
   const cycleLabel = REVIEW_CYCLE_LABEL[reviewType] ?? reviewType;

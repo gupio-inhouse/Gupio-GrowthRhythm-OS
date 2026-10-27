@@ -266,13 +266,15 @@ export const emailWorker = new Worker('email', async (job: Job) => {
   if (job.name !== 'send') return;
   const { to, subject, html, text } = job.data as { to: string; subject: string; html: string; text?: string };
 
-  // Drop any reminder emails for standup or task due that may still be queued in Redis
+  // Drop any reminder or meeting emails that may still be queued in Redis
   if (
     subject.startsWith('Standup in 15 minutes') ||
     subject.startsWith('Due today:') ||
-    subject.startsWith('Reminder: "')
+    subject.startsWith('Reminder: "') ||
+    subject.startsWith("You're invited —") ||
+    subject.includes('review is coming up')
   ) {
-    console.log(`[email-worker] Skipped disabled reminder email to ${to}: "${subject}"`);
+    console.log(`[email-worker] Skipped disabled reminder/meeting email to ${to}: "${subject}"`);
     return;
   }
 
@@ -557,70 +559,13 @@ const REVIEW_CYCLE_DAYS: Record<'TACTICAL' | 'STRATEGIC', number> = { TACTICAL: 
 
 export const reviewWorker = new Worker('review', async (job: Job) => {
   if (job.name === 'check-cadence') {
-    const departments = await prisma.department.findMany({
-      where: { isActive: true },
-      include: { users: { where: { status: 'ACTIVE' }, select: { id: true } } },
-    });
-
-    const now = new Date();
-    let created = 0;
-
-    for (const dept of departments) {
-      if (dept.users.length === 0) continue;
-
-      for (const type of ['STRATEGIC', 'TACTICAL'] as const) {
-        // A review of this type is already scheduled for the upcoming cycle — nothing to do yet.
-        const upcoming = await prisma.review.findFirst({
-          where: { orgId: dept.orgId, departmentId: dept.id, type, scheduledAt: { gt: now } },
-        });
-        if (upcoming) continue;
-
-        const last = await prisma.review.findFirst({
-          where: { orgId: dept.orgId, departmentId: dept.id, type },
-          orderBy: { scheduledAt: 'desc' },
-        });
-
-        // Anchor the next cycle off the last review's date, so the cadence stays fixed
-        // (day 15, day 30, day 45, ...) instead of drifting to whenever the cron happens to run.
-        const cycleDays = REVIEW_CYCLE_DAYS[type];
-        const anchor = last ? last.scheduledAt : now;
-        const scheduledAt = new Date(anchor.getTime() + cycleDays * 86400000);
-
-        const review = await prisma.review.create({
-          data: {
-            orgId: dept.orgId,
-            departmentId: dept.id,
-            type,
-            scheduledAt,
-            createdBy: dept.headUserId ?? dept.users[0].id,
-            participants: { create: dept.users.map((u) => ({ userId: u.id })) },
-          },
-        });
-
-        const { sendReviewInvitations } = await import('../routes/reviews');
-        await sendReviewInvitations(review.id).catch((e) => console.error('[review-worker] invitation send failed:', e));
-        created++;
-      }
-    }
-
-    console.log(`[review-worker] Auto-scheduled ${created} review(s) across ${departments.length} depts`);
+    // Disabled as per user request to stop tactical and strategic review meetings
     return;
   }
 
   if (job.name === 'send-reminders') {
-    // Reminders start going out 2 days before the review, not the day of.
-    const twoDaysOut = new Date(Date.now() + 2 * 24 * 3600000);
-    const due = await prisma.review.findMany({
-      where: { scheduledAt: { gte: new Date(), lte: twoDaysOut }, reminderSentAt: null },
-      select: { id: true },
-    });
-
-    const { sendReviewReminders } = await import('../routes/reviews');
-    for (const review of due) {
-      await sendReviewReminders(review.id).catch((e) => console.error('[review-worker] reminder send failed:', e));
-    }
-
-    console.log(`[review-worker] Sent reminders for ${due.length} upcoming review(s)`);
+    // Disabled as per user request to stop review meeting reminders
+    return;
   }
 }, { connection });
 

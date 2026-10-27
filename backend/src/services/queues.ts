@@ -102,17 +102,15 @@ export async function scheduleRecurringJobs() {
     jobId: 'monthly-performance-report-check',
   });
 
-  // Review cadence check — Tactical (15-day) / Strategic (45-day) auto-scheduling
-  // per department — every day 6 AM IST (00:30 UTC)
-  await reviewQueue.add('check-cadence', {}, {
-    repeat: { pattern: '30 0 * * *', tz: 'UTC' },
-    jobId: 'daily-review-cadence-check',
-  });
+  // Review cadence check — Tactical (15-day) / Strategic (45-day) auto-scheduling (disabled as per user request)
+  // await reviewQueue.add('check-cadence', {}, {
+  //   repeat: { pattern: '30 0 * * *', tz: 'UTC' },
+  //   jobId: 'daily-review-cadence-check',
+  // });
 
-  // Review reminder — every day 9 AM IST (03:30 UTC): reminds attendees of any
-  // Tactical/Strategic review scheduled within the next 24h that hasn't been reminded yet
-  await reviewQueue.add('send-reminders', {}, {
-    repeat: { pattern: '30 3 * * *', tz: 'UTC' },
-    jobId: 'daily-review-reminder',
-  });
+  // Review reminder — every day 9 AM IST (disabled as per user request)
+  // await reviewQueue.add('send-reminders', {}, {
+  //   repeat: { pattern: '30 3 * * *', tz: 'UTC' },
+  //   jobId: 'daily-review-reminder',
+  // });
 }
