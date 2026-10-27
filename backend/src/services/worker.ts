@@ -219,22 +219,22 @@ export const reminderWorker = new Worker('standup-reminder', async (job: Job) =>
       { departmentName: dept.name, time: dept.standupTime, minutesUntil: 15 }
     );
 
-    // Send email to each member
-    for (const user of dept.users) {
-      sendStandupReminderEmail({
-        to: user.email,
-        name: user.name,
-        departmentName: dept.name,
-        standupTime: dept.standupTime,
-        meetUrl: standup.meetUrl ?? null,
-        appUrl: APP_URL,
-      }).catch(console.error);
-    }
+    // Send email to each member (disabled: standup reminder emails stopped)
+    // for (const user of dept.users) {
+    //   sendStandupReminderEmail({
+    //     to: user.email,
+    //     name: user.name,
+    //     departmentName: dept.name,
+    //     standupTime: dept.standupTime,
+    //     meetUrl: standup.meetUrl ?? null,
+    //     appUrl: APP_URL,
+    //   }).catch(console.error);
+    // }
 
     reminded++;
   }
 
-  if (reminded > 0) console.log(`[t15-worker] Sent T-15 reminders + emails to ${reminded} departments`);
+  if (reminded > 0) console.log(`[t15-worker] Sent T-15 in-app reminders to ${reminded} departments`);
 }, { connection });
 
 // AI worker — handles async AI requests
@@ -265,6 +265,17 @@ export const aiWorker = new Worker('ai', async (job: Job) => {
 export const emailWorker = new Worker('email', async (job: Job) => {
   if (job.name !== 'send') return;
   const { to, subject, html, text } = job.data as { to: string; subject: string; html: string; text?: string };
+
+  // Drop any reminder emails for standup or task due that may still be queued in Redis
+  if (
+    subject.startsWith('Standup in 15 minutes') ||
+    subject.startsWith('Due today:') ||
+    subject.startsWith('Reminder: "')
+  ) {
+    console.log(`[email-worker] Skipped disabled reminder email to ${to}: "${subject}"`);
+    return;
+  }
+
   await deliverEmail({ to, subject, html, text });
   console.log(`[email-worker] Delivered to ${to}: "${subject}"`);
 }, {
@@ -296,15 +307,15 @@ export const taskReminderWorker = new Worker('task-reminder', async (job: Job) =
     for (const task of dueToday) {
       if (!task.dueDate || !task.assignee) continue;
 
-      // Email
-      sendTaskDueTodayEmail({
-        to: task.assignee.email,
-        assigneeName: task.assignee.name,
-        taskTitle: task.title,
-        priority: task.priority,
-        dueDate: task.dueDate,
-        appUrl: APP_URL,
-      }).catch(console.error);
+      // Email (disabled: task due reminder emails stopped)
+      // sendTaskDueTodayEmail({
+      //   to: task.assignee.email,
+      //   assigneeName: task.assignee.name,
+      //   taskTitle: task.title,
+      //   priority: task.priority,
+      //   dueDate: task.dueDate,
+      //   appUrl: APP_URL,
+      // }).catch(console.error);
 
       // In-app notification
       createNotification(task.assignee.id, 'TASK_DUE_TODAY', {
@@ -340,14 +351,15 @@ export const taskReminderWorker = new Worker('task-reminder', async (job: Job) =
   let remindedCount = 0;
   for (const task of dueSoon) {
     if (!task.dueDate || !task.assignee) continue;
-    sendTaskDueReminderEmail({
-      to: task.assignee.email,
-      assigneeName: task.assignee.name,
-      taskTitle: task.title,
-      priority: task.priority,
-      dueDate: task.dueDate,
-      appUrl: APP_URL,
-    }).catch(console.error);
+    // Task due reminder email (disabled: task due reminder emails stopped)
+    // sendTaskDueReminderEmail({
+    //   to: task.assignee.email,
+    //   assigneeName: task.assignee.name,
+    //   taskTitle: task.title,
+    //   priority: task.priority,
+    //   dueDate: task.dueDate,
+    //   appUrl: APP_URL,
+    // }).catch(console.error);
     remindedCount++;
   }
 

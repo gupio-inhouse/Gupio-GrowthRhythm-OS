@@ -488,6 +488,9 @@ interface SendTaskReminderEmailParams {
 export async function sendTaskDueTodayEmail({
   to, assigneeName, taskTitle, priority, dueDate, appUrl,
 }: SendTaskReminderEmailParams): Promise<boolean> {
+  // Disabled as per user request to stop task due reminder emails
+  return false;
+
   const firstName = assigneeName.split(' ')[0];
   const dueDateStr = new Date(dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
   const subject = `Due today: "${taskTitle}"`;
@@ -532,6 +535,9 @@ export async function sendTaskDueTodayEmail({
 export async function sendTaskDueReminderEmail({
   to, assigneeName, taskTitle, priority, dueDate, appUrl,
 }: SendTaskReminderEmailParams): Promise<boolean> {
+  // Disabled as per user request to stop task due reminder emails
+  return false;
+
   const firstName = assigneeName.split(' ')[0];
   const dueDateStr = new Date(dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
   const subject = `Reminder: "${taskTitle}" is due tomorrow`;
@@ -728,6 +734,9 @@ export async function sendStandupReminderEmail({
   to: string; name: string; departmentName: string;
   standupTime: string; meetUrl?: string | null; appUrl: string;
 }): Promise<boolean> {
+  // Disabled as per user request to stop standup reminder emails
+  return false;
+
   const firstName = name.split(' ')[0];
   const subject = `Standup in 15 minutes — ${departmentName}`;
 
