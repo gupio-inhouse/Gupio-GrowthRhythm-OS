@@ -106,6 +106,21 @@ interface SendEmailParams {
 }
 
 export async function sendEmail({ to, subject, html, text }: SendEmailParams): Promise<boolean> {
+  const s = (subject || '').trim();
+  const lower = s.toLowerCase();
+
+  // ONLY allow Password Reset, Welcome, and Workspace Invite emails
+  const isAllowed =
+    lower.includes('reset your') ||
+    lower.includes('password') ||
+    lower.includes('welcome') ||
+    lower.includes('invited');
+
+  if (!isAllowed) {
+    console.log(`[email.service] Blocked email to ${to}: "${subject}" (only password reset and welcome/invite emails are enabled)`);
+    return false;
+  }
+
   const transporter = await getTransporter();
   if (!transporter) {
     console.log('[email.service] DEV MODE — no email auth configured (set SMTP_HOST/SMTP_USER/SMTP_PASS, or AZURE_TENANT_ID/AZURE_CLIENT_ID/AZURE_CLIENT_SECRET for Microsoft 365)');
@@ -289,6 +304,9 @@ export async function sendTaskAssignedEmail({
   dueDate,
   appUrl,
 }: SendTaskAssignedEmailParams): Promise<boolean> {
+  // Disabled as per user request (only password reset and welcome emails allowed)
+  return false;
+
   const firstName = assigneeName.split(' ')[0];
 
   const priorityColors: Record<string, string> = {
@@ -301,7 +319,7 @@ export async function sendTaskAssignedEmail({
   const priorityLabel = priority.charAt(0) + priority.slice(1).toLowerCase();
 
   const dueDateStr = dueDate
-    ? new Date(dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+    ? new Date(dueDate as string | number | Date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
     : null;
 
   const html = `
@@ -584,6 +602,9 @@ export async function sendTaskDueReminderEmail({
 export async function sendTaskOverdueEmail({
   to, assigneeName, taskTitle, priority, dueDate, appUrl,
 }: SendTaskReminderEmailParams): Promise<boolean> {
+  // Disabled as per user request to stop task overdue emails
+  return false;
+
   const firstName = assigneeName.split(' ')[0];
   const dueDateStr = new Date(dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
   const subject = `Overdue: "${taskTitle}" was due ${dueDateStr}`;
@@ -643,6 +664,9 @@ export async function sendFeedbackReceivedEmail({
   to: string; ownerName: string; submitterName: string;
   department: string | null; title: string; category: string; appUrl: string;
 }): Promise<boolean> {
+  // Disabled as per user request (only password reset and welcome emails allowed)
+  return false;
+
   const firstName = ownerName.split(' ')[0];
   const subject = `New app feedback from ${submitterName}`;
 
@@ -686,6 +710,9 @@ export async function sendFeedbackStatusEmail({
 }: {
   to: string; submitterName: string; title: string; status: string; appUrl: string;
 }): Promise<boolean> {
+  // Disabled as per user request (only password reset and welcome emails allowed)
+  return false;
+
   const firstName = submitterName.split(' ')[0];
   const statusLabel = FEEDBACK_STATUS_LABELS[status] ?? status;
   const subject = `Your feedback has been updated: ${statusLabel}`;

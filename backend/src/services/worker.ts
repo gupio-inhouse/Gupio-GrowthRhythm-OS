@@ -4,10 +4,8 @@ import prisma from '../lib/prisma';
 import { fanOutNotification, createNotification } from './notification.service';
 import { generateWeeklyDigest } from './ai.service';
 import { generateMeetUrl } from './meet.service';
-import { sendTaskDueTodayEmail, sendTaskDueReminderEmail, sendTaskOverdueEmail, sendStandupReminderEmail, deliverEmail, setEmailQueue, sendEmail } from './email.service';
-import { emailQueue, reportQueue, recurringTaskQueue } from './queues';
-import { buildOrgReport, renderReportHtml, renderReportText, isLastDayOfMonthIST } from './report.service';
-import { getUserDeptAccess } from '../lib/deptAccess';
+import { deliverEmail, setEmailQueue } from './email.service';
+import { emailQueue } from './queues';
 
 const APP_URL = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();
 
@@ -266,15 +264,17 @@ export const emailWorker = new Worker('email', async (job: Job) => {
   if (job.name !== 'send') return;
   const { to, subject, html, text } = job.data as { to: string; subject: string; html: string; text?: string };
 
-  // Drop any reminder or meeting emails that may still be queued in Redis
-  if (
-    subject.startsWith('Standup in 15 minutes') ||
-    subject.startsWith('Due today:') ||
-    subject.startsWith('Reminder: "') ||
-    subject.startsWith("You're invited —") ||
-    subject.includes('review is coming up')
-  ) {
-    console.log(`[email-worker] Skipped disabled reminder/meeting email to ${to}: "${subject}"`);
+  // ONLY allow Password Reset, Welcome, and Workspace Invite emails.
+  const s = (subject || '').trim();
+  const lower = s.toLowerCase();
+  const isAllowed =
+    lower.includes('reset your') ||
+    lower.includes('password') ||
+    lower.includes('welcome') ||
+    lower.includes('invited');
+
+  if (!isAllowed) {
+    console.log(`[email-worker] Dropped disabled email to ${to}: "${subject}"`);
     return;
   }
 
@@ -333,136 +333,14 @@ export const taskReminderWorker = new Worker('task-reminder', async (job: Job) =
 
   if (job.name !== 'check-due-and-overdue') return;
 
-  const now = new Date();
-
-  // Window: tasks due between 23h and 25h from now (due tomorrow)
-  const in23h = new Date(now.getTime() + 23 * 3600000);
-  const in25h = new Date(now.getTime() + 25 * 3600000);
-
-  const dueSoon = await prisma.task.findMany({
-    where: {
-      status: { notIn: ['DONE', 'CANCELLED'] },
-      dueDate: { gte: in23h, lte: in25h },
-    },
-    include: {
-      assignee: { select: { name: true, email: true } },
-    },
-    take: 500,
-  });
-
-  let remindedCount = 0;
-  for (const task of dueSoon) {
-    if (!task.dueDate || !task.assignee) continue;
-    // Task due reminder email (disabled: task due reminder emails stopped)
-    // sendTaskDueReminderEmail({
-    //   to: task.assignee.email,
-    //   assigneeName: task.assignee.name,
-    //   taskTitle: task.title,
-    //   priority: task.priority,
-    //   dueDate: task.dueDate,
-    //   appUrl: APP_URL,
-    // }).catch(console.error);
-    remindedCount++;
-  }
-
-  // Overdue tasks (due date passed today, not yet done). Tasks already
-  // submitted for review are excluded — the delay clock freezes once it's out
-  // of the assignee's hands, so they shouldn't keep getting overdue emails.
-  const overdue = await prisma.task.findMany({
-    where: {
-      status: { notIn: ['DONE', 'CANCELLED', 'IN_REVIEW'] },
-      dueDate: { lt: now },
-    },
-    include: {
-      assignee: { select: { name: true, email: true } },
-    },
-    take: 500,
-  });
-
-  let overdueCount = 0;
-  for (const task of overdue) {
-    if (!task.dueDate || !task.assignee) continue;
-    sendTaskOverdueEmail({
-      to: task.assignee.email,
-      assigneeName: task.assignee.name,
-      taskTitle: task.title,
-      priority: task.priority,
-      dueDate: task.dueDate,
-      appUrl: APP_URL,
-    }).catch(console.error);
-    overdueCount++;
-  }
-
-  console.log(`[task-reminder-worker] ${remindedCount} due-tomorrow reminders, ${overdueCount} overdue alerts sent`);
+  // Disabled as per user request to stop task due reminders and overdue emails
+  return;
 }, { connection });
 
 // ── Report worker: daily / weekly / monthly performance reports ───────────────
-export const reportWorker = new Worker('report', async (job: Job) => {
-  const isMonthlyCheck = job.name === 'monthly-report-check';
-  const period: 'daily' | 'weekly' | 'monthly' =
-    job.name === 'daily-report' ? 'daily' :
-    job.name === 'weekly-report' ? 'weekly' : 'monthly';
-
-  if (isMonthlyCheck && !isLastDayOfMonthIST()) return;
-
-  const orgs = await prisma.organization.findMany({
-    where: { isActive: true },
-    select: { id: true, name: true },
-  });
-
-  for (const org of orgs) {
-    try {
-      const report = await buildOrgReport(org.id, period);
-
-      // Find owner(s)
-      const owners = await prisma.user.findMany({
-        where: { orgId: org.id, role: { in: ['OWNER', 'COMPANY_ADMIN'] }, status: 'ACTIVE' },
-        select: { id: true, name: true, email: true },
-      });
-
-      const periodLabel = period === 'daily' ? 'Daily' : period === 'weekly' ? 'Weekly' : 'Monthly';
-      const subject = `${periodLabel} Performance Report — ${org.name}`;
-
-      const text = renderReportText(report);
-
-      // Send to each owner (full org view)
-      for (const owner of owners) {
-        const html = renderReportHtml(report, 'OWNER', owner.name, undefined, APP_URL);
-        sendEmail({ to: owner.email, subject, html, text }).catch(console.error);
-      }
-
-      // Send dept heads their department's section (daily + weekly + monthly).
-      // A cross-department access grant widens this: SPECIFIC adds those
-      // departments' sections too, FULL sends the complete org report.
-      {
-        const deptHeads = await prisma.user.findMany({
-          where: { orgId: org.id, role: 'DEPARTMENT_HEAD', status: 'ACTIVE' },
-          select: { id: true, name: true, email: true, departmentId: true, role: true },
-        });
-
-        for (const head of deptHeads) {
-          const access = await getUserDeptAccess(head.id, org.id, head.role);
-
-          if (access?.accessType === 'FULL') {
-            const html = renderReportHtml(report, 'DEPT_HEAD', head.name, undefined, APP_URL);
-            sendEmail({ to: head.email, subject, html, text }).catch(console.error);
-            continue;
-          }
-
-          const deptIds = new Set<string>(access?.accessType === 'SPECIFIC' ? access.departmentIds : []);
-          if (head.departmentId) deptIds.add(head.departmentId);
-          if (deptIds.size === 0) continue;
-
-          const html = renderReportHtml(report, 'DEPT_HEAD', head.name, [...deptIds], APP_URL);
-          sendEmail({ to: head.email, subject, html, text }).catch(console.error);
-        }
-      }
-
-      console.log(`[report-worker] Sent ${period} report for org ${org.id} to ${owners.length} owners`);
-    } catch (e) {
-      console.error(`[report-worker] Error for org ${org.id} (${period}):`, e);
-    }
-  }
+export const reportWorker = new Worker('report', async (_job: Job) => {
+  // Disabled as per user request (performance report emails stopped)
+  return;
 }, { connection });
 
 // ── Recurring task worker: spawns daily/weekly/monthly/yearly/custom copies ───

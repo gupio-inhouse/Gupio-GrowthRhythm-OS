@@ -65,11 +65,11 @@ export async function scheduleRecurringJobs() {
     jobId: 't15-reminder-check',
   });
 
-  // Task due-date reminder + overdue alerts — every day 8 AM IST (02:30 UTC)
-  await taskReminderQueue.add('check-due-and-overdue', {}, {
-    repeat: { pattern: '30 2 * * *', tz: 'UTC' },
-    jobId: 'daily-task-reminder',
-  });
+  // Task due-date reminder + overdue alerts — every day 8 AM IST (02:30 UTC) (disabled as per user request)
+  // await taskReminderQueue.add('check-due-and-overdue', {}, {
+  //   repeat: { pattern: '30 2 * * *', tz: 'UTC' },
+  //   jobId: 'daily-task-reminder',
+  // });
 
   // Same-day due alert — every day 9 AM IST (03:30 UTC)
   await taskReminderQueue.add('check-due-today', {}, {
@@ -83,24 +83,23 @@ export async function scheduleRecurringJobs() {
     jobId: 'daily-recurring-task-spawn',
   });
 
-  // Daily performance report — 8 PM IST (14:30 UTC) every day → Owner + Dept Heads
-  await reportQueue.add('daily-report', {}, {
-    repeat: { pattern: '30 14 * * *', tz: 'UTC' },
-    jobId: 'daily-performance-report',
-  });
+  // Daily performance report — 8 PM IST (disabled as per user request)
+  // await reportQueue.add('daily-report', {}, {
+  //   repeat: { pattern: '30 14 * * *', tz: 'UTC' },
+  //   jobId: 'daily-performance-report',
+  // });
 
-  // Weekly performance report — 8 PM IST every Sunday (14:30 UTC Sun) → Owner + all Dept Heads
-  await reportQueue.add('weekly-report', {}, {
-    repeat: { pattern: '30 14 * * 0', tz: 'UTC' },
-    jobId: 'weekly-performance-report',
-  });
+  // Weekly performance report — 8 PM IST Sunday (disabled as per user request)
+  // await reportQueue.add('weekly-report', {}, {
+  //   repeat: { pattern: '30 14 * * 0', tz: 'UTC' },
+  //   jobId: 'weekly-performance-report',
+  // });
 
-  // Monthly performance report — 8 PM IST on the last day of each month → Owner + all Dept Heads
-  // We schedule it daily but the worker checks isLastDayOfMonthIST() before running
-  await reportQueue.add('monthly-report-check', {}, {
-    repeat: { pattern: '30 14 * * *', tz: 'UTC' },
-    jobId: 'monthly-performance-report-check',
-  });
+  // Monthly performance report — 8 PM IST monthly check (disabled as per user request)
+  // await reportQueue.add('monthly-report-check', {}, {
+  //   repeat: { pattern: '30 14 * * *', tz: 'UTC' },
+  //   jobId: 'monthly-performance-report-check',
+  // });
 
   // Review cadence check — Tactical (15-day) / Strategic (45-day) auto-scheduling (disabled as per user request)
   // await reviewQueue.add('check-cadence', {}, {
